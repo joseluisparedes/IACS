@@ -10,18 +10,32 @@ export type Status =
   | 'En Ejecución' 
   | 'Cerrada';
 
+export type FieldType = 'text' | 'date' | 'select';
+
+export interface FieldDefinition {
+  id: string;
+  label: string;
+  key: string;
+  field_type: FieldType;
+  options: string[];
+  is_visible: boolean;
+  is_required: boolean;
+  sort_order: number;
+  section?: 'form' | 'ai';
+  depends_on?: string;
+  options_map?: Record<string, string[]>;
+  ai_instructions?: string;
+  created_at?: string;
+}
+
 export interface Initiative {
   id: string;
-  createdAt: string;
+  created_at: string;
   status: Status;
-  area: string;
-  type: string;
-  priority: 'Alta' | 'Media' | 'Baja';
-  impact: string;
-  country: string;
-  chatHistory: ChatMessage[];
+  form_data: Record<string, string>;
+  chat_history: ChatMessage[];
   summary?: AI_Summary;
-  rejectionReason?: string;
+  rejection_reason?: string;
 }
 
 export interface ChatMessage {
@@ -29,13 +43,4 @@ export interface ChatMessage {
   text: string;
 }
 
-export interface AI_Summary {
-  resumenEjecutivo: string;
-  problemaActual: string;
-  solucionEsperada: string;
-  beneficios: string[];
-  sistemasImpactados: string[];
-  complejidad: 'Baja' | 'Media' | 'Alta';
-  riesgo: 'Bajo' | 'Medio' | 'Alto';
-  prioridadRecomendada: 'Baja' | 'Media' | 'Alta';
-}
+export type AI_Summary = Record<string, any>;

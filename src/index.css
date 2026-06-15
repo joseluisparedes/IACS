@@ -1,1 +1,40 @@
 @import "tailwindcss";
+
+/* ── Design tokens ──────────────────────────────────────────── */
+:root {
+  --bg:          #F0F4FF;
+  --bg-card:     #FFFFFF;
+  --bg-sidebar:  #FFFFFF;
+  --bg-header:   #FFFFFF;
+  --primary:     #4F5AF5;
+  --primary-hov: #3F49E0;
+  --primary-lt:  #EEF2FF;
+  --text-1:      #1E293B;
+  --text-2:      #64748B;
+  --text-3:      #94A3B8;
+  --border:      #E2E8F0;
+  --border-2:    #CBD5E1;
+  --shadow-sm:   0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+  --shadow-md:   0 4px 12px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.05);
+  --shadow-lg:   0 10px 30px rgba(0,0,0,.1);
+}
+
+/* ── Base ───────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ── Date input dark scheme fix ─────────────────────────────── */
+input[type="date"] { color-scheme: light; }

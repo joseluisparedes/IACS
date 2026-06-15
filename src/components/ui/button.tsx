@@ -7,15 +7,15 @@ const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HT
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+          "inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
           {
-            "bg-indigo-600 text-white hover:bg-indigo-500": variant === "default",
-            "border border-slate-700 bg-slate-800 text-white hover:bg-slate-700": variant === "outline",
-            "hover:bg-slate-700/50 hover:text-white": variant === "ghost",
-            "bg-red-500/10 text-red-500 hover:bg-red-500/20": variant === "destructive",
+            "bg-[#4F5AF5] text-white hover:bg-[#3F49E0] shadow-sm shadow-[#4F5AF5]/20": variant === "default",
+            "border border-[#E2E8F0] bg-white text-[#1E293B] hover:bg-[#F8FAFC]": variant === "outline",
+            "text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#1E293B]": variant === "ghost",
+            "bg-red-50 text-red-600 border border-red-100 hover:bg-red-100": variant === "destructive",
             "h-10 px-4 py-2": size === "default",
-            "h-9 rounded-md px-3": size === "sm",
-            "h-11 rounded-md px-8": size === "lg",
+            "h-8 rounded-md px-3 text-xs": size === "sm",
+            "h-11 rounded-lg px-6": size === "lg",
             "h-10 w-10": size === "icon",
           },
           className
