@@ -6,7 +6,7 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, Trash2, EyeOff, Eye, Settings2, X, Save, Pencil, GripVertical, Bot, ListTodo } from "lucide-react";
+import { Plus, Trash2, EyeOff, Eye, Settings2, X, Save, Pencil, GripVertical, Bot, ListTodo, Paperclip, FileText, Image as ImageIcon } from "lucide-react";
 import { FieldDefinition, FieldType } from "@/src/types";
 
 type PanelMode = "create" | "edit";
@@ -15,13 +15,24 @@ const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   text: "Texto libre",
   date: "Fecha",
   select: "Selector",
+  file: "Adjunto",
 };
 
 const FIELD_TYPE_COLORS: Record<FieldType, string> = {
   text: "bg-blue-50 text-blue-700 border-blue-100",
   date: "bg-amber-50 text-amber-700 border-amber-100",
   select: "bg-violet-50 text-violet-700 border-violet-100",
+  file: "bg-emerald-50 text-emerald-700 border-emerald-100",
 };
+
+const defaultFileOptions = () => ({
+  fileTypes: {
+    pdf: { enabled: true, maxMb: 1.0 },
+    docx: { enabled: true, maxMb: 1.0 },
+    txt: { enabled: true, maxMb: 1.0 },
+    image: { enabled: true, maxMb: 1.0 }
+  }
+});
 
 const emptyForm = {
   label: "", key: "", field_type: "select" as FieldType,
@@ -148,7 +159,10 @@ export default function AdminFields() {
 
   const openEdit = (field: FieldDefinition) => {
     setPanelMode("edit"); setEditingId(field.id);
-    setForm({ label: field.label, key: field.key, field_type: field.field_type, options: [...(field.options ?? [])], is_required: field.is_required, is_visible: field.is_visible, depends_on: field.depends_on || "", options_map: field.options_map || {}, ai_instructions: field.ai_instructions || "" });
+    const initialOptions = field.field_type === "file"
+      ? (field.options && typeof field.options === "object" && !Array.isArray(field.options) ? { ...field.options } : defaultFileOptions())
+      : [...(field.options ?? [])];
+    setForm({ label: field.label, key: field.key, field_type: field.field_type, options: initialOptions, is_required: field.is_required, is_visible: field.is_visible, depends_on: field.depends_on || "", options_map: field.options_map || {}, ai_instructions: field.ai_instructions || "" });
     setOptionInput(""); setError(""); setShowPanel(true);
   };
 
@@ -174,11 +188,17 @@ export default function AdminFields() {
     if (!form.label.trim()) return setError("El nombre del campo es obligatorio.");
     if (!form.key.trim()) return setError("La clave es obligatoria.");
     
-    const payloadOptions = form.depends_on 
-      ? Array.from(new Set(Object.values(form.options_map).flat()))
-      : form.options;
-      
-    if (form.field_type === "select" && payloadOptions.length < 2) return setError("Un selector debe tener al menos 2 opciones en total.");
+    let payloadOptions = form.options;
+    if (form.field_type === "select") {
+      payloadOptions = form.depends_on 
+        ? Array.from(new Set(Object.values(form.options_map).flat()))
+        : form.options;
+      if (payloadOptions.length < 2) return setError("Un selector debe tener al menos 2 opciones en total.");
+    } else if (form.field_type === "file") {
+      if (!payloadOptions || typeof payloadOptions !== 'object' || Array.isArray(payloadOptions) || !payloadOptions.fileTypes) {
+        payloadOptions = defaultFileOptions();
+      }
+    }
     
     setSaving(true);
     try {
@@ -213,7 +233,9 @@ export default function AdminFields() {
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const sectionFields = fields.filter(f => (f.section || "form") === activeSection);
+    const sectionFields = fields
+      .filter(f => (f.section || "form") === activeSection)
+      .sort((a, b) => a.sort_order - b.sort_order);
     const oldIdx = sectionFields.findIndex(f => f.id === active.id);
     const newIdx = sectionFields.findIndex(f => f.id === over.id);
     const reorderedSection = arrayMove(sectionFields, oldIdx, newIdx);
@@ -365,16 +387,16 @@ export default function AdminFields() {
               {/* Field type */}
               <div>
                 <label className={labelCls}>Tipo de campo <span className="text-red-500">*</span></label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["text", "date", "select"] as FieldType[]).map(t => (
-                    <button key={t} onClick={() => setForm(f => ({ ...f, field_type: t }))}
+                <div className="grid grid-cols-4 gap-2">
+                  {(["text", "date", "select", "file"] as FieldType[]).map(t => (
+                    <button key={t} type="button" onClick={() => setForm(f => ({ ...f, field_type: t, options: t === "file" ? defaultFileOptions() : (t === "select" ? [] : f.options) }))}
                       className={`py-3 px-2 rounded-lg text-xs font-semibold border transition-all ${
                         form.field_type === t
                           ? "bg-[#4F5AF5] border-[#4F5AF5] text-white shadow-sm shadow-[#4F5AF5]/20"
                           : "bg-white border-[#E2E8F0] text-[#64748B] hover:border-[#4F5AF5] hover:text-[#4F5AF5]"
                       }`}
                     >
-                      {t === "text" ? "📝 Texto" : t === "date" ? "📅 Fecha" : "🔽 Selector"}
+                      {t === "text" ? "📝 Texto" : t === "date" ? "📅 Fecha" : t === "select" ? "🔽 Selector" : "📎 Adjunto"}
                     </button>
                   ))}
                 </div>
@@ -406,6 +428,71 @@ export default function AdminFields() {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Options for file field (Adjunto) */}
+              {form.field_type === "file" && (
+                <div className="space-y-4 bg-[#F8FAFC] p-4 rounded-xl border border-[#F1F5F9]">
+                  <div>
+                    <h3 className="text-xs font-bold text-[#475569] uppercase tracking-wider mb-2">Configuración de Archivos</h3>
+                    <p className="text-[11px] text-[#94A3B8] mb-3">Habilita formatos y define el tamaño máximo por archivo.</p>
+                  </div>
+                  {(["pdf", "docx", "txt", "image"] as const).map(typeKey => {
+                    const typeLabels: Record<string, string> = {
+                      pdf: "Archivos PDF (.pdf)",
+                      docx: "Documentos Word (.docx)",
+                      txt: "Archivos de Texto (.txt)",
+                      image: "Imágenes (JPG, PNG, WEBP)"
+                    };
+                    const typeIcons: Record<string, any> = {
+                      pdf: <FileText className="w-4 h-4 text-red-500" />,
+                      docx: <FileText className="w-4 h-4 text-blue-500" />,
+                      txt: <FileText className="w-4 h-4 text-slate-500" />,
+                      image: <ImageIcon className="w-4 h-4 text-emerald-500" />
+                    };
+                    const fileTypes = form.options?.fileTypes || defaultFileOptions().fileTypes;
+                    const config = fileTypes[typeKey] || { enabled: true, maxMb: 1.0 };
+                    return (
+                      <div key={typeKey} className={`flex flex-col bg-white border border-[#E2E8F0] rounded-xl p-3 space-y-3 transition-opacity ${!config.enabled ? 'opacity-65' : ''}`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-[#475569] flex items-center gap-1.5">
+                            {typeIcons[typeKey]} {typeLabels[typeKey]}
+                          </span>
+                          <Toggle 
+                            checked={config.enabled} 
+                            onChange={() => {
+                              const newFileTypes = { ...fileTypes };
+                              newFileTypes[typeKey] = { ...config, enabled: !config.enabled };
+                              setForm(f => ({ ...f, options: { ...f.options, fileTypes: newFileTypes } }));
+                            }} 
+                            color={typeKey === 'pdf' ? 'bg-red-500' : typeKey === 'docx' ? 'bg-blue-500' : typeKey === 'txt' ? 'bg-slate-500' : 'bg-emerald-500'}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E2E8F0]">
+                          <span className="text-[#64748B]">Tamaño máximo:</span>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min="0.1"
+                              max="10"
+                              step="0.1"
+                              disabled={!config.enabled}
+                              value={config.maxMb}
+                              onChange={e => {
+                                const val = parseFloat(e.target.value) || 0.1;
+                                const newFileTypes = { ...fileTypes };
+                                newFileTypes[typeKey] = { ...config, maxMb: val };
+                                setForm(f => ({ ...f, options: { ...f.options, fileTypes: newFileTypes } }));
+                              }}
+                              className="w-16 bg-white border border-[#E2E8F0] rounded-lg px-2.5 py-0.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#4F5AF5] text-right disabled:bg-slate-100 disabled:text-slate-400"
+                            />
+                            <span className="text-[#64748B] font-semibold">MB</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

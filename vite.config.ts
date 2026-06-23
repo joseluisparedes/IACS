@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        'onnxruntime-node': path.resolve(__dirname, 'src/mocks/onnxruntime-node.ts'),
       },
     },
     define: {
@@ -19,6 +20,10 @@ export default defineConfig(({ mode }) => {
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    optimizeDeps: {},
+    worker: {
+      format: 'es',
     },
   };
 });

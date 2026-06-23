@@ -6,3 +6,15 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local helper/utility scripts
+check_profile.js
+create_admin.js
+execute_sql.js
+get_initiatives_schema.js
+insert_logs.js
+migrate_notifications.js
+seed_logs.js
+
+# Supabase local config
+supabase/.temp/

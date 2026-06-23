@@ -6,18 +6,18 @@ export type Status =
   | 'Pendiente de Aprobación' 
   | 'Observada' 
   | 'Aprobada' 
-  | 'Rechazada' 
+  | 'Desestimada' 
   | 'En Ejecución' 
   | 'Cerrada';
 
-export type FieldType = 'text' | 'date' | 'select';
+export type FieldType = 'text' | 'date' | 'select' | 'file';
 
 export interface FieldDefinition {
   id: string;
   label: string;
   key: string;
   field_type: FieldType;
-  options: string[];
+  options: any;
   is_visible: boolean;
   is_required: boolean;
   sort_order: number;
