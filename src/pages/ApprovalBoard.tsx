@@ -9,18 +9,17 @@ import { supabase } from "../lib/supabase";
 type TabKey = "nueva" | "subsanacion" | "aprobada" | "borrador" | "desestimada";
 
 const STATUS_MAP: Record<string, TabKey> = {
-  "Pendiente de Aprobación": "nueva",
+  "Pendiente de aprobación": "nueva",
   "Observada": "subsanacion",
-  "Aprobada": "aprobada",
+  "En demanda": "aprobada",
   "Borrador": "borrador",
   "Desestimada": "desestimada",
-  "En Ejecución": "aprobada",
 };
 
 const TABS: { key: TabKey; label: string; color: string; dot: string }[] = [
-  { key: "nueva",       label: "Nuevas para revisión",    color: "text-[#4F5AF5] bg-[#EEF2FF]",   dot: "bg-[#4F5AF5]" },
+  { key: "nueva",       label: "Pendientes de aprobación", color: "text-[#4F5AF5] bg-[#EEF2FF]",   dot: "bg-[#4F5AF5]" },
   { key: "subsanacion", label: "Observadas",               color: "text-amber-700 bg-amber-50",    dot: "bg-amber-500" },
-  { key: "aprobada",    label: "Aprobadas para ejecución", color: "text-emerald-700 bg-emerald-50", dot: "bg-emerald-500" },
+  { key: "aprobada",    label: "En demanda",               color: "text-emerald-700 bg-emerald-50", dot: "bg-emerald-500" },
   { key: "borrador",    label: "Borradores",               color: "text-[#64748B] bg-[#F1F5F9]",  dot: "bg-[#94A3B8]" },
   { key: "desestimada", label: "Desestimadas",             color: "text-slate-700 bg-slate-50",    dot: "bg-slate-500" },
 ];
@@ -34,10 +33,9 @@ const STATUS_BADGE: Record<TabKey, string> = {
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  "Pendiente de Aprobación": "Nueva para revisión",
+  "Pendiente de aprobación": "Pendiente de aprobación",
   "Observada": "Observada",
-  "Aprobada": "Aprobada",
-  "En Ejecución": "En ejecución",
+  "En demanda": "En demanda",
   "Borrador": "Borrador",
   "Desestimada": "Desestimada",
 };
@@ -101,7 +99,7 @@ export default function ApprovalBoard() {
     }
     if (isRegistrador) {
       const tab = STATUS_MAP[i.status];
-      if (tab === "rechazada") return false;
+      if (tab === "desestimada") return false;
       const isMine = i.form_data?.registrador === profile?.name;
       const dir = i.form_data?.direccion;
       const isMyDir = dir && userAllowedDirNames.has(dir);

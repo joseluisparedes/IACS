@@ -702,7 +702,7 @@ export default function InitiativeForm() {
     finally { setIsAiTyping(false); }
   };
 
-  const handleSave = async (status: "Borrador" | "Pendiente de Aprobación") => {
+  const handleSave = async (status: "Borrador" | "Pendiente de aprobación") => {
     try {
       const res = await fetch("/api/initiatives/draft", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1220,7 +1220,7 @@ export default function InitiativeForm() {
                 Guardar borrador
               </button>
               <button
-                onClick={() => handleSave("Pendiente de Aprobación")}
+                onClick={() => handleSave("Pendiente de aprobación")}
                 className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
               >
                 <Send className="w-4 h-4" />

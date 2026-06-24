@@ -2,13 +2,10 @@ export type Role = 'Solicitante' | 'Aprobador' | 'Administrador';
 
 export type Status = 
   | 'Borrador' 
-  | 'En Elaboración' 
-  | 'Pendiente de Aprobación' 
+  | 'Pendiente de aprobación' 
   | 'Observada' 
-  | 'Aprobada' 
   | 'Desestimada' 
-  | 'En Ejecución' 
-  | 'Cerrada';
+  | 'En demanda';
 
 export type FieldType = 'text' | 'date' | 'select' | 'file';
 

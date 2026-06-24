@@ -5,12 +5,11 @@ import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 
 const STATUS_STYLE: Record<string, string> = {
-  "Pendiente de Aprobación": "bg-[#EEF2FF] text-[#4F5AF5]",
-  "Aprobada": "bg-emerald-50 text-emerald-700",
-  "Desestimada": "bg-slate-100 text-slate-700",
+  "Pendiente de aprobación": "bg-[#EEF2FF] text-[#4F5AF5]",
   "Observada": "bg-amber-50 text-amber-700",
+  "En demanda": "bg-emerald-50 text-emerald-700",
+  "Desestimada": "bg-red-50 text-red-700",
   "Borrador": "bg-[#F1F5F9] text-[#64748B]",
-  "En Ejecución": "bg-blue-50 text-blue-700",
 };
 
 const LABEL_MAP: Record<string, string> = {
@@ -617,15 +616,15 @@ export default function InitiativeDetail() {
           date: new Date().toISOString(),
           user: profile?.name || "Usuario Desconocido",
           role: isAdmin ? "Admin" : (isBP ? "Business Partner TI" : "Registrador"),
-          action: "Aprobada",
-          comment: isEditMode ? "Se aprobaron los cambios realizados." : "Aprobada directamente sin cambios."
+          action: "En demanda",
+          comment: isEditMode ? "Se aprobaron los cambios realizados." : "Movida a En demanda directamente sin cambios."
         };
 
         if (!isEditMode) {
           const currentFormData = initiative.form_data || {};
           const newFormData = { ...currentFormData };
           newFormData._observation_history = [...(newFormData._observation_history || []), newHistoryEntry];
-          return updateInitiativeData("Aprobada", { form_data: newFormData });
+          return updateInitiativeData("En demanda", { form_data: newFormData });
         }
         
         // Approve WITH changes applied directly
@@ -634,7 +633,7 @@ export default function InitiativeDetail() {
         delete newFormData._suggested_changes;
         newFormData._observation_history = [...(currentFormData._observation_history || []), newHistoryEntry];
 
-        updateInitiativeData("Aprobada", { 
+        updateInitiativeData("En demanda", { 
           form_data: newFormData,
           summary: editedSummary
         });
@@ -759,7 +758,7 @@ export default function InitiativeDetail() {
         delete newFormData._suggested_changes;
         newFormData._observation_history = [...(newFormData._observation_history || []), newHistoryEntry];
         
-        updateInitiativeData("Pendiente de Aprobación", { form_data: newFormData });
+        updateInitiativeData("Pendiente de aprobación", { form_data: newFormData });
       }
     );
   };
@@ -798,7 +797,7 @@ export default function InitiativeDetail() {
   const fd = initiative.form_data ?? {};
   const title = s.titulo ?? Object.values(fd)[0] ?? initiative.id;
   const statusStyle = STATUS_STYLE[initiative.status] ?? "bg-[#F1F5F9] text-[#64748B]";
-  const isPending = initiative.status === "Pendiente de Aprobación";
+  const isPending = initiative.status === "Pendiente de aprobación";
   const isObserved = initiative.status === "Observada";
   
   const suggestedChanges = fd._suggested_changes || { form_data: {}, summary: {} };
@@ -890,7 +889,7 @@ export default function InitiativeDetail() {
               </>
             )}
 
-            {initiative?.status === 'Aprobada' && (isAdmin || isBP) && (
+            {initiative?.status === 'En demanda' && (isAdmin || isBP) && (
               <button
                 onClick={openDesestimarModal}
                 className="flex items-center gap-2 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
@@ -917,7 +916,7 @@ export default function InitiativeDetail() {
                     "Sí, Mover a Nueva",
                     "bg-[#4F5AF5] hover:bg-[#3F49E0]",
                     <Clock className="w-6 h-6 text-[#4F5AF5]" />,
-                    () => updateInitiativeData("Pendiente de Aprobación")
+                    () => updateInitiativeData("Pendiente de aprobación")
                   )}
                   className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
                 >
@@ -926,25 +925,25 @@ export default function InitiativeDetail() {
                 </button>
                 <button
                   onClick={() => confirmAction(
-                    "Mover a Aprobada",
+                    "Mover a En demanda",
                     (
                       <div className="space-y-4">
-                        <p>¿Estás seguro de mover esta iniciativa directamente a 'Aprobada'?</p>
+                        <p>¿Estás seguro de mover esta iniciativa directamente a 'En demanda'?</p>
                         <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 flex gap-2 text-emerald-800">
                           <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
                           <span className="font-semibold text-sm">Al confirmar, declaras que esta acción se realiza bajo tu total revisión y consentimiento.</span>
                         </div>
                       </div>
                     ),
-                    "Sí, Aprobar",
+                    "Sí, Mover a En demanda",
                     "bg-emerald-600 hover:bg-emerald-500",
                     <CheckCircle className="w-6 h-6 text-emerald-500" />,
-                    () => updateInitiativeData("Aprobada")
+                    () => updateInitiativeData("En demanda")
                   )}
                   className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
                 >
                   <CheckCircle className="w-4 h-4" />
-                  Mover a Aprobada
+                  Mover a En demanda
                 </button>
               </>
             )}

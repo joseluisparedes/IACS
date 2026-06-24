@@ -195,7 +195,7 @@ async function startServer() {
 
   // ─── AI Chat ──────────────────────────────────────────────────────────────────
   async function notifyBPs(initiativeId: string, status: string, formData: any, summary: any) {
-    if (status !== "Pendiente de Aprobación") return;
+    if (status !== "Pendiente de aprobación") return;
     try {
       const existingNotifs = await supabase.from('notifications').select('id').eq('initiative_id', initiativeId).limit(1);
       if (existingNotifs.data && existingNotifs.data.length > 0) return;
@@ -243,7 +243,7 @@ async function startServer() {
       Math.floor(Math.random() * 1000).toString(36).toUpperCase();
     const record = {
       id,
-      status: req.body.status || "Pendiente de Aprobación",
+      status: req.body.status || "Pendiente de aprobación",
       form_data: req.body.form_data ?? req.body,
       chat_history: req.body.chatHistory ?? req.body.chat_history ?? [],
       summary: req.body.summary ?? null,

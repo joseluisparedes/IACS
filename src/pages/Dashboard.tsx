@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import {
-  Activity, CheckCircle, Clock, TrendingUp, Ban, Play,
+  Activity, CheckCircle, Clock, TrendingUp, Ban, Play, AlertTriangle,
   FileText, Filter, X, ChevronRight, ChevronLeft, ChevronDown,
   ExternalLink, Building2, Users, BarChart3,
   ArrowUpRight, Search, RefreshCw, Eye
@@ -35,24 +35,18 @@ interface Initiative {
 
 const ALL_STATUSES = [
   "Borrador",
-  "En Elaboración",
-  "Pendiente de Aprobación",
+  "Pendiente de aprobación",
   "Observada",
-  "Aprobada",
-  "En Ejecución",
   "Desestimada",
-  "Cerrada",
+  "En demanda",
 ];
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; bar: string; dot: string }> = {
   "Borrador":                 { color: "text-slate-500",   bg: "bg-slate-100",   bar: "bg-slate-400",   dot: "bg-slate-400" },
-  "En Elaboración":           { color: "text-blue-600",    bg: "bg-blue-50",     bar: "bg-blue-400",    dot: "bg-blue-400" },
-  "Pendiente de Aprobación":  { color: "text-[#4F5AF5]",   bg: "bg-[#EEF2FF]",  bar: "bg-[#4F5AF5]",  dot: "bg-[#4F5AF5]" },
+  "Pendiente de aprobación":  { color: "text-[#4F5AF5]",   bg: "bg-[#EEF2FF]",  bar: "bg-[#4F5AF5]",  dot: "bg-[#4F5AF5]" },
   "Observada":                { color: "text-amber-600",   bg: "bg-amber-50",    bar: "bg-amber-400",   dot: "bg-amber-400" },
-  "Aprobada":                 { color: "text-emerald-700", bg: "bg-emerald-50",  bar: "bg-emerald-500", dot: "bg-emerald-500" },
-  "En Ejecución":             { color: "text-teal-700",    bg: "bg-teal-50",     bar: "bg-teal-500",    dot: "bg-teal-500" },
   "Desestimada":              { color: "text-red-600",     bg: "bg-red-50",      bar: "bg-red-400",     dot: "bg-red-400" },
-  "Cerrada":                  { color: "text-gray-500",    bg: "bg-gray-100",    bar: "bg-gray-400",    dot: "bg-gray-400" },
+  "En demanda":               { color: "text-emerald-700", bg: "bg-emerald-50",  bar: "bg-emerald-500", dot: "bg-emerald-500" },
 };
 
 const PAGE_SIZE = 10;
@@ -521,11 +515,11 @@ export default function Dashboard() {
     filtered.forEach(i => { if (counts[i.status] !== undefined) counts[i.status]++; });
     return {
       total: filtered.length,
-      aprobadas: (counts["Aprobada"] ?? 0) + (counts["En Ejecución"] ?? 0),
-      pendientes: (counts["Pendiente de Aprobación"] ?? 0) + (counts["Observada"] ?? 0),
-      enEjecucion: counts["En Ejecución"] ?? 0,
+      enDemanda: counts["En demanda"] ?? 0,
+      pendientes: counts["Pendiente de aprobación"] ?? 0,
+      observadas: counts["Observada"] ?? 0,
       desestimadas: counts["Desestimada"] ?? 0,
-      borradores: (counts["Borrador"] ?? 0) + (counts["En Elaboración"] ?? 0),
+      borradores: counts["Borrador"] ?? 0,
       porEstado: counts,
     };
   }, [filtered]);
@@ -553,19 +547,19 @@ export default function Dashboard() {
       gradient: "from-[#4F5AF5]/10 to-transparent"
     },
     {
-      label: "Aprobadas / Ejecución", value: kpis.aprobadas, icon: CheckCircle,
+      label: "En demanda", value: kpis.enDemanda, icon: CheckCircle,
       color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-100",
       gradient: "from-emerald-500/10 to-transparent"
     },
     {
-      label: "Pendientes / Observadas", value: kpis.pendientes, icon: Clock,
-      color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-100",
-      gradient: "from-amber-500/10 to-transparent"
+      label: "Pendientes de aprobación", value: kpis.pendientes, icon: Clock,
+      color: "text-[#4F5AF5]", bg: "bg-[#EEF2FF]", border: "border-[#C7D2FE]",
+      gradient: "from-[#4F5AF5]/10 to-transparent"
     },
     {
-      label: "En Ejecución", value: kpis.enEjecucion, icon: Play,
-      color: "text-teal-700", bg: "bg-teal-50", border: "border-teal-100",
-      gradient: "from-teal-500/10 to-transparent"
+      label: "Observadas", value: kpis.observadas, icon: AlertTriangle,
+      color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-100",
+      gradient: "from-amber-500/10 to-transparent"
     },
     {
       label: "Desestimadas", value: kpis.desestimadas, icon: Ban,

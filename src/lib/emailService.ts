@@ -213,7 +213,7 @@ function getInitiativeDetailsTable(formData: any, summary: any, status: string):
   const creator = formData?.registrador || 'No asignado';
   
   let statusBadgeClass = 'badge-pendiente';
-  if (status === 'Aprobada') statusBadgeClass = 'badge-aprobada';
+  if (status === 'En demanda') statusBadgeClass = 'badge-aprobada';
   else if (status === 'Observada') statusBadgeClass = 'badge-observada';
   else if (status === 'Desestimada') statusBadgeClass = 'badge-desestimada';
 
@@ -268,7 +268,7 @@ export async function processEmailNotifications(
 
   try {
     // ── RULE 1: Submitted for Approval (Any -> Pendiente de Aprobación) ────
-    if (newStatus === 'Pendiente de Aprobación') {
+    if (newStatus === 'Pendiente de aprobación') {
       const vpName = formData?.vicepresidencia;
       const dirName = formData?.direccion;
 
@@ -346,24 +346,24 @@ export async function processEmailNotifications(
       });
     }
 
-    // ── RULE 3: Approved (Any -> Aprobada) ────────────────────────────────
-    if (newStatus === 'Aprobada') {
+    // ── RULE 3: Approved (Any -> En demanda) ────────────────────────────────
+    if (newStatus === 'En demanda') {
       const tableHtml = getInitiativeDetailsTable(formData, summary, newStatus);
 
       // Notify Registrador
       if (registradorEmail) {
         const bodyHtml = getBaseTemplate(
-          'Iniciativa Aprobada',
+          'Iniciativa en Demanda',
           `<p>Estimado(a) ${formData?.registrador || 'Registrador(a)'},</p>
-           <p>¡Buenas noticias! Tu iniciativa de TI ha sido <strong>Aprobada</strong> formalmente.</p>
+           <p>¡Buenas noticias! Tu iniciativa de TI ha sido aprobada y se encuentra en estado <strong>En demanda</strong>.</p>
            ${tableHtml}
-           <p>La iniciativa entrará en planificación para su ejecución en coordinación con los equipos de desarrollo e infraestructura.</p>`,
+           <p>La iniciativa entrará en planificación de demanda en coordinación con los equipos correspondientes.</p>`,
           actionUrl,
           'Ver Iniciativa'
         );
         await sendEmail({
           to: registradorEmail,
-          subject: `✅ Iniciativa Aprobada: ${title}`,
+          subject: `✅ Iniciativa en Demanda: ${title}`,
           html: bodyHtml,
           initiativeId
         });
