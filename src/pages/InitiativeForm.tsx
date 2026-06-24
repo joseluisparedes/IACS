@@ -241,6 +241,8 @@ export default function InitiativeForm() {
   const navigate = useNavigate();
   const { id } = useParams();
   const draftIdRef = useRef(id || "INIT-" + Date.now().toString(36).toUpperCase() + Math.floor(Math.random() * 1000).toString(36).toUpperCase());
+  // localStorage key for offline backup of the current session
+  const localKey = `iacs_draft_${draftIdRef.current}`;
   const { profile } = useAuth();
   const [step, setStep] = useState(1);
 
@@ -352,18 +354,43 @@ export default function InitiativeForm() {
         
         const draft = draftRes?.data;
         if (draft) {
+          // Backend draft found — use it and clear any stale local backup
           setFormData(draft.form_data || {});
           setChatHistory(draft.chat_history || []);
           setSummary(draft.summary || null);
           if (draft.summary) setStep(3);
           else if (draft.chat_history && draft.chat_history.length > 0) setStep(2);
           else setStep(1);
+          try { localStorage.removeItem(localKey); } catch (_) {}
         } else {
-          const initial: Record<string, string> = {};
-          visibleFormFields.forEach((f: FieldDefinition) => {
-            initial[f.key] = f.field_type === "select" && f.options.length > 0 ? f.options[0] : "";
-          });
-          setFormData(initial);
+          // No backend draft — check localStorage for a local backup
+          let restored = false;
+          try {
+            const local = localStorage.getItem(localKey);
+            if (local) {
+              const parsed = JSON.parse(local);
+              if (parsed.form_data) setFormData(parsed.form_data);
+              if (parsed.chat_history?.length > 0) {
+                setChatHistory(parsed.chat_history);
+                if (parsed.summary) {
+                  setSummary(parsed.summary);
+                  setStep(3);
+                } else {
+                  setStep(2);
+                }
+                restored = true;
+              }
+            }
+          } catch (_) {}
+
+          if (!restored) {
+            // Fresh session
+            const initial: Record<string, string> = {};
+            visibleFormFields.forEach((f: FieldDefinition) => {
+              initial[f.key] = f.field_type === "select" && f.options.length > 0 ? f.options[0] : "";
+            });
+            setFormData(initial);
+          }
         }
       })
       .catch(console.error)
@@ -371,6 +398,18 @@ export default function InitiativeForm() {
   }, [id]);
 
   const autoSave = async (currentHistory: any[], currentSummary: any) => {
+    // Always save to localStorage first as a reliable offline backup
+    try {
+      localStorage.setItem(localKey, JSON.stringify({
+        id: draftIdRef.current,
+        form_data: formData,
+        chat_history: currentHistory,
+        summary: currentSummary,
+        savedAt: new Date().toISOString(),
+      }));
+    } catch (_) { /* localStorage may be unavailable in private mode */ }
+
+    // Then try to sync to the backend
     try {
       await fetch("/api/initiatives/draft", {
         method: "POST",
@@ -383,7 +422,7 @@ export default function InitiativeForm() {
           status: "Borrador"
         }),
       });
-    } catch (e) { console.error("Error auto-saving", e); }
+    } catch (e) { console.error("Error auto-saving to backend (session backed up locally)", e); }
   };
 
   // Compute allowed options based on user roles
@@ -712,6 +751,8 @@ export default function InitiativeForm() {
         body: JSON.stringify({ id: draftIdRef.current, form_data: formData, chat_history: chatHistory, summary, status }),
       });
       if (res.ok) {
+        // Clear the local backup now that it's safely on the server
+        try { localStorage.removeItem(localKey); } catch (_) {}
         navigate("/bandeja");
       } else {
         const err = await res.json().catch(() => ({}));
