@@ -5,6 +5,27 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gestión de necesidades TI</title>
+    <!-- Start Single Page Apps for GitHub Pages -->
+    <script type="text/javascript">
+      (function(l) {
+        if (l.search) {
+          var q = {};
+          l.search.slice(1).split('&').forEach(function(v) {
+            var pair = v.split('=');
+            q[pair[0]] = decodeURIComponent(pair[1] || '');
+          });
+          if (q.p !== undefined) {
+            var newPath = q.p;
+            if (q.q !== undefined) {
+              newPath += '?' + q.q.replace(/~and~/g, '&');
+            }
+            newPath += l.hash;
+            window.history.replaceState(null, null, l.pathname.slice(0, -1) + newPath);
+          }
+        }
+      }(window.location));
+    </script>
+    <!-- End Single Page Apps for GitHub Pages -->
   </head>
   <body>
     <div id="root"></div>
