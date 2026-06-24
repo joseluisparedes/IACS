@@ -53,6 +53,7 @@ function formatTime(iso: string) {
 export default function ApprovalBoard() {
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [loading, setLoading] = useState(true);
+  const [slowLoad, setSlowLoad] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("nueva");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedRegistradores, setSelectedRegistradores] = useState<string[]>([]);
@@ -64,6 +65,9 @@ export default function ApprovalBoard() {
   const [direccionesMap, setDireccionesMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    // Show a helpful message if loading takes more than 4 seconds (Render cold start)
+    const slowTimer = setTimeout(() => setSlowLoad(true), 4000);
+
     supabase.from('direcciones').select('id, name').then(({ data }) => {
       if (data) {
         const map: Record<string, string> = {};
@@ -76,7 +80,9 @@ export default function ApprovalBoard() {
       .then(r => r.json())
       .then(data => { setInitiatives(Array.isArray(data) ? data : []); })
       .catch(() => setInitiatives([]))
-      .finally(() => setLoading(false));
+      .finally(() => { clearTimeout(slowTimer); setLoading(false); setSlowLoad(false); });
+
+    return () => clearTimeout(slowTimer);
   }, []);
 
   const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
@@ -335,9 +341,15 @@ export default function ApprovalBoard() {
         {/* Table */}
         <div className="overflow-x-auto">
           {loading ? (
-            <div className="flex justify-center items-center gap-3 py-16 text-[#94A3B8]">
+            <div className="flex flex-col justify-center items-center gap-3 py-16 text-[#94A3B8]">
               <div className="w-5 h-5 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
-              Cargando solicitudes...
+              <span>Cargando solicitudes...</span>
+              {slowLoad && (
+                <div className="mt-2 text-center max-w-xs">
+                  <p className="text-xs text-amber-600 font-medium">⏳ El servidor está despertando...</p>
+                  <p className="text-[11px] text-[#94A3B8] mt-1">Esto puede tardar hasta 30 segundos en la primera carga del día. Por favor espera.</p>
+                </div>
+              )}
             </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-16">

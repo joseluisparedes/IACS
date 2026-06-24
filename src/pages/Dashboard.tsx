@@ -365,6 +365,7 @@ export default function Dashboard() {
   const [vps, setVps] = useState<VP[]>([]);
   const [direcciones, setDirecciones] = useState<Direccion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [slowLoad, setSlowLoad] = useState(false);
 
   // Filters
   const [filterBP, setFilterBP] = useState<string[]>([]);
@@ -383,16 +384,19 @@ export default function Dashboard() {
   // ── Load data ──────────────────────────────────────────────────────────────
   const loadData = async () => {
     setLoading(true);
+    setSlowLoad(false);
+    const slowTimer = setTimeout(() => setSlowLoad(true), 4000);
     const [initRes, vpRes, dirRes] = await Promise.all([
       fetch("/api/initiatives").then(r => r.json()),
       supabase.from("vps").select("*").order("name"),
       supabase.from("direcciones").select("*").order("name"),
     ]);
-
+    clearTimeout(slowTimer);
     if (Array.isArray(initRes)) setInitiatives(initRes);
     if (vpRes.data) setVps(vpRes.data);
     if (dirRes.data) setDirecciones(dirRes.data);
     setLoading(false);
+    setSlowLoad(false);
   };
 
   useEffect(() => { loadData(); }, []);
@@ -879,6 +883,15 @@ export default function Dashboard() {
 
         {loading ? (
           <div className="p-6 space-y-3">
+            {slowLoad && (
+              <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl px-4 py-3">
+                <span className="text-base leading-none">⏳</span>
+                <div>
+                  <p className="font-semibold">El servidor está despertando...</p>
+                  <p className="mt-0.5 text-amber-600">Esto puede tardar hasta 30 segundos en la primera carga del día.</p>
+                </div>
+              </div>
+            )}
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="h-12 bg-[#F8FAFC] rounded-xl animate-pulse" />
             ))}
