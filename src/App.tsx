@@ -478,9 +478,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const basename = (import.meta as any).env.BASE_URL || '/';
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={basename}>
         <Routes>
           <Route path="/login" element={<Login />} />
           
