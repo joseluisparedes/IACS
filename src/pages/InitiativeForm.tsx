@@ -258,6 +258,7 @@ export default function InitiativeForm() {
   const [summary, setSummary] = useState<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [ratedMessages, setRatedMessages] = useState<Record<number, 'positive' | 'negative'>>({});
+  const [isSaving, setIsSaving] = useState(false);
 
   // ── Voice input (MediaRecorder + local Whisper WASM) ──────────────────────
   const [isRecording, setIsRecording] = useState(false);
@@ -703,13 +704,25 @@ export default function InitiativeForm() {
   };
 
   const handleSave = async (status: "Borrador" | "Pendiente de aprobación") => {
+    if (isSaving) return;
+    setIsSaving(true);
     try {
       const res = await fetch("/api/initiatives/draft", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: draftIdRef.current, form_data: formData, chat_history: chatHistory, summary, status }),
       });
-      if (res.ok) navigate("/bandeja");
-    } catch (e) { console.error(e); }
+      if (res.ok) {
+        navigate("/bandeja");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Error al guardar: ${err.error || res.statusText || 'Error desconocido'}`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert('Error de red al guardar. El servidor puede estar despertando, por favor intenta de nuevo en unos segundos.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -1199,7 +1212,8 @@ export default function InitiativeForm() {
           <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex flex-wrap gap-3 justify-between items-center">
             <button
               onClick={() => { setStep(2); setSummary(null); }}
-              className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+              disabled={isSaving}
+              className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] disabled:opacity-50 text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
             >
               <Pencil className="w-4 h-4" />
               Editar respuestas
@@ -1207,24 +1221,35 @@ export default function InitiativeForm() {
             <div className="flex gap-3">
               <button
                 onClick={() => generateSummary(chatHistory)}
-                className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                disabled={isSaving}
+                className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] disabled:opacity-50 text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
               >
                 <RotateCcw className="w-4 h-4" />
                 Regenerar
               </button>
               <button
                 onClick={() => handleSave("Borrador")}
-                className="flex items-center gap-2 border border-[#4F5AF5] text-[#4F5AF5] hover:bg-[#EEF2FF] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                disabled={isSaving}
+                className="flex items-center gap-2 border border-[#4F5AF5] text-[#4F5AF5] hover:bg-[#EEF2FF] disabled:opacity-50 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
               >
-                <Save className="w-4 h-4" />
+                {isSaving ? (
+                  <div className="w-4 h-4 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
                 Guardar borrador
               </button>
               <button
                 onClick={() => handleSave("Pendiente de aprobación")}
-                className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+                disabled={isSaving}
+                className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
               >
-                <Send className="w-4 h-4" />
-                Enviar a revisión BP
+                {isSaving ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                {isSaving ? 'Enviando...' : 'Enviar a revisión BP'}
               </button>
             </div>
           </div>
