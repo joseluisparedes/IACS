@@ -5,8 +5,9 @@ import { createClient } from "@supabase/supabase-js";
 import multer from "multer";
 import mammoth from "mammoth";
 import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<{ text: string }>;
+// @ts-ignore
+const localRequire = typeof require !== "undefined" ? require : createRequire(import.meta.url);
+const pdfParse = localRequire("pdf-parse") as (buffer: Buffer) => Promise<{ text: string }>;
 import "dotenv/config";
 import { processEmailNotifications } from "./src/lib/emailService";
 import XLSX from "xlsx";
