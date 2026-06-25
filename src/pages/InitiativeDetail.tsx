@@ -118,7 +118,12 @@ function Row({
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      onChange(JSON.stringify({ name: file.originalname || file.name, content: data.content }));
+      onChange(JSON.stringify({ 
+        name: file.originalname || file.name, 
+        content: data.content, 
+        url: data.url, 
+        type: data.type || file.type 
+      }));
     } catch (err: any) {
       setUploadError('Error: ' + err.message);
     } finally {
@@ -140,7 +145,7 @@ function Row({
           <FileText className="w-4 h-4 text-blue-500 shrink-0" />
         )}
         <span className="text-xs font-semibold text-[#334155]">{fileObj.name}</span>
-        {fileObj.content && (
+        {(fileObj.content || fileObj.url) && (
           <button 
             type="button" 
             onClick={() => setShowFilePreview(!showFilePreview)}
@@ -150,9 +155,24 @@ function Row({
           </button>
         )}
       </div>
-      {showFilePreview && fileObj.content && (
-        <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3 text-xs text-[#475569] font-mono whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed shadow-inner">
-          {fileObj.content}
+      {showFilePreview && (
+        <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3 text-xs text-[#475569] leading-relaxed shadow-inner max-h-[500px] overflow-y-auto space-y-3">
+          {fileObj.url && (fileObj.type?.startsWith("image/") || fileObj.name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) ? (
+            <div className="flex justify-center max-w-full bg-slate-100 p-2 rounded-lg">
+              <img src={fileObj.url} alt={fileObj.name} className="max-h-96 object-contain" />
+            </div>
+          ) : fileObj.url && (fileObj.type === "application/pdf" || fileObj.name.toLowerCase().endsWith(".pdf")) ? (
+            <div className="space-y-2">
+              <div>
+                <a href={fileObj.url} download={fileObj.name} className="inline-flex items-center gap-1.5 bg-[#4F5AF5] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#3F49E0] transition-colors">
+                  Descargar PDF
+                </a>
+              </div>
+              {fileObj.content && <pre className="font-mono whitespace-pre-wrap">{fileObj.content}</pre>}
+            </div>
+          ) : (
+            fileObj.content && <pre className="font-mono whitespace-pre-wrap">{fileObj.content}</pre>
+          )}
         </div>
       )}
     </div>
@@ -443,6 +463,8 @@ export default function InitiativeDetail() {
   const [isEditingBP, setIsEditingBP] = useState(false);
   const [showDesestimarModal, setShowDesestimarModal] = useState(false);
   const [desestimarComment, setDesestimarComment] = useState("");
+  const [showVoboRejectInput, setShowVoboRejectInput] = useState(false);
+  const [voboRejectReason, setVoboRejectReason] = useState("");
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
@@ -503,6 +525,44 @@ export default function InitiativeDetail() {
         setIsEditMode(false);
       }
     } catch (e) { console.error(e); }
+  };
+
+  const handleVoboCorrect = async () => {
+    const currentFormData = initiative.form_data || {};
+    const newFormData = {
+      ...currentFormData,
+      _vobo_status: "correcto"
+    };
+    await updateInitiativeData(initiative.status, { form_data: newFormData });
+  };
+
+  const handleVoboIncorrectSubmit = async () => {
+    if (!voboRejectReason.trim()) return;
+
+    const currentFormData = initiative.form_data || {};
+    const currentSummary = initiative.summary || {};
+
+    const newHistoryEntry = {
+      date: new Date().toISOString(),
+      user_name: profile?.name || 'Desconocido',
+      user_role: 'BP TI',
+      action: 'Observada',
+      details: `Visto bueno del VP incorrecto: ${voboRejectReason}`,
+      snapshot: {
+        form_data: { ...currentFormData },
+        summary: { ...currentSummary }
+      }
+    };
+
+    const newFormData = { 
+      ...currentFormData, 
+      _vobo_status: "incorrecto",
+      _observation_history: [...(currentFormData._observation_history || []), newHistoryEntry]
+    };
+
+    await updateInitiativeData("Observada", { form_data: newFormData });
+    setShowVoboRejectInput(false);
+    setVoboRejectReason("");
   };
 
   const handleAssignBP = () => {
@@ -799,6 +859,12 @@ export default function InitiativeDetail() {
   const statusStyle = STATUS_STYLE[initiative.status] ?? "bg-[#F1F5F9] text-[#64748B]";
   const isPending = initiative.status === "Pendiente de aprobación";
   const isObserved = initiative.status === "Observada";
+  let voboFileObj: { name: string; content?: string; url?: string; type?: string } | null = null;
+  if (typeof fd.aprobacin_de_director === "string" && fd.aprobacin_de_director.startsWith('{"name":')) {
+    try {
+      voboFileObj = JSON.parse(fd.aprobacin_de_director);
+    } catch (e) {}
+  }
   
   const suggestedChanges = fd._suggested_changes || { form_data: {}, summary: {} };
   const hasSuggestedChanges = Object.keys(suggestedChanges.form_data).length > 0 || Object.keys(suggestedChanges.summary).length > 0;
@@ -881,7 +947,9 @@ export default function InitiativeDetail() {
                 </button>
                 <button
                   onClick={handleApprove}
-                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
+                  disabled={!!(voboFileObj && fd._vobo_status !== "correcto")}
+                  title={voboFileObj && fd._vobo_status !== "correcto" ? "Por favor valida el visto bueno del VP antes de aprobar" : "Aprobar iniciativa"}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
                 >
                   <CheckCircle className="w-4 h-4" />
                   Aprobar
@@ -999,6 +1067,111 @@ export default function InitiativeDetail() {
       <div className="grid md:grid-cols-3 gap-6">
         {/* Main content */}
         <div className="md:col-span-2 space-y-5">
+          {isPending && (isBP || isAdmin) && voboFileObj && (
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
+              <div className="px-6 py-4 border-b border-[#F1F5F9] bg-[#F8FAFC] flex items-center justify-between">
+                <h3 className="text-sm font-bold text-[#1E293B] flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-[#4F5AF5]" />
+                  Validación de Visto Bueno (VoBo VP)
+                </h3>
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                  fd._vobo_status === "correcto" ? "bg-emerald-50 text-emerald-700"
+                  : fd._vobo_status === "incorrecto" ? "bg-red-50 text-red-700"
+                  : "bg-amber-50 text-amber-700"
+                }`}>
+                  {fd._vobo_status === "correcto" ? "Vobo Validado"
+                   : fd._vobo_status === "incorrecto" ? "Vobo Rechazado"
+                   : "Pendiente de Validación"}
+                </span>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-[#64748B] leading-relaxed">
+                  Para poder aprobar esta iniciativa, debes revisar el documento cargado por el solicitante como visto bueno de la vicepresidencia.
+                </p>
+
+                {/* File box */}
+                <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#E2E8F0] rounded-lg px-3 py-2 w-fit">
+                  {voboFileObj.name.toLowerCase().endsWith('.png') || voboFileObj.name.toLowerCase().endsWith('.jpg') || voboFileObj.name.toLowerCase().endsWith('.jpeg') || voboFileObj.name.toLowerCase().endsWith('.webp') ? (
+                    <ImageIcon className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+                  )}
+                  <span className="text-xs font-semibold text-[#334155]">{voboFileObj.name}</span>
+                </div>
+
+                {/* Preview if image */}
+                {voboFileObj.url && (voboFileObj.type?.startsWith("image/") || voboFileObj.name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) ? (
+                  <div className="border border-[#E2E8F0] rounded-xl overflow-hidden max-w-full flex justify-center bg-slate-50 p-2">
+                    <img src={voboFileObj.url} alt="Visto Bueno" className="max-h-96 object-contain" />
+                  </div>
+                ) : voboFileObj.url && (voboFileObj.type === "application/pdf" || voboFileObj.name.toLowerCase().endsWith(".pdf")) ? (
+                  <div>
+                    <a href={voboFileObj.url} download={voboFileObj.name} className="inline-flex items-center gap-1.5 bg-[#4F5AF5] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#3F49E0] transition-colors">
+                      Descargar PDF Visto Bueno
+                    </a>
+                  </div>
+                ) : null}
+
+                {/* Verification Actions */}
+                {!showVoboRejectInput ? (
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={handleVoboCorrect}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                        fd._vobo_status === "correcto"
+                        ? "bg-emerald-600 text-white"
+                        : "border border-emerald-600 text-emerald-600 hover:bg-emerald-50"
+                      }`}
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Visto Bueno es Correcto
+                    </button>
+                    <button
+                      onClick={() => setShowVoboRejectInput(true)}
+                      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                        fd._vobo_status === "incorrecto"
+                        ? "bg-red-600 text-white"
+                        : "border border-red-600 text-red-600 hover:bg-red-50"
+                      }`}
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      Visto Bueno es Incorrecto
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-[#FFFBEB] border border-amber-200 rounded-xl p-4 space-y-3">
+                    <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Indicar motivo de observación del VoBo</h4>
+                    <textarea
+                      value={voboRejectReason}
+                      onChange={(e) => setVoboRejectReason(e.target.value)}
+                      placeholder="Escribe aquí el motivo por el cual el Visto Bueno no es correcto..."
+                      rows={3}
+                      className="w-full border border-amber-200 bg-white rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleVoboIncorrectSubmit}
+                        disabled={!voboRejectReason.trim()}
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-sm"
+                      >
+                        Confirmar Observación
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowVoboRejectInput(false);
+                          setVoboRejectReason("");
+                        }}
+                        className="px-3 py-1.5 border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 rounded-lg text-xs font-semibold"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {isRegistrador && isObserved && hasSuggestedChanges && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 shadow-sm items-start">
               <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />

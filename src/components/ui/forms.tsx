@@ -9,7 +9,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         type={type}
         className={cn(
-          "flex h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-[#1E293B] placeholder:text-[#94A3B8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F5AF5] focus-visible:border-[#4F5AF5] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-[#1E293B] placeholder:text-[#94A3B8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EB5F46] focus-visible:border-[#EB5F46] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
         ref={ref}
@@ -25,7 +25,7 @@ const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HT
     return (
       <select
         className={cn(
-          "flex h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] focus:border-[#4F5AF5] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#EB5F46] focus:border-[#EB5F46] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
         ref={ref}
@@ -42,7 +42,7 @@ function Badge({ className, variant = "default", ...props }: React.HTMLAttribute
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors",
         {
-          "bg-[#EEF2FF] text-[#4F5AF5]": variant === "default",
+          "bg-[#fff0ed] text-[#EB5F46]": variant === "default",
           "bg-[#F1F5F9] text-[#64748B]": variant === "secondary",
           "bg-red-50 text-red-600": variant === "destructive",
           "bg-emerald-50 text-emerald-700": variant === "success",

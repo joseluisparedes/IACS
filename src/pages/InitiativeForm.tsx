@@ -12,10 +12,11 @@ const inputCls = "w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2.5
 const labelCls = "block text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-1.5";
 
 // ─── Dynamic field ────────────────────────────────────────────────────────────
-function DynamicField({ field, value, onChange, parentValue, disabled, optionsOverride }: {
+function DynamicField({ field, value, onChange, parentValue, disabled, optionsOverride, onUploadingChange }: {
   field: FieldDefinition; value: string; onChange: (v: string) => void; parentValue?: string;
   disabled?: boolean;
   optionsOverride?: string[];
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -94,6 +95,7 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
       }
 
       setIsUploading(true);
+      onUploadingChange?.(true);
       try {
         const fd = new FormData();
         fd.append('file', file);
@@ -102,11 +104,17 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
         if (data.error) throw new Error(data.error);
 
         // Store the stringified JSON
-        onChange(JSON.stringify({ name: file.originalname || file.name, content: data.content }));
+        onChange(JSON.stringify({ 
+          name: file.originalname || file.name, 
+          content: data.content, 
+          url: data.url, 
+          type: data.type || file.type 
+        }));
       } catch (err: any) {
         setError('Error: ' + err.message);
       } finally {
         setIsUploading(false);
+        onUploadingChange?.(false);
       }
     };
 
@@ -245,6 +253,8 @@ export default function InitiativeForm() {
   const localKey = `iacs_draft_${draftIdRef.current}`;
   const { profile } = useAuth();
   const [step, setStep] = useState(1);
+  const [uploadingFields, setUploadingFields] = useState<Record<string, boolean>>({});
+  const isAnyFileUploading = Object.values(uploadingFields).some(Boolean);
 
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [aiFields, setAiFields] = useState<FieldDefinition[]>([]);
@@ -834,6 +844,12 @@ export default function InitiativeForm() {
                           field={field} 
                           value={formData[field.key] ?? ""} 
                           parentValue={field.depends_on ? formData[field.depends_on] : undefined}
+                          onUploadingChange={uploading => {
+                            setUploadingFields(prev => ({
+                              ...prev,
+                              [field.key]: uploading
+                            }));
+                          }}
                           onChange={v => {
                             setFormData(p => {
                               const newForm = { ...p, [field.key]: v };
@@ -855,7 +871,7 @@ export default function InitiativeForm() {
             <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-end">
               <button
                 type="submit"
-                disabled={loadingFields || fields.length === 0}
+                disabled={loadingFields || fields.length === 0 || isAnyFileUploading}
                 className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
               >
                 Continuar con asistente IA

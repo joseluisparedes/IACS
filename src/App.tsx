@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
@@ -22,6 +22,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { profile } = useAuth();
 
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [adminOpen, setAdminOpen] = useState<boolean>(() => {
     const saved = localStorage.getItem('sidebar_admin_open');
     if (saved !== null) return saved === 'true';
@@ -167,7 +168,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   }, [profile?.profile_roles, showRolesModal]);
 
   return (
-    <div className="flex flex-col min-h-screen md:flex-row bg-[#F0F4FF] text-[#1E293B] font-sans">
+    <div className="flex flex-col h-screen overflow-hidden bg-[#F0F4FF] text-[#1E293B] font-sans">
       {/* Roles Modal */}
       {showRolesModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -220,125 +221,23 @@ function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-[#E2E8F0] hidden md:flex md:flex-col shrink-0 shadow-[1px_0_4px_rgba(0,0,0,.04)]">
-
-        {/* Logo */}
-        <div className="px-6 py-5 border-b border-[#E2E8F0] flex items-center gap-3">
-          <div className="w-8 h-8 bg-[#4F5AF5] rounded-lg flex items-center justify-center shadow-md shadow-[#4F5AF5]/30 shrink-0">
-            <span className="font-black text-white text-xs">TI</span>
-          </div>
-          <span className="font-bold text-base tracking-tight text-[#1E293B] leading-snug">Gestión de necesidades TI</span>
-        </div>
-
-        {/* Main nav */}
-        <nav className="flex-1 p-4 space-y-1">
-          <p className="text-[10px] uppercase font-semibold text-[#94A3B8] tracking-widest px-3 mb-2">Principal</p>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = location.pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  active
-                    ? 'bg-[#EEF2FF] text-[#4F5AF5]'
-                    : 'text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#1E293B]'
-                }`}
-              >
-                <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[#4F5AF5]' : ''}`} />
-                {item.name}
-              </Link>
-            );
-          })}
-
-          {/* Divider */}
-          <div className="pt-4 pb-1">
-            <div className="border-t border-[#E2E8F0]" />
-          </div>
-
-          {/* Admin collapsible */}
-          {isAdmin && (
-            <div>
-              <button
-                onClick={toggleAdmin}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-semibold transition-colors text-[#94A3B8] hover:text-[#64748B] hover:bg-[#F8FAFC]"
-              >
-                <span className="text-[10px] uppercase tracking-widest font-semibold">Administración</span>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${adminOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              <div className={`overflow-hidden transition-all duration-200 ease-in-out ${adminOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="pt-1 pl-2 space-y-1 pb-2">
-                  {adminItems.map((item) => {
-                    const Icon = item.icon;
-                    const active = location.pathname === item.path;
-                    return (
-                      <Link
-                        key={item.path}
-                        to={item.path}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                          active
-                            ? 'bg-violet-50 text-violet-600'
-                            : 'text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#1E293B]'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4 shrink-0" />
-                        {item.name}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-        </nav>
-
-        {/* User */}
-        <div className="p-4 border-t border-[#E2E8F0]">
-          <div className="flex items-center gap-3 px-1 mb-3">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#4F5AF5] to-violet-500 flex items-center justify-center text-xs font-bold text-white shrink-0 uppercase">
-              {userInitials}
-            </div>
-            <div className="overflow-hidden flex-1">
-              <p className="text-sm font-semibold text-[#1E293B] truncate">{userName}</p>
-              {formattedRoles.length > 0 ? (
-                <button 
-                  onClick={() => setShowRolesModal(true)}
-                  className="text-[10px] text-[#4F5AF5] hover:text-[#3F49E0] truncate uppercase text-left w-full block mt-0.5"
-                  title="Ver detalles de los roles"
-                >
-                  <div className="flex flex-col gap-0.5">
-                    {isAdmin ? (
-                      <span className="underline">Admin</span>
-                    ) : (
-                      formattedRoles.map((r: any, idx: number) => (
-                        <span key={idx} className="underline truncate leading-tight">{r}</span>
-                      ))
-                    )}
-                  </div>
-                </button>
-              ) : (
-                <p className="text-[10px] text-[#94A3B8] truncate uppercase mt-0.5">Invitado</p>
-              )}
+      {/* Header at the top (100% width) */}
+      <header className="corp-header shrink-0 shadow-[0_2px_12px_rgba(13,67,108,.05)] relative z-50">
+        <div className="h-16 flex items-center justify-between px-8 relative z-10">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="p-2 rounded-lg text-white hover:bg-white/10 transition-colors"
+              title="Colapsar / Desplegar menú"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-white">Laureate Perú</span>
+              <span className="text-xs text-white/30">|</span>
+              <h2 className="text-xs font-extrabold uppercase tracking-widest text-white/90">IT Needs Manager</h2>
             </div>
           </div>
-          <button 
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium"
-          >
-            <LogOut className="w-4 h-4" />
-            Cerrar Sesión
-          </button>
-        </div>
-      </aside>
-
-      {/* Main */}
-      <main className="flex-1 flex flex-col h-full min-h-screen md:h-screen md:overflow-y-auto">
-        {/* Header */}
-        <header className="h-16 border-b border-[#E2E8F0] flex items-center justify-between px-8 bg-white shrink-0 shadow-[0_1px_3px_rgba(0,0,0,.05)]">
-          <h2 className="text-base font-semibold text-[#1E293B]">Panel Ejecutivo</h2>
           <div className="flex items-center gap-3 relative z-50">
             {showDraftsCounter && (
               <div className="relative z-50">
@@ -347,48 +246,48 @@ function Layout({ children }: { children: React.ReactNode }) {
                     setDraftsOpen(!draftsOpen);
                     setNotificationsOpen(false);
                   }}
-                className="relative w-9 h-9 rounded-lg border border-[#E2E8F0] flex items-center justify-center text-[#64748B] hover:bg-[#F8FAFC] transition-colors"
-                title="Chats pendientes"
-              >
-                <MessageSquarePlus className="w-4 h-4" />
-                {drafts.length > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">
-                    {drafts.length}
-                  </span>
-                )}
-              </button>
+                  className="relative w-9 h-9 rounded-lg border border-white/20 flex items-center justify-center text-white/90 hover:bg-white/10 transition-colors"
+                  title="Chats pendientes"
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                  {drafts.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-[#EB5F46] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">
+                      {drafts.length}
+                    </span>
+                  )}
+                </button>
 
-              {draftsOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setDraftsOpen(false)} />
-                  <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-lg border border-[#E2E8F0] z-50 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-[#F1F5F9] bg-[#F8FAFC]">
-                      <h3 className="text-xs font-bold text-[#1E293B] uppercase tracking-wider">Chats en curso</h3>
+                {draftsOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setDraftsOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-lg border border-[#e4e6ea] z-50 overflow-hidden">
+                      <div className="px-4 py-3 border-b border-[#e4e6ea] bg-[#f7f8fc]">
+                        <h3 className="text-xs font-bold text-[#1a1a2e] uppercase tracking-wider">Chats en curso</h3>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto p-2">
+                        {drafts.length === 0 ? (
+                          <p className="text-xs text-[#9ca3af] text-center py-4">No hay chats pendientes.</p>
+                        ) : (
+                          drafts.map(d => (
+                            <Link
+                              key={d.id}
+                              to={`/nueva/${d.id}`}
+                              onClick={() => setDraftsOpen(false)}
+                              className="block p-3 rounded-lg hover:bg-[#f7f8fc] transition-colors border border-transparent hover:border-[#e4e6ea] mb-1"
+                            >
+                              <p className="text-sm font-semibold text-[#1a1a2e] truncate">
+                                {d.form_data?.titulo || "Sin título"}
+                              </p>
+                              <p className="text-[10px] text-[#9ca3af] mt-1">
+                                Actualizado: {new Date(d.created_at).toLocaleDateString()} {new Date(d.created_at).toLocaleTimeString()}
+                              </p>
+                            </Link>
+                          ))
+                        )}
+                      </div>
                     </div>
-                    <div className="max-h-64 overflow-y-auto p-2">
-                      {drafts.length === 0 ? (
-                        <p className="text-xs text-[#94A3B8] text-center py-4">No hay chats pendientes.</p>
-                      ) : (
-                        drafts.map(d => (
-                          <Link
-                            key={d.id}
-                            to={`/nueva/${d.id}`}
-                            onClick={() => setDraftsOpen(false)}
-                            className="block p-3 rounded-lg hover:bg-[#F8FAFC] transition-colors border border-transparent hover:border-[#E2E8F0] mb-1"
-                          >
-                            <p className="text-sm font-semibold text-[#1E293B] truncate">
-                              {d.form_data?.titulo || "Sin título"}
-                            </p>
-                            <p className="text-[10px] text-[#94A3B8] mt-1">
-                              Actualizado: {new Date(d.created_at).toLocaleDateString()} {new Date(d.created_at).toLocaleTimeString()}
-                            </p>
-                          </Link>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
+                  </>
+                )}
               </div>
             )}
             <div className="relative z-50">
@@ -397,11 +296,11 @@ function Layout({ children }: { children: React.ReactNode }) {
                   setNotificationsOpen(!notificationsOpen);
                   setDraftsOpen(false);
                 }}
-                className="w-9 h-9 rounded-lg border border-[#E2E8F0] flex items-center justify-center text-[#64748B] hover:bg-[#F8FAFC] transition-colors relative"
+                className="w-9 h-9 rounded-lg border border-white/20 flex items-center justify-center text-white/90 hover:bg-white/10 transition-colors relative"
               >
                 <Bell className="w-4 h-4" />
                 {unreadNotifs > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">
+                  <span className="absolute -top-1.5 -right-1.5 bg-[#EB5F46] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">
                     {unreadNotifs}
                   </span>
                 )}
@@ -410,25 +309,25 @@ function Layout({ children }: { children: React.ReactNode }) {
               {notificationsOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setNotificationsOpen(false)} />
-                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-[#E2E8F0] z-50 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-[#F1F5F9] bg-[#F8FAFC]">
-                      <h3 className="text-xs font-bold text-[#1E293B] uppercase tracking-wider">Notificaciones</h3>
+                  <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-[#e4e6ea] z-50 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-[#e4e6ea] bg-[#f7f8fc]">
+                      <h3 className="text-xs font-bold text-[#1a1a2e] uppercase tracking-wider">Notificaciones</h3>
                     </div>
                     <div className="max-h-80 overflow-y-auto p-2">
                       {notifications.length === 0 ? (
-                        <p className="text-xs text-[#94A3B8] text-center py-4">No tienes notificaciones.</p>
+                        <p className="text-xs text-[#9ca3af] text-center py-4">No tienes notificaciones.</p>
                       ) : (
                         notifications.map(n => (
                           <Link
                             key={n.id}
                             to={`/iniciativa/${n.initiative_id}`}
                             onClick={() => handleNotificationClick(n)}
-                            className={`block p-3 rounded-lg transition-colors border border-transparent mb-1 ${n.read ? 'hover:bg-[#F8FAFC]' : 'bg-[#EEF2FF] hover:border-[#C7D2FE]'}`}
+                            className={`block p-3 rounded-lg transition-colors border border-transparent mb-1 ${n.read ? 'hover:bg-[#f7f8fc]' : 'bg-[#fff0ed] hover:border-[#D7D9E8]'}`}
                           >
-                            <p className={`text-sm ${n.read ? 'text-[#64748B]' : 'font-semibold text-[#1E293B]'} leading-tight`}>
+                            <p className={`text-sm ${n.read ? 'text-[#4a5568]' : 'font-semibold text-[#1a1a2e]'} leading-tight`}>
                               {n.message}
                             </p>
-                            <p className="text-[10px] text-[#94A3B8] mt-1.5">
+                            <p className="text-[10px] text-[#9ca3af] mt-1.5">
                               {new Date(n.created_at).toLocaleDateString()} {new Date(n.created_at).toLocaleTimeString()}
                             </p>
                           </Link>
@@ -442,19 +341,140 @@ function Layout({ children }: { children: React.ReactNode }) {
             {(isAdmin || isRegistrador) && (
               <Link
                 to="/nueva"
-                className="bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm shadow-[#4F5AF5]/20 hidden sm:flex items-center gap-2"
+                className="bg-white hover:bg-white/90 text-[#EB5F46] px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm hidden sm:flex items-center gap-2"
               >
                 <PlusCircle className="w-4 h-4" />
                 Nueva Solicitud
               </Link>
             )}
           </div>
-        </header>
-
-        <div className="p-4 md:p-8 flex-1">
-          {children}
         </div>
-      </main>
+        {/* Color Line Divider */}
+        <div className="h-1 w-full bg-gradient-to-r from-[#EB5F46] via-[#007FB1] to-[#00B8B2]" />
+      </header>
+
+      {/* Main body area with Sidebar and main content area */}
+      <div className="flex-grow flex flex-row overflow-hidden relative">
+        {/* Sidebar */}
+        <aside className={`bg-white border-r border-[#e4e6ea] shadow-[1px_0_4px_rgba(13,67,108,.03)] transition-all duration-300 ease-in-out ${
+          sidebarCollapsed ? 'w-0 -translate-x-full overflow-hidden opacity-0' : 'w-64 translate-x-0 opacity-100'
+        } flex flex-col h-full shrink-0`}>
+
+          {/* Main nav */}
+          <nav className="flex-grow p-4 space-y-1 overflow-y-auto">
+            <p className="text-[10px] uppercase font-bold text-[#9ca3af] tracking-widest px-3 mb-2">Principal</p>
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active = location.pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                    active
+                      ? 'bg-[#fff0ed] text-[#EB5F46] shadow-sm'
+                      : 'text-[#4a5568] hover:bg-[#f7f8fc] hover:text-[#1a1a2e]'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[#EB5F46]' : ''}`} />
+                  {item.name}
+                </Link>
+              );
+            })}
+
+            {/* Divider */}
+            <div className="pt-4 pb-1">
+              <div className="border-t border-[#e4e6ea]" />
+            </div>
+
+            {/* Admin collapsible */}
+            {isAdmin && (
+              <div>
+                <button
+                  onClick={toggleAdmin}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-semibold transition-colors text-[#9ca3af] hover:text-[#4a5568] hover:bg-[#f7f8fc]"
+                >
+                  <span className="text-[10px] uppercase tracking-widest font-bold">Administración</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${adminOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                <div className={`overflow-hidden transition-all duration-200 ease-in-out ${adminOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="pt-1 pl-2 space-y-1 pb-2">
+                    {adminItems.map((item) => {
+                      const Icon = item.icon;
+                      const active = location.pathname === item.path;
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                            active
+                              ? 'bg-[#fff0ed] text-[#EB5F46] shadow-sm'
+                              : 'text-[#4a5568] hover:bg-[#f7f8fc] hover:text-[#1a1a2e]'
+                          }`}
+                        >
+                          <Icon className="w-4 h-4 shrink-0" />
+                          {item.name}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </nav>
+
+          {/* User */}
+          <div className="p-4 border-t border-[#e4e6ea]">
+            <div className="flex items-center gap-3 px-1 mb-3">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#EB5F46] to-[#0D436C] flex items-center justify-center text-xs font-bold text-white shrink-0 uppercase shadow-md shadow-[#EB5F46]/10">
+                {userInitials}
+              </div>
+              <div className="overflow-hidden flex-1">
+                <p className="text-sm font-semibold text-[#1a1a2e] truncate">{userName}</p>
+                {formattedRoles.length > 0 ? (
+                  <button 
+                    onClick={() => setShowRolesModal(true)}
+                    className="text-[10px] text-[#EB5F46] hover:text-[#c94a32] truncate uppercase text-left w-full block mt-0.5"
+                    title="Ver detalles de los roles"
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      {isAdmin ? (
+                        <span className="underline">Admin</span>
+                      ) : (
+                        formattedRoles.map((r: any, idx: number) => (
+                          <span key={idx} className="underline truncate leading-tight">{r}</span>
+                        ))
+                      )}
+                    </div>
+                  </button>
+                ) : (
+                  <p className="text-[10px] text-[#9ca3af] truncate uppercase mt-0.5">Invitado</p>
+                )}
+              </div>
+            </div>
+            <button 
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors font-semibold"
+            >
+              <LogOut className="w-4 h-4" />
+              Cerrar Sesión
+            </button>
+          </div>
+        </aside>
+
+        {/* Main content page area */}
+        <main className="flex-1 flex flex-col min-w-0 h-full overflow-y-auto">
+          <div className="p-4 md:p-8 flex-grow">
+            {children}
+          </div>
+        </main>
+      </div>
+
+      {/* Footer at the bottom (100% width) */}
+      <footer className="bg-[#22223C] text-slate-400 text-center py-4 px-8 text-xs font-semibold tracking-wider border-t border-slate-800 shrink-0 relative z-50">
+        © {new Date().getFullYear()} <strong>Laureate Perú</strong>. Todos los derechos reservados.
+      </footer>
     </div>
   );
 }

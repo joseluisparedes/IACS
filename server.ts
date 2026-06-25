@@ -400,23 +400,7 @@ async function startServer() {
       } else if (mime === "text/plain" || name.endsWith(".txt")) {
         content = req.file.buffer.toString("utf-8").trim();
       } else if (mime.startsWith("image/")) {
-        // Use Gemini vision to describe the image
-        if (!isApiKeyConfigured()) {
-          content = "[Imagen adjunta — descripción no disponible sin API key configurada]";
-        } else {
-          const base64 = req.file.buffer.toString("base64");
-          const response = await getGenAI().models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: [{
-              role: "user",
-              parts: [
-                { inlineData: { mimeType: mime, data: base64 } },
-                { text: "Describe el contenido de esta imagen en detalle, especialmente si contiene texto, diagramas, tablas o información relevante para una iniciativa de TI. Responde en español." },
-              ],
-            }],
-          });
-          content = response.text.trim();
-        }
+        content = "[Imagen adjunta]";
       } else {
         return res.status(400).json({ error: "Formato no soportado. Usa PDF, DOCX, TXT o imagen (JPG/PNG/WEBP)." });
       }
@@ -425,23 +409,48 @@ async function startServer() {
         return res.status(400).json({ error: "No se pudo extraer contenido del archivo. Verifica que no esté protegido." });
       }
 
-      res.json({ content, filename: req.file.originalname, type: mime });
+      let fileUrl = "";
+      if (mime.startsWith("image/") || mime === "application/pdf") {
+        fileUrl = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
+      }
+
+      res.json({ content, filename: req.file.originalname, type: mime, url: fileUrl || null });
     } catch (e: any) {
       console.error("Chat attach-file error:", e.message);
       res.status(500).json({ error: "Error al procesar el archivo: " + e.message });
     }
   });
 
+  function sanitizeInitialDataForAI(initialData: any): any {
+    if (!initialData) return initialData;
+    const sanitized = { ...initialData };
+    for (const key of Object.keys(sanitized)) {
+      const val = sanitized[key];
+      if (typeof val === 'string') {
+        try {
+          const parsed = JSON.parse(val);
+          if (parsed && typeof parsed === 'object' && parsed.name) {
+            sanitized[key] = `[Archivo adjunto: ${parsed.name}]`;
+          }
+        } catch (e) {
+          // Not JSON
+        }
+      }
+    }
+    return sanitized;
+  }
+
   // ── AI Chat ──────────────────────────────────────────────────────────────────
   app.post("/api/chat", async (req, res) => {
     const { history, message, initialData, aiFields } = req.body;
+    const sanitizedInitialData = sanitizeInitialDataForAI(initialData);
 
     const fieldsListStr = aiFields && aiFields.length > 0
       ? aiFields.map((f: any) => `- ${f.label}${f.ai_instructions ? ` (Instrucciones: ${f.ai_instructions})` : ''}`).join("\n")
       : `- Usuarios involucrados.\n- Proceso actual.\n- Proceso deseado.\n- Sistemas impactados.\n- Frecuencia de uso.\n- Beneficios esperados.`;
 
     if (!isApiKeyConfigured()) {
-      return res.json({ text: getMockChatResponse(history, initialData, message), options: ["No estoy seguro", "Explícame mejor", "Sí, continuemos"] });
+      return res.json({ text: getMockChatResponse(history, sanitizedInitialData, message), options: ["No estoy seguro", "Explícame mejor", "Sí, continuemos"] });
     }
 
     try {
@@ -458,7 +467,7 @@ async function startServer() {
                 text: `${systemPrompt}
 
 Datos iniciales proporcionados por el usuario:
-${Object.entries(initialData || {}).map(([k, v]) => `${k}: ${v}`).join("\n")}
+${Object.entries(sanitizedInitialData || {}).map(([k, v]) => `${k}: ${v}`).join("\n")}
 
 Asegúrate de recolectar al menos la siguiente información (si no está en los datos iniciales). Es VITAL que no existan campos en blanco ni respuestas vacías. Si falta información para alguno de estos campos, haz preguntas específicas y directas para obtenerla. No termines la conversación ni devuelvas "[INFORMACION_COMPLETA]" en el texto hasta tener respuestas concretas para TODOS los puntos:
 ${fieldsListStr}
@@ -739,9 +748,10 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
   // ── AI Summarize ─────────────────────────────────────────────────────────────
   app.post("/api/summarize", async (req, res) => {
     const { history, initialData, aiFields } = req.body;
+    const sanitizedInitialData = sanitizeInitialDataForAI(initialData);
 
     if (!isApiKeyConfigured()) {
-      return res.json(getMockSummaryResponse(initialData));
+      return res.json(getMockSummaryResponse(sanitizedInitialData));
     }
 
     const dynamicSchema = aiFields && aiFields.length > 0
@@ -758,7 +768,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
               {
                 text: `Eres un Business Analyst Senior. A partir del siguiente levantamiento de información, genera un resumen estructurado en formato JSON estrictamente.
 Datos iniciales del formulario:
-${JSON.stringify(initialData, null, 2)}
+${JSON.stringify(sanitizedInitialData, null, 2)}
 
 Conversación completa con el solicitante:
 ${history.map((h: any) => `${h.role === "user" ? "Solicitante" : "Business Analyst"}: ${h.text}`).join("\n")}

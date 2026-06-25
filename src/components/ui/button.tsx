@@ -7,9 +7,9 @@ const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HT
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+          "inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#EB5F46] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
           {
-            "bg-[#4F5AF5] text-white hover:bg-[#3F49E0] shadow-sm shadow-[#4F5AF5]/20": variant === "default",
+            "bg-[#EB5F46] text-white hover:bg-[#c94a32] shadow-sm shadow-[#EB5F46]/20": variant === "default",
             "border border-[#E2E8F0] bg-white text-[#1E293B] hover:bg-[#F8FAFC]": variant === "outline",
             "text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#1E293B]": variant === "ghost",
             "bg-red-50 text-red-600 border border-red-100 hover:bg-red-100": variant === "destructive",
