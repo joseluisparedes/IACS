@@ -673,18 +673,35 @@ export default function InitiativeForm() {
     e.preventDefault();
     setStep(2);
     setIsAiTyping(true);
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history: [], message: "Hola, quiero registrar una nueva iniciativa.", initialData: formData, aiFields }),
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const newHist = [{ role: "model" as const, text: data.text, options: data.options }];
-      setChatHistory(newHist);
-      autoSave(newHist, summary);
-    } catch { setChatHistory([{ role: "model", text: "Error al conectar con el asistente. Intenta de nuevo." }]); }
-    finally { setIsAiTyping(false); }
+
+    const MAX_RETRIES = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history: [], message: "Hola, quiero registrar una nueva iniciativa.", initialData: formData, aiFields }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const newHist = [{ role: "model" as const, text: data.text, options: data.options }];
+        setChatHistory(newHist);
+        autoSave(newHist, summary);
+        setIsAiTyping(false);
+        return; // success
+      } catch (err) {
+        lastError = err;
+        if (attempt < MAX_RETRIES) {
+          // Wait 2 seconds before retrying (lets the server wake up)
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+    }
+
+    // All retries exhausted
+    setChatHistory([{ role: "model", text: "Error al conectar con el asistente. Por favor recarga la página e intenta de nuevo." }]);
+    setIsAiTyping(false);
   };
 
   const submitMessage = async (userText: string) => {

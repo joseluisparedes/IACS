@@ -125,9 +125,9 @@ function getMockSummaryResponse(initialData: any) {
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-  app.use(express.json());
 
-  // CORS middleware for client access from GitHub Pages in production
+  // CORS middleware — MUST be first, before express.json(), so CORS headers
+  // are always present even on error responses (parse errors, 500s, etc.)
   app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
@@ -137,6 +137,8 @@ async function startServer() {
     }
     next();
   });
+
+  app.use(express.json());
 
 
 
