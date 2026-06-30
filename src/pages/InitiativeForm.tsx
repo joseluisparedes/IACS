@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle } from "lucide-react";
+import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare } from "lucide-react";
 import STTWorker from '../workers/stt.worker?worker';
 import { FieldDefinition } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
@@ -10,6 +10,97 @@ import ReactMarkdown from "react-markdown";
 // ─── Input styles ─────────────────────────────────────────────────────────────
 const inputCls = "w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2.5 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] focus:border-[#4F5AF5] transition-colors disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]";
 const labelCls = "block text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-1.5";
+
+// ─── MultiSelect Dropdown ───────────────────────────────────────────────────────
+function MultiSelectDropdown({ options, selected, onChange, disabled, placeholder = "Selecciona opciones..." }: { options: string[], selected: string[], onChange: (val: string[]) => void, disabled?: boolean, placeholder?: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleOption = (opt: string) => {
+    if (disabled) return;
+    const next = selected.includes(opt)
+      ? selected.filter(s => s !== opt)
+      : [...selected, opt];
+    onChange(next);
+  };
+
+  const removeOption = (e: React.MouseEvent, opt: string) => {
+    e.stopPropagation();
+    if (disabled) return;
+    onChange(selected.filter(s => s !== opt));
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <div
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        className={`w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2 text-sm text-[#1E293B] cursor-pointer min-h-[42px] flex items-center justify-between transition-colors focus:ring-2 focus:ring-[#4F5AF5] ${
+          isOpen ? "ring-2 ring-[#4F5AF5] border-[#4F5AF5]" : ""
+        } ${disabled ? "bg-[#F8FAFC] text-[#94A3B8] cursor-not-allowed" : ""}`}
+      >
+        <div className="flex flex-wrap gap-1.5 max-w-[90%]">
+          {selected.length === 0 ? (
+            <span className="text-[#94A3B8] select-none text-xs">{placeholder}</span>
+          ) : (
+            selected.map(opt => (
+              <span
+                key={opt}
+                className="flex items-center gap-1 bg-[#EEF2FF] border border-[#C7D2FE] text-[#4F5AF5] text-xs px-2 py-0.5 rounded-md font-semibold"
+              >
+                {opt}
+                {!disabled && (
+                  <button
+                    type="button"
+                    onClick={(e) => removeOption(e, opt)}
+                    className="hover:bg-blue-100 rounded-full p-0.5 text-[#4F5AF5] ml-0.5"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                )}
+              </span>
+            ))
+          )}
+        </div>
+        <ChevronDown className={`w-4 h-4 text-[#94A3B8] transition-transform shrink-0 ml-2 ${isOpen ? "rotate-180" : ""}`} />
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-[100] left-0 right-0 mt-1.5 bg-white border border-[#E2E8F0] rounded-xl shadow-xl max-h-60 overflow-y-auto p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-100">
+          {options.length === 0 ? (
+            <div className="text-xs text-slate-400 p-3 text-center">No hay opciones disponibles</div>
+          ) : (
+            options.map(opt => {
+              const isSelected = selected.includes(opt);
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => toggleOption(opt)}
+                  className={`flex items-center justify-between w-full px-3.5 py-2 text-sm rounded-lg hover:bg-[#F8FAFC] transition-colors text-left font-medium ${
+                    isSelected ? "text-[#4F5AF5] bg-[#EEF2FF]/40 font-semibold" : "text-[#475569]"
+                  }`}
+                >
+                  <span>{opt}</span>
+                  {isSelected && <Check className="w-4 h-4 text-[#4F5AF5]" />}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Dynamic field ────────────────────────────────────────────────────────────
 function DynamicField({ field, value, onChange, parentValue, disabled, optionsOverride, onUploadingChange }: {
@@ -24,7 +115,7 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
 
   // Parse current value if it is a JSON file representation
   let fileObj: { name: string; content?: string } | null = null;
-  if (value && value.startsWith('{"name":')) {
+  if (value && typeof value === "string" && value.startsWith('{"name":')) {
     try {
       fileObj = JSON.parse(value);
     } catch (e) {
@@ -43,6 +134,18 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
       } else if (field.depends_on) {
         options = []; // Hide options if parent is not selected
       }
+    }
+    if (field.allow_multiple) {
+      const selectedList = Array.isArray(value) ? value : (value ? [value] : []);
+      return (
+        <MultiSelectDropdown
+          options={options}
+          selected={selectedList}
+          onChange={(next) => onChange(next as any)}
+          disabled={disabled || (!optionsOverride && field.depends_on ? !parentValue : false)}
+          placeholder="Selecciona..."
+        />
+      );
     }
     return (
       <select value={value} onChange={e => onChange(e.target.value)} required={field.is_required} className={inputCls} disabled={disabled || (!optionsOverride && field.depends_on ? !parentValue : false)}>
@@ -271,6 +374,7 @@ export default function InitiativeForm() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [ratedMessages, setRatedMessages] = useState<Record<number, 'positive' | 'negative'>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [showChatModal, setShowChatModal] = useState(false);
 
   // ── Voice input (MediaRecorder + local Whisper WASM) ──────────────────────
   const [isRecording, setIsRecording] = useState(false);
@@ -330,6 +434,7 @@ export default function InitiativeForm() {
   const [attachError, setAttachError] = useState<string | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     Promise.all([
@@ -395,9 +500,13 @@ export default function InitiativeForm() {
 
           if (!restored) {
             // Fresh session
-            const initial: Record<string, string> = {};
+            const initial: Record<string, any> = {};
             visibleFormFields.forEach((f: FieldDefinition) => {
-              initial[f.key] = f.field_type === "select" && f.options.length > 0 ? f.options[0] : "";
+              if (f.field_type === "select") {
+                initial[f.key] = f.allow_multiple ? [] : (f.options.length > 0 ? f.options[0] : "");
+              } else {
+                initial[f.key] = "";
+              }
             });
             setFormData(initial);
           }
@@ -419,7 +528,7 @@ export default function InitiativeForm() {
       }));
     } catch (_) { /* localStorage may be unavailable in private mode */ }
 
-    // Then try to sync to the backend
+    // Sync to backend — include user_id so the draft appears in "Chats en curso" for this user
     try {
       await fetch("/api/initiatives/draft", {
         method: "POST",
@@ -429,7 +538,8 @@ export default function InitiativeForm() {
           form_data: formData,
           chat_history: currentHistory,
           summary: currentSummary,
-          status: "Borrador"
+          status: "Borrador",
+          user_id: profile?.id ?? null,
         }),
       });
     } catch (e) { console.error("Error auto-saving to backend (session backed up locally)", e); }
@@ -674,6 +784,11 @@ export default function InitiativeForm() {
     setStep(2);
     setIsAiTyping(true);
 
+    // ── Guardar borrador en BD ANTES de llamar a la IA ────────────────────────
+    // Esto garantiza que el chat aparezca en "Chats en curso" aunque el usuario
+    // cierre la pestaña o navegue antes de que la IA responda.
+    await autoSave([], null);
+
     const MAX_RETRIES = 3;
     let lastError: any;
 
@@ -720,6 +835,9 @@ export default function InitiativeForm() {
     const newHistory = [...chatHistory, { role: "user" as const, text: displayText, attachment }];
     setChatHistory(newHistory);
     setCurrentMessage("");
+    if (chatInputRef.current) {
+      chatInputRef.current.style.height = 'auto';
+    }
     removeAttachment();
     setIsAiTyping(true);
 
@@ -1125,17 +1243,34 @@ export default function InitiativeForm() {
                 </button>
               )}
 
-              {/* Text input */}
-              <input
+              {/* Text input as textarea for paragraph-like readability */}
+              <textarea
+                ref={chatInputRef}
                 value={currentMessage}
-                onChange={e => setCurrentMessage(e.target.value)}
+                onChange={e => {
+                  setCurrentMessage(e.target.value);
+                  // Auto-grow height up to 150px
+                  e.target.style.height = 'auto';
+                  e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
+                }}
+                onKeyDown={e => {
+                  // Submit on Enter key without shift
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!isAiTyping && !isRecording && !isTranscribing) {
+                      submitMessage(currentMessage);
+                    }
+                  }
+                }}
+                rows={1}
                 disabled={isAiTyping || isRecording || isTranscribing}
                 placeholder={
                   isRecording ? '🎙️ Grabando — haz clic en ■ para transcribir...'
                   : isTranscribing ? 'Transcribiendo...'
                   : 'Escribe tu respuesta...'
                 }
-                className={`flex-1 border rounded-xl px-4 py-2.5 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:border-[#4F5AF5] transition-colors ${
+                style={{ resize: 'none' }}
+                className={`flex-1 border rounded-xl px-4 py-2.5 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:border-[#4F5AF5] transition-colors leading-relaxed min-h-[42px] max-h-[150px] align-middle ${
                   isRecording
                     ? 'border-red-300 bg-red-50 focus:ring-red-200'
                     : isTranscribing
@@ -1283,24 +1418,36 @@ export default function InitiativeForm() {
           </div>
 
           {/* Actions */}
-          <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex flex-wrap gap-3 justify-between items-center">
-            <button
-              onClick={() => { setStep(2); setSummary(null); }}
-              disabled={isSaving}
-              className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] disabled:opacity-50 text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-            >
-              <Pencil className="w-4 h-4" />
-              Editar respuestas
-            </button>
-            <div className="flex gap-3">
+          <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex flex-col sm:flex-row gap-4 justify-between items-stretch sm:items-center">
+            <div className="flex flex-wrap gap-2.5">
               <button
-                onClick={() => generateSummary(chatHistory)}
+                onClick={() => { setStep(2); setSummary(null); }}
                 disabled={isSaving}
                 className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] disabled:opacity-50 text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                title="Editar los campos del formulario inicial"
               >
-                <RotateCcw className="w-4 h-4" />
-                Regenerar
+                <Pencil className="w-4 h-4" />
+                Editar formulario
               </button>
+              <button
+                onClick={() => { setStep(2); }}
+                disabled={isSaving}
+                className="flex items-center gap-2 border border-[#4F5AF5]/20 text-[#4F5AF5] bg-[#EEF2FF] hover:bg-[#E0E7FF] disabled:opacity-50 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                title="Regresar al chat para dar más detalles a la IA"
+              >
+                <BrainCircuit className="w-4 h-4" />
+                Seguir chateando con la IA
+              </button>
+              <button
+                onClick={() => setShowChatModal(true)}
+                className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                title="Ver el historial de chat con la IA"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Ver conversación
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => handleSave("Borrador")}
                 disabled={isSaving}
@@ -1324,6 +1471,85 @@ export default function InitiativeForm() {
                   <Send className="w-4 h-4" />
                 )}
                 {isSaving ? 'Enviando...' : 'Enviar a revisión BP'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Read-only Chat History Modal ────────────────────────────────────── */}
+      {showChatModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowChatModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-[#F1F5F9] bg-[#F8FAFC] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[#EEF2FF] flex items-center justify-center">
+                  <span className="text-[#4F5AF5] text-sm">💬</span>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#1E293B]">Historial de Conversación con IA</h3>
+                  <p className="text-[10px] text-[#94A3B8]">Consulta las respuestas y archivos que compartiste con el agente.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowChatModal(false)} 
+                className="text-[#94A3B8] hover:text-[#475569] p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Conversations */}
+            <div className="p-6 overflow-y-auto space-y-4 bg-slate-50 flex-grow">
+              {chatHistory.length === 0 ? (
+                <div className="text-center py-10 text-[#94A3B8]">
+                  No hay mensajes registrados en esta conversación.
+                </div>
+              ) : (
+                chatHistory.map((msg, i) => (
+                  <div 
+                    key={i} 
+                    className={`flex flex-col max-w-[85%] ${
+                      msg.role === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
+                    }`}
+                  >
+                    <span className="text-[10px] font-semibold text-[#94A3B8] mb-1 px-1">
+                      {msg.role === 'user' ? 'Tú (Registrador)' : 'Asistente IA'}
+                    </span>
+                    <div 
+                      className={`p-3.5 rounded-2xl shadow-sm text-xs leading-relaxed ${
+                        msg.role === 'user' 
+                          ? 'bg-[#4F5AF5] text-white rounded-tr-none' 
+                          : 'bg-white text-[#334155] border border-[#E2E8F0] rounded-tl-none'
+                      }`}
+                    >
+                      {/* Attached File display inside modal */}
+                      {msg.attachment && (
+                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold mb-2 w-fit ${
+                          msg.role === 'user' 
+                            ? 'bg-white/20 text-white' 
+                            : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          <Paperclip className="w-3.5 h-3.5" />
+                          <span>Archivo adjunto: {msg.attachment.name}</span>
+                        </div>
+                      )}
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-end">
+              <button
+                onClick={() => setShowChatModal(false)}
+                className="bg-white border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+              >
+                Cerrar vista
               </button>
             </div>
           </div>

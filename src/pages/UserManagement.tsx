@@ -46,12 +46,20 @@ export default function UserManagement() {
   const [selectedVPs, setSelectedVPs] = useState<string[]>([]);
   const [selectedDirs, setSelectedDirs] = useState<string[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [selectedActivation, setSelectedActivation] = useState<'all' | 'active' | 'pending'>('all');
 
   // Estados de dropdowns
   const [vpDropdownOpen, setVpDropdownOpen] = useState(false);
   const [dirDropdownOpen, setDirDropdownOpen] = useState(false);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const [activationDropdownOpen, setActivationDropdownOpen] = useState(false);
   
+  // Asignaciones colapsables
+  const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({});
+  
+  // Set de correos activados
+  const [activatedEmails, setActivatedEmails] = useState<Set<string>>(new Set());
+
   // Formulario manual
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
@@ -65,13 +73,18 @@ export default function UserManagement() {
 
   const fetchData = async () => {
     setLoading(true);
-    const [usersRes, vpsRes, dirRes] = await Promise.all([
+    const [usersRes, profilesRes, vpsRes, dirRes] = await Promise.all([
       supabase.from('allowed_users').select('*, user_roles_whitelist(*, vps(name))').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('email'),
       supabase.from('vps').select('id, name').order('name'),
       supabase.from('direcciones').select('id, name, vp_id').order('name')
     ]);
       
     if (usersRes.data) setUsers(usersRes.data);
+    if (profilesRes.data) {
+      const activeEmailsSet = new Set(profilesRes.data.map(p => p.email?.toLowerCase().trim()).filter(Boolean));
+      setActivatedEmails(activeEmailsSet);
+    }
     if (vpsRes.data) setVps(vpsRes.data);
     if (dirRes.data) setDirecciones(dirRes.data);
     setLoading(false);
@@ -221,6 +234,12 @@ export default function UserManagement() {
       if (!matchesRole) return false;
     }
 
+    if (selectedActivation !== 'all') {
+      const isActivated = activatedEmails.has(user.email.toLowerCase().trim());
+      if (selectedActivation === 'active' && !isActivated) return false;
+      if (selectedActivation === 'pending' && isActivated) return false;
+    }
+
     return true;
   });
 
@@ -235,50 +254,6 @@ export default function UserManagement() {
           <p className="text-[#64748B] mt-1 text-sm">
             Un usuario puede tener diferentes roles dependiendo de la Vicepresidencia y Dirección.
           </p>
-        </div>
-      </div>
-
-      {/* LEYENDA DE ROLES */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 shadow-sm">
-        <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-blue-600" />
-          Niveles de Acceso y Funciones por Rol
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
-             <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">ADMIN</span>
-             <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
-               <li>Control total de la plataforma.</li>
-               <li>Configuración de formularios.</li>
-               <li>Estructura organizacional y roles.</li>
-               <li>Métricas globales.</li>
-             </ul>
-          </div>
-          <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
-             <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">BP TI</span>
-             <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
-               <li>Aprobador (Business Partner).</li>
-               <li>Edita iniciativas y sugerencias.</li>
-               <li>Decide aprobar u observar.</li>
-               <li>Gestión de Track Changes.</li>
-             </ul>
-          </div>
-          <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
-             <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">REGISTRADOR</span>
-             <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
-               <li>Crea iniciativas con IA.</li>
-               <li>Gestiona iniciativas observadas.</li>
-               <li>Acepta o rechaza cambios del BP.</li>
-             </ul>
-          </div>
-          <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
-             <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">INVITADO</span>
-             <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
-               <li>Acceso de solo lectura.</li>
-               <li>Métricas de visualización.</li>
-               <li>Acceso a iniciativas finalizadas de su VP.</li>
-             </ul>
-          </div>
         </div>
       </div>
 
@@ -406,12 +381,13 @@ export default function UserManagement() {
                 />
               </div>
 
-              {(selectedVPs.length > 0 || selectedDirs.length > 0 || selectedRoles.length > 0 || searchQuery !== '') && (
+              {(selectedVPs.length > 0 || selectedDirs.length > 0 || selectedRoles.length > 0 || selectedActivation !== 'all' || searchQuery !== '') && (
                 <button 
                   onClick={() => {
                     setSelectedVPs([]);
                     setSelectedDirs([]);
                     setSelectedRoles([]);
+                    setSelectedActivation('all');
                     setSearchQuery('');
                   }}
                   className="text-xs font-bold text-red-500 hover:text-red-700 transition-colors shrink-0 text-center"
@@ -432,6 +408,7 @@ export default function UserManagement() {
                   setVpDropdownOpen(!vpDropdownOpen);
                   setDirDropdownOpen(false);
                   setRoleDropdownOpen(false);
+                  setActivationDropdownOpen(false);
                 }}
                 className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                   selectedVPs.length > 0 ? 'bg-violet-50 border-violet-200 text-violet-700' : 'bg-white border-[#E2E8F0] text-[#64748B]'
@@ -473,6 +450,7 @@ export default function UserManagement() {
                   setDirDropdownOpen(!dirDropdownOpen);
                   setVpDropdownOpen(false);
                   setRoleDropdownOpen(false);
+                  setActivationDropdownOpen(false);
                 }}
                 className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                   selectedDirs.length > 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-[#E2E8F0] text-[#64748B]'
@@ -497,7 +475,7 @@ export default function UserManagement() {
                               checked={selectedDirs.includes(dir.id)}
                               onChange={e => {
                                 if (e.target.checked) setSelectedDirs([...selectedDirs, dir.id]);
-                                else setSelectedDirs(selectedDirs.filter(id => id !== dir.id));
+                                  else setSelectedDirs(selectedDirs.filter(id => id !== dir.id));
                               }}
                               className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-3.5 h-3.5 mt-0.5"
                             />
@@ -522,6 +500,7 @@ export default function UserManagement() {
                   setRoleDropdownOpen(!roleDropdownOpen);
                   setVpDropdownOpen(false);
                   setDirDropdownOpen(false);
+                  setActivationDropdownOpen(false);
                 }}
                 className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                   selectedRoles.length > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-[#E2E8F0] text-[#64748B]'
@@ -549,6 +528,55 @@ export default function UserManagement() {
                           <span>{r.label}</span>
                         </label>
                       ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Dropdown Activación */}
+            <div className="relative">
+              <button 
+                type="button"
+                onClick={() => {
+                  setActivationDropdownOpen(!activationDropdownOpen);
+                  setVpDropdownOpen(false);
+                  setDirDropdownOpen(false);
+                  setRoleDropdownOpen(false);
+                }}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  selectedActivation !== 'all' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-[#E2E8F0] text-[#64748B]'
+                }`}
+              >
+                <span>Activación: {selectedActivation === 'all' ? 'Todos' : selectedActivation === 'active' ? 'Activos' : 'Pendientes'}</span>
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+              {activationDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setActivationDropdownOpen(false)} />
+                  <div className="absolute left-0 mt-1 w-48 bg-white border border-[#E2E8F0] rounded-xl shadow-lg z-50 p-2">
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedActivation('all'); setActivationDropdownOpen(false); }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-slate-50 ${selectedActivation === 'all' ? 'font-bold text-[#4F5AF5]' : 'text-[#1E293B]'}`}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedActivation('active'); setActivationDropdownOpen(false); }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-slate-50 ${selectedActivation === 'active' ? 'font-bold text-[#4F5AF5]' : 'text-[#1E293B]'}`}
+                      >
+                        Activos (Cuenta activada)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedActivation('pending'); setActivationDropdownOpen(false); }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-slate-50 ${selectedActivation === 'pending' ? 'font-bold text-[#4F5AF5]' : 'text-[#1E293B]'}`}
+                      >
+                        Pendientes (No activada)
+                      </button>
                     </div>
                   </div>
                 </>
@@ -582,42 +610,68 @@ export default function UserManagement() {
                             {user.name.substring(0,2).toUpperCase()}
                           </div>
                           <div>
-                            <p className="text-sm font-bold text-[#1E293B]">{user.name}</p>
-                            <p className="text-xs text-[#64748B] flex items-center gap-1 mt-0.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold text-[#1E293B]">{user.name}</p>
+                              {activatedEmails.has(user.email.toLowerCase().trim()) ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                  Activo
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-amber-50 text-amber-600 border border-amber-200 shrink-0">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                                  Pendiente
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-[#64748B] flex items-center gap-1 mt-1">
                               <Mail className="w-3 h-3" /> {user.email}
                             </p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="space-y-3">
+                      <td className="px-6 py-4 align-top">
+                        <div className="space-y-2">
                           {user.user_roles_whitelist?.length === 0 ? (
                              <span className="text-xs text-red-500 italic">Sin roles asignados</span>
                           ) : (
-                            user.user_roles_whitelist?.map((r, idx) => (
-                              <div key={idx} className="bg-slate-50 border border-slate-100 rounded-lg p-2 flex flex-col gap-1.5">
-                                <div className="flex items-center gap-2">
-                                  {getRoleBadge(r.role)}
-                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white text-slate-700 border border-slate-200">
-                                    <Building className="w-2.5 h-2.5" /> {r.vps?.name || 'Sin VP'}
-                                  </span>
-                                </div>
-                                <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-slate-200 ml-1">
-                                  {(() => {
-                                    const userDirIds = r.direcciones_ids || [];
-                                    const allDirsForVp = direcciones.filter(d => d.vp_id === r.vp_id);
-                                    if (userDirIds.length === 0) return <span className="text-[10px] text-slate-400">Ninguna dirección</span>;
-                                    if (allDirsForVp.length > 0 && userDirIds.length === allDirsForVp.length) {
-                                      return <span className="text-[10px] text-[#4F5AF5] font-semibold flex items-center gap-1"><Briefcase className="w-2.5 h-2.5" /> Todas las Direcciones ({userDirIds.length})</span>;
-                                    }
-                                    return userDirIds.map(id => {
-                                      const dName = direcciones.find(d => d.id === id)?.name || 'Desconocida';
-                                      return <span key={id} className="text-[10px] text-[#64748B] flex items-center gap-1"><Briefcase className="w-2.5 h-2.5 text-slate-300" /> {dName}</span>;
-                                    });
-                                  })()}
-                                </div>
-                              </div>
-                            ))
+                            <>
+                              {user.user_roles_whitelist
+                                ?.slice(0, expandedUsers[user.id] ? undefined : 2)
+                                .map((r, idx) => (
+                                  <div key={idx} className="bg-slate-50 border border-slate-100 rounded-lg p-2 flex flex-col gap-1.5">
+                                    <div className="flex items-center gap-2">
+                                      {getRoleBadge(r.role)}
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white text-slate-700 border border-slate-200">
+                                        <Building className="w-2.5 h-2.5" /> {r.vps?.name || 'Sin VP'}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-slate-200 ml-1">
+                                      {(() => {
+                                        const userDirIds = r.direcciones_ids || [];
+                                        const allDirsForVp = direcciones.filter(d => d.vp_id === r.vp_id);
+                                        if (userDirIds.length === 0) return <span className="text-[10px] text-slate-400">Ninguna dirección</span>;
+                                        if (allDirsForVp.length > 0 && userDirIds.length === allDirsForVp.length) {
+                                          return <span className="text-[10px] text-[#4F5AF5] font-semibold flex items-center gap-1"><Briefcase className="w-2.5 h-2.5" /> Todas las Direcciones ({userDirIds.length})</span>;
+                                        }
+                                        return userDirIds.map(id => {
+                                          const dName = direcciones.find(d => d.id === id)?.name || 'Desconocida';
+                                          return <span key={id} className="text-[10px] text-[#64748B] flex items-center gap-1"><Briefcase className="w-2.5 h-2.5 text-slate-300" /> {dName}</span>;
+                                        });
+                                      })()}
+                                    </div>
+                                  </div>
+                                ))}
+                              {user.user_roles_whitelist && user.user_roles_whitelist.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedUsers(prev => ({ ...prev, [user.id]: !prev[user.id] }))}
+                                  className="text-[11px] text-[#4F5AF5] hover:text-[#3F49E0] font-semibold transition-colors flex items-center gap-1 mt-1 cursor-pointer"
+                                >
+                                  {expandedUsers[user.id] ? 'Ver menos asignaciones' : `Ver ${user.user_roles_whitelist.length - 2} asignaciones más...`}
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>
@@ -632,6 +686,50 @@ export default function UserManagement() {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* LEYENDA DE ROLES */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 shadow-sm mt-6">
+        <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
+          <Shield className="w-4 h-4 text-blue-600" />
+          Niveles de Acceso y Funciones por Rol
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
+             <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">ADMIN</span>
+             <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
+               <li>Control total de la plataforma.</li>
+               <li>Configuración de formularios.</li>
+               <li>Estructura organizacional y roles.</li>
+               <li>Métricas globales.</li>
+             </ul>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
+             <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">BP TI</span>
+             <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
+               <li>Aprobador (Business Partner).</li>
+               <li>Edita iniciativas y sugerencias.</li>
+               <li>Decide aprobar u observar.</li>
+               <li>Gestión de Track Changes.</li>
+             </ul>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
+             <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">REGISTRADOR</span>
+             <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
+               <li>Crea iniciativas con IA.</li>
+               <li>Gestiona iniciativas observadas.</li>
+               <li>Acepta o rechaza cambios del BP.</li>
+             </ul>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
+             <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">INVITADO</span>
+             <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
+               <li>Acceso de solo lectura.</li>
+               <li>Métricas de visualización.</li>
+               <li>Acceso a iniciativas finalizadas de su VP.</li>
+             </ul>
           </div>
         </div>
       </div>

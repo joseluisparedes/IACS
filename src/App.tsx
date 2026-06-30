@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
@@ -13,16 +13,19 @@ import Login from './pages/Login';
 import AITraining from './pages/AITraining';
 import EmailLogs from './pages/EmailLogs';
 import BulkUpload from './pages/BulkUpload';
+import StateFlow from './pages/StateFlow';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
 
-const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas'];
+const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados'];
 
 function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { profile } = useAuth();
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return window.location.pathname === '/bandeja';
+  });
   const [adminOpen, setAdminOpen] = useState<boolean>(() => {
     const saved = localStorage.getItem('sidebar_admin_open');
     if (saved !== null) return saved === 'true';
@@ -37,18 +40,25 @@ function Layout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (ADMIN_PATHS.includes(location.pathname)) setAdminOpen(true);
+    if (location.pathname === '/bandeja') {
+      setSidebarCollapsed(true);
+    }
   }, [location.pathname]);
 
   useEffect(() => {
-    if (profile?.name) {
+    if (profile?.id) {
       const fetchDrafts = async () => {
         const { data } = await supabase
           .from('initiatives')
-          .select('id, form_data, created_at')
+          .select('id, form_data, created_at, updated_at, user_id')
           .eq('status', 'Borrador')
-          .order('created_at', { ascending: false });
+          .order('updated_at', { ascending: false, nullsFirst: false });
         if (data) {
-          const myDrafts = data.filter(d => d.form_data?.registrador === profile.name);
+          // Filter by user_id (new drafts) OR by registrador name (legacy drafts without user_id)
+          const myDrafts = data.filter(d =>
+            d.user_id === profile.id ||
+            (!d.user_id && d.form_data?.registrador === profile.name)
+          );
           setDrafts(myDrafts);
         }
       };
@@ -60,7 +70,7 @@ function Layout({ children }: { children: React.ReactNode }) {
 
       return () => { supabase.removeChannel(channel); };
     }
-  }, [profile?.name]);
+  }, [profile?.id, profile?.name]);
 
   useEffect(() => {
     if (profile?.id) {
@@ -115,15 +125,63 @@ function Layout({ children }: { children: React.ReactNode }) {
     { name: 'Bandeja de Aprobación', path: '/bandeja', icon: Inbox },
   ];
 
-  const adminItems = [
-    { name: 'Estructura Organizativa', path: '/admin/estructura', icon: Settings2 },
-    { name: 'Campos del Formulario', path: '/admin', icon: Settings2 },
-    { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: ShieldAlert },
-    { name: 'Tablero de Agentes', path: '/admin/agentes', icon: Users },
-    { name: 'Entrenamiento IA', path: '/admin/ia-training', icon: BrainCircuit },
-    { name: 'Bandeja de Correos', path: '/admin/correos', icon: Mail },
-    { name: 'Cargas Masivas', path: '/admin/cargas-masivas', icon: Upload },
+  const adminGroups = [
+    {
+      name: 'Organización y Accesos',
+      items: [
+        { name: 'Estructura Organizativa', path: '/admin/estructura', icon: Settings2 },
+        { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: ShieldAlert },
+      ]
+    },
+    {
+      name: 'Personalización de Datos',
+      items: [
+        { name: 'Flujo de Estados', path: '/admin/flujo-estados', icon: GitBranch },
+        { name: 'Campos del Formulario', path: '/admin', icon: Settings2 },
+      ]
+    },
+    {
+      name: 'Centro de Agentes e IA',
+      items: [
+        { name: 'Tablero de Agentes', path: '/admin/agentes', icon: Users },
+        { name: 'Entrenamiento IA', path: '/admin/ia-training', icon: BrainCircuit },
+      ]
+    },
+    {
+      name: 'Gestión de Datos',
+      items: [
+        { name: 'Cargas Masivas', path: '/admin/cargas-masivas', icon: Upload },
+      ]
+    },
+    {
+      name: 'Comunicaciones',
+      items: [
+        { name: 'Bandeja de Correos', path: '/admin/correos', icon: Mail },
+      ]
+    }
   ];
+
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    adminGroups.forEach(group => {
+      const hasActiveChild = group.items.some(item => location.pathname === item.path);
+      initial[group.name] = hasActiveChild;
+    });
+    return initial;
+  });
+
+  useEffect(() => {
+    adminGroups.forEach(group => {
+      const hasActiveChild = group.items.some(item => location.pathname === item.path);
+      if (hasActiveChild) {
+        setExpandedGroups(prev => ({ ...prev, [group.name]: true }));
+      }
+    });
+  }, [location.pathname]);
+
+  const toggleGroup = (groupName: string) => {
+    setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
+  };
 
   const userName = profile?.name || 'Usuario';
   const roleNamesMap: Record<string, string> = {
@@ -222,7 +280,8 @@ function Layout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Header at the top (100% width) */}
-      <header className="corp-header shrink-0 shadow-[0_2px_12px_rgba(13,67,108,.05)] relative z-50">
+      <header className="corp-header shrink-0 shadow-[0_2px_12px_rgba(13,67,108,.05)] relative z-[60]">
+        <div className="corp-header-bg" />
         <div className="h-16 flex items-center justify-between px-8 relative z-10">
           <div className="flex items-center gap-4">
             <button 
@@ -279,7 +338,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                                 {d.form_data?.titulo || "Sin título"}
                               </p>
                               <p className="text-[10px] text-[#9ca3af] mt-1">
-                                Actualizado: {new Date(d.created_at).toLocaleDateString()} {new Date(d.created_at).toLocaleTimeString()}
+                                Actualizado: {new Date(d.updated_at || d.created_at).toLocaleDateString()} {new Date(d.updated_at || d.created_at).toLocaleTimeString()}
                               </p>
                             </Link>
                           ))
@@ -398,24 +457,43 @@ function Layout({ children }: { children: React.ReactNode }) {
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${adminOpen ? 'rotate-180' : ''}`} />
                 </button>
 
-                <div className={`overflow-hidden transition-all duration-200 ease-in-out ${adminOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <div className="pt-1 pl-2 space-y-1 pb-2">
-                    {adminItems.map((item) => {
-                      const Icon = item.icon;
-                      const active = location.pathname === item.path;
+                <div className={`overflow-hidden transition-all duration-200 ease-in-out ${adminOpen ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="pt-1 pl-2 space-y-3 pb-2">
+                    {adminGroups.map((group) => {
+                      const isExpanded = !!expandedGroups[group.name];
                       return (
-                        <Link
-                          key={item.path}
-                          to={item.path}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                            active
-                              ? 'bg-[#fff0ed] text-[#EB5F46] shadow-sm'
-                              : 'text-[#4a5568] hover:bg-[#f7f8fc] hover:text-[#1a1a2e]'
-                          }`}
-                        >
-                          <Icon className="w-4 h-4 shrink-0" />
-                          {item.name}
-                        </Link>
+                        <div key={group.name} className="space-y-1">
+                          <button
+                            onClick={() => toggleGroup(group.name)}
+                            className="w-full flex items-center justify-between text-[9px] uppercase font-bold text-[#9ca3af] tracking-wider px-3 py-1.5 mt-1 hover:text-[#1a1a2e] transition-colors"
+                          >
+                            <span>{group.name}</span>
+                            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                          </button>
+                          
+                          <div className={`overflow-hidden transition-all duration-200 ease-in-out ${isExpanded ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+                            <div className="space-y-1 pl-1 py-1">
+                              {group.items.map((item) => {
+                                const Icon = item.icon;
+                                const active = location.pathname === item.path;
+                                return (
+                                  <Link
+                                    key={item.path}
+                                    to={item.path}
+                                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                      active
+                                        ? 'bg-[#fff0ed] text-[#EB5F46] shadow-sm'
+                                        : 'text-[#4a5568] hover:bg-[#f7f8fc] hover:text-[#1a1a2e]'
+                                    }`}
+                                  >
+                                    <Icon className="w-4 h-4 shrink-0" />
+                                    {item.name}
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
@@ -517,6 +595,7 @@ export default function App() {
           <Route path="/admin/ia-training" element={<ProtectedRoute><AITraining /></ProtectedRoute>} />
           <Route path="/admin/correos" element={<ProtectedRoute><EmailLogs /></ProtectedRoute>} />
           <Route path="/admin/cargas-masivas" element={<ProtectedRoute><BulkUpload /></ProtectedRoute>} />
+          <Route path="/admin/flujo-estados" element={<ProtectedRoute><StateFlow /></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

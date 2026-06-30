@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 
@@ -21,7 +21,9 @@ const LABEL_MAP: Record<string, string> = {
   "es_necesidad_spo": "Es Necesidad SPO",
   "registrador": "Registrador",
   "fecha_requerida": "Fecha Requerida",
-  "vicepresidencia": "Vicepresidencia"
+  "vicepresidencia": "Vicepresidencia",
+  "_vobo_status": "Visto Bueno (VoBo)",
+  "bp_ti_asignado": "Business Partner TI Asignado"
 };
 
 function formatLabel(k: string, fieldsMap: Record<string, string> = {}) {
@@ -38,6 +40,117 @@ function formatLabel(k: string, fieldsMap: Record<string, string> = {}) {
   return k.replace(/([A-Z])/g, ' $1').trim();
 }
 
+// ─── Force Download Helper ───────────────────────────────────────────────────
+const handleForceDownload = async (url: string, filename: string) => {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (error) {
+    console.error("Error downloading file:", error);
+    // Fallback: open in a new tab if fetch/blob fails (e.g. CORS block fallback)
+    window.open(url, '_blank');
+  }
+};
+
+// ─── MultiSelect Dropdown ───────────────────────────────────────────────────────
+function MultiSelectDropdown({ options, selected, onChange, disabled, placeholder = "Selecciona opciones..." }: { options: string[], selected: string[], onChange: (val: string[]) => void, disabled?: boolean, placeholder?: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleOption = (opt: string) => {
+    if (disabled) return;
+    const next = selected.includes(opt)
+      ? selected.filter(s => s !== opt)
+      : [...selected, opt];
+    onChange(next);
+  };
+
+  const removeOption = (e: React.MouseEvent, opt: string) => {
+    e.stopPropagation();
+    if (disabled) return;
+    onChange(selected.filter(s => s !== opt));
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <div
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        className={`w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2 text-sm text-[#1E293B] cursor-pointer min-h-[42px] flex items-center justify-between transition-colors focus:ring-2 focus:ring-[#4F5AF5] ${
+          isOpen ? "ring-2 ring-[#4F5AF5] border-[#4F5AF5]" : ""
+        } ${disabled ? "bg-[#F8FAFC] text-[#94A3B8] cursor-not-allowed" : ""}`}
+      >
+        <div className="flex flex-wrap gap-1.5 max-w-[90%]">
+          {selected.length === 0 ? (
+            <span className="text-[#94A3B8] select-none text-xs">{placeholder}</span>
+          ) : (
+            selected.map(opt => (
+              <span
+                key={opt}
+                className="flex items-center gap-1 bg-[#EEF2FF] border border-[#C7D2FE] text-[#4F5AF5] text-xs px-2 py-0.5 rounded-md font-semibold"
+              >
+                {opt}
+                {!disabled && (
+                  <button
+                    type="button"
+                    onClick={(e) => removeOption(e, opt)}
+                    className="hover:bg-blue-100 rounded-full p-0.5 text-[#4F5AF5] ml-0.5"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                )}
+              </span>
+            ))
+          )}
+        </div>
+        <ChevronDown className={`w-4 h-4 text-[#94A3B8] transition-transform shrink-0 ml-2 ${isOpen ? "rotate-180" : ""}`} />
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-[100] left-0 right-0 mt-1.5 bg-white border border-[#E2E8F0] rounded-xl shadow-xl max-h-60 overflow-y-auto p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-100">
+          {options.length === 0 ? (
+            <div className="text-xs text-slate-400 p-3 text-center">No hay opciones disponibles</div>
+          ) : (
+            options.map(opt => {
+              const isSelected = selected.includes(opt);
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => toggleOption(opt)}
+                  className={`flex items-center justify-between w-full px-3.5 py-2 text-sm rounded-lg hover:bg-[#F8FAFC] transition-colors text-left font-medium ${
+                    isSelected ? "text-[#4F5AF5] bg-[#EEF2FF]/40 font-semibold" : "text-[#475569]"
+                  }`}
+                >
+                  <span>{opt}</span>
+                  {isSelected && <Check className="w-4 h-4 text-[#4F5AF5]" />}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Row({ 
   label, 
   value, 
@@ -49,7 +162,7 @@ function Row({
   onAccept,
   onReject
 }: any) {
-  const [showFilePreview, setShowFilePreview] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -57,14 +170,14 @@ function Row({
   const isList = Array.isArray(value);
 
   // Parse if it's a file JSON string
-  let fileObj: { name: string; content?: string } | null = null;
+  let fileObj: { name: string; content?: string; url?: string; type?: string } | null = null;
   if (typeof value === "string" && value.startsWith('{"name":')) {
     try {
       fileObj = JSON.parse(value);
     } catch (e) {}
   }
 
-  let editFileObj: { name: string; content?: string } | null = null;
+  let editFileObj: { name: string; content?: string; url?: string } | null = null;
   if (typeof editValue === "string" && editValue.startsWith('{"name":')) {
     try {
       editFileObj = JSON.parse(editValue);
@@ -148,31 +261,83 @@ function Row({
         {(fileObj.content || fileObj.url) && (
           <button 
             type="button" 
-            onClick={() => setShowFilePreview(!showFilePreview)}
-            className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold ml-2 underline underline-offset-2"
+            onClick={() => setIsPreviewOpen(true)}
+            className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold ml-2 underline underline-offset-2 bg-transparent border-0 cursor-pointer p-0"
           >
-            {showFilePreview ? "Ocultar contenido" : "Ver contenido"}
+            Vista preliminar
+          </button>
+        )}
+        {fileObj.url && (
+          <button 
+            type="button"
+            onClick={() => handleForceDownload(fileObj!.url!, fileObj!.name)}
+            className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold ml-2 underline underline-offset-2 bg-transparent border-0 cursor-pointer p-0"
+          >
+            Descargar
           </button>
         )}
       </div>
-      {showFilePreview && (
-        <div className="bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg p-3 text-xs text-[#475569] leading-relaxed shadow-inner max-h-[500px] overflow-y-auto space-y-3">
-          {fileObj.url && (fileObj.type?.startsWith("image/") || fileObj.name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) ? (
-            <div className="flex justify-center max-w-full bg-slate-100 p-2 rounded-lg">
-              <img src={fileObj.url} alt={fileObj.name} className="max-h-96 object-contain" />
+
+      {isPreviewOpen && (
+        <div className="fixed inset-0 bg-[#0F172A]/40 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] shadow-xl overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-[#F1F5F9] flex justify-between items-center bg-[#F8FAFC]">
+              <h3 className="font-bold text-[#1E293B] flex items-center gap-2">
+                {fileObj.name.toLowerCase().endsWith('.png') || fileObj.name.toLowerCase().endsWith('.jpg') || fileObj.name.toLowerCase().endsWith('.jpeg') || fileObj.name.toLowerCase().endsWith('.webp') ? (
+                  <ImageIcon className="w-5 h-5 text-emerald-600 shrink-0" />
+                ) : (
+                  <FileText className="w-5 h-5 text-blue-500 shrink-0" />
+                )}
+                <span className="truncate max-w-lg">{fileObj.name}</span>
+              </h3>
+              <button 
+                onClick={() => setIsPreviewOpen(false)} 
+                className="text-[#94A3B8] hover:text-[#1E293B] transition-colors p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-          ) : fileObj.url && (fileObj.type === "application/pdf" || fileObj.name.toLowerCase().endsWith(".pdf")) ? (
-            <div className="space-y-2">
-              <div>
-                <a href={fileObj.url} download={fileObj.name} className="inline-flex items-center gap-1.5 bg-[#4F5AF5] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#3F49E0] transition-colors">
-                  Descargar PDF
-                </a>
-              </div>
-              {fileObj.content && <pre className="font-mono whitespace-pre-wrap">{fileObj.content}</pre>}
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50 flex items-center justify-center min-h-[300px]">
+              {fileObj.url && (fileObj.type?.startsWith("image/") || fileObj.name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) ? (
+                <img src={fileObj.url} alt={fileObj.name} className="max-w-full max-h-[60vh] object-contain rounded-lg border border-[#E2E8F0] shadow-sm bg-white" />
+              ) : fileObj.url && (fileObj.type === "application/pdf" || fileObj.name.toLowerCase().endsWith(".pdf")) ? (
+                <div className="w-full h-[60vh] flex flex-col space-y-4">
+                  <iframe 
+                    src={fileObj.url} 
+                    title={fileObj.name} 
+                    className="w-full h-full rounded-lg border border-[#E2E8F0] shadow-sm bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="w-full bg-white p-4 rounded-lg border border-[#E2E8F0] shadow-inner self-stretch">
+                  {fileObj.content ? (
+                    <pre className="font-mono text-xs whitespace-pre-wrap leading-relaxed text-[#334155]">{fileObj.content}</pre>
+                  ) : (
+                    <span className="text-sm text-slate-400">Sin vista previa disponible para este formato.</span>
+                  )}
+                </div>
+              )}
             </div>
-          ) : (
-            fileObj.content && <pre className="font-mono whitespace-pre-wrap">{fileObj.content}</pre>
-          )}
+            <div className="px-6 py-4 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-end gap-3">
+              {fileObj.url && (
+                <button
+                  onClick={() => {
+                    handleForceDownload(fileObj!.url!, fileObj!.name);
+                    setIsPreviewOpen(false);
+                  }}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-[#4F5AF5] hover:bg-[#3F49E0] rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+                >
+                  Descargar
+                </button>
+              )}
+              <button
+                onClick={() => setIsPreviewOpen(false)}
+                className="px-4 py-2 text-sm font-semibold text-[#64748B] hover:bg-[#E2E8F0] rounded-lg transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -272,16 +437,37 @@ function Row({
               )}
             </div>
           ) : fieldConfig?.field_type === "select" ? (
-            <select 
+            fieldConfig.allow_multiple ? (
+              (() => {
+                const selectedList = Array.isArray(editValue) ? editValue : (editValue ? [editValue] : []);
+                return (
+                  <MultiSelectDropdown
+                    options={fieldConfig.options || []}
+                    selected={selectedList}
+                    onChange={(next) => onChange(next)}
+                    placeholder="Seleccione..."
+                  />
+                );
+              })()
+            ) : (
+              <select 
+                value={editValue || ""} 
+                onChange={e => onChange(e.target.value)}
+                className="w-full text-sm border border-[#E2E8F0] rounded-md px-3 py-2 bg-white outline-none focus:border-[#4F5AF5] focus:ring-1 focus:ring-[#4F5AF5]"
+              >
+                <option value="">Seleccione...</option>
+                {fieldConfig.options?.map((opt: string) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            )
+          ) : fieldConfig?.field_type === "date" ? (
+            <input 
+              type="date" 
               value={editValue || ""} 
               onChange={e => onChange(e.target.value)}
               className="w-full text-sm border border-[#E2E8F0] rounded-md px-3 py-2 bg-white outline-none focus:border-[#4F5AF5] focus:ring-1 focus:ring-[#4F5AF5]"
-            >
-              <option value="">Seleccione...</option>
-              {fieldConfig.options?.map((opt: string) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
+            />
           ) : isList ? (
             <textarea
               value={Array.isArray(editValue) ? editValue.join('\n') : (editValue || "")}
@@ -361,7 +547,7 @@ function DiffModal({ snapshot, currentData, onClose, fieldsMap }: any) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
         <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center justify-between bg-slate-50">
           <h2 className="text-lg font-bold text-[#1E293B]">Comparar Versiones</h2>
@@ -380,7 +566,7 @@ function DiffModal({ snapshot, currentData, onClose, fieldsMap }: any) {
                   <div className="space-y-4">
                     {changedFormKeys.map(k => (
                       <div key={k} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{fieldsMap[k] || k}</p>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{formatLabel(k, fieldsMap)}</p>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <p className="text-[10px] text-red-500 font-semibold mb-1 uppercase tracking-wider">Versión Pasada</p>
@@ -407,7 +593,7 @@ function DiffModal({ snapshot, currentData, onClose, fieldsMap }: any) {
                   <div className="space-y-4">
                     {changedSummKeys.map(k => (
                       <div key={k} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{fieldsMap[k] || k}</p>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{formatLabel(k, fieldsMap)}</p>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <p className="text-[10px] text-red-500 font-semibold mb-1 uppercase tracking-wider">Versión Pasada</p>
@@ -465,6 +651,7 @@ export default function InitiativeDetail() {
   const [desestimarComment, setDesestimarComment] = useState("");
   const [showVoboRejectInput, setShowVoboRejectInput] = useState(false);
   const [voboRejectReason, setVoboRejectReason] = useState("");
+  const [isVoboPreviewOpen, setIsVoboPreviewOpen] = useState(false);
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
@@ -484,6 +671,46 @@ export default function InitiativeDetail() {
   const isBP = profile?.profile_roles?.some((r: any) => r.role === 'bp_ti');
   const registradorRoles = profile?.profile_roles?.filter((r: any) => r.role === 'registrador') || [];
   const isRegistrador = registradorRoles.length > 0;
+
+  const initialFd = initiative?.form_data ?? {};
+  const isMine = initiative?.user_id === profile?.id || initialFd?.registrador === profile?.name;
+  const isRegistradorOnly = isRegistrador && !isAdmin && !isBP;
+
+  const isBPAllowed = useMemo(() => {
+    if (!isBP) return false;
+    if (isMine) return true;
+
+    const bpRoles = profile?.profile_roles?.filter((r: any) => r.role === 'bp_ti') || [];
+    const bpAllowedDirIds = new Set(bpRoles.flatMap((r: any) => r.direcciones_ids || []));
+
+    const dirName = initialFd?.direccion;
+    const vpName = initialFd?.vicepresidencia;
+    if (!dirName) return false;
+
+    const vpId = dbVps.find(v => v.name === vpName)?.id;
+    const dirId = dbDirecciones.find(d => d.name === dirName && (!vpId || d.vp_id === vpId))?.id;
+
+    if (!dirId) return false;
+    return bpAllowedDirIds.has(dirId);
+  }, [isBP, profile, initialFd, dbVps, dbDirecciones, isMine]);
+
+  const canModify = useMemo(() => {
+    if (isAdmin) return true;
+    if (isBP) return isBPAllowed;
+    if (isRegistradorOnly) return isMine;
+  }, [isAdmin, isBP, isBPAllowed, isRegistradorOnly, isMine]);
+
+  const getValueCaseInsensitive = (obj: Record<string, any>, key: string) => {
+    if (!obj) return undefined;
+    const cleanKey = key.toLowerCase().replace(/_/g, '').replace(/[\s\W]/g, '');
+    for (const k of Object.keys(obj)) {
+      const cleanK = k.toLowerCase().replace(/_/g, '').replace(/[\s\W]/g, '');
+      if (cleanK === cleanKey) {
+        return obj[k];
+      }
+    }
+    return undefined;
+  };
 
   useEffect(() => {
     Promise.all([
@@ -579,6 +806,15 @@ export default function InitiativeDetail() {
   };
 
   const cancelEditMode = () => {
+    setIsEditMode(false);
+  };
+
+  const handleSaveDraftEdits = async () => {
+    if (!isEditMode) return;
+    await updateInitiativeData("Borrador", {
+      form_data: editedFormData,
+      summary: editedSummary
+    });
     setIsEditMode(false);
   };
 
@@ -823,6 +1059,28 @@ export default function InitiativeDetail() {
     );
   };
 
+  const handleEnviarAprobacion = () => {
+    confirmAction(
+      "Enviar a Aprobación",
+      (
+        <div className="space-y-4">
+          <p>¿Estás seguro de enviar esta iniciativa para revisión del BP?</p>
+          <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 flex gap-2 text-blue-800">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+            <span className="font-semibold text-sm">Al confirmar, la iniciativa cambiará a estado 'Pendiente de aprobación' y será visible para el BP.</span>
+          </div>
+        </div>
+      ),
+      "Sí, Enviar a BP",
+      "bg-[#4F5AF5] hover:bg-[#3F49E0]",
+      <Send className="w-6 h-6 text-[#4F5AF5]" />,
+      () => {
+        updateInitiativeData("Pendiente de aprobación");
+      }
+    );
+  };
+
+
   const handleFieldChange = (type: 'form_data'|'summary', key: string, val: any) => {
     if (type === 'form_data') {
       const newForm = { ...editedFormData, [key]: val };
@@ -868,6 +1126,67 @@ export default function InitiativeDetail() {
   
   const suggestedChanges = fd._suggested_changes || { form_data: {}, summary: {} };
   const hasSuggestedChanges = Object.keys(suggestedChanges.form_data).length > 0 || Object.keys(suggestedChanges.summary).length > 0;
+
+  const validationErrors: string[] = [];
+  if (isPending || isObserved) {
+    const currentFd = isEditMode ? editedFormData : fd;
+    const currentSummary = isEditMode ? editedSummary : s;
+
+    const getVal = (key: string) => {
+      const fdVal = getValueCaseInsensitive(currentFd, key);
+      if (fdVal !== undefined && fdVal !== null && fdVal !== '') return fdVal;
+      const sumVal = getValueCaseInsensitive(currentSummary, key);
+      return sumVal;
+    };
+
+    if (!getVal("bp_ti_asignado")) {
+      if ((isAdmin || isBP) && !isMine) {
+        validationErrors.push("Debes asignar un Business Partner de TI (BP TI) a la iniciativa.");
+      } else {
+        validationErrors.push("El Business Partner de TI (BP TI) debe ser asignado por el equipo de TI.");
+      }
+    }
+
+    const voboVal = getVal("aprobacin_de_director");
+    let currentVoboFileObj = null;
+    if (voboVal) {
+      if (typeof voboVal === "string" && voboVal.startsWith('{"name":')) {
+        try {
+          currentVoboFileObj = JSON.parse(voboVal);
+        } catch (e) {}
+      } else if (typeof voboVal === "object" && (voboVal as any).name) {
+        currentVoboFileObj = voboVal;
+      }
+    }
+
+    if (!currentVoboFileObj) {
+      validationErrors.push("Debes cargar el documento de Visto Bueno (VoBo VP).");
+    } else if (currentFd._vobo_status !== "correcto") {
+      if (currentFd._vobo_status === "incorrecto") {
+        if (isMine) {
+          validationErrors.push("El VoBo fue rechazado. Debes cargar el Visto Bueno (VoBo VP) correcto.");
+        } else if (isAdmin || isBP) {
+          validationErrors.push("El VoBo actual es Incorrecto. El solicitante debe cargar el VoBo correcto.");
+        } else {
+          validationErrors.push("El VoBo fue rechazado. Debes cargar el Visto Bueno (VoBo VP) correcto.");
+        }
+      } else {
+        if ((isAdmin || isBP) && !isMine) {
+          validationErrors.push("Debes revisar y marcar el Visto Bueno (VoBo VP) como Correcto.");
+        } else {
+          validationErrors.push("El Business Partner de TI (BP TI) debe validar tu Visto Bueno (VoBo VP) y marcarlo como Correcto.");
+        }
+      }
+    }
+
+    const requiredFields = fieldsConfig.filter(f => f.is_required && f.is_visible && f.key !== 'aprobacin_de_director');
+    requiredFields.forEach(f => {
+      const val = getVal(f.key);
+      if (val === undefined || val === null || (typeof val === 'string' && val.trim() === '')) {
+        validationErrors.push(`Debes completar el campo obligatorio: "${f.label}".`);
+      }
+    });
+  }
 
   const getFieldConfig = (key: string) => {
     const lowerKey = key.toLowerCase();
@@ -929,7 +1248,7 @@ export default function InitiativeDetail() {
 
           {/* Action buttons */}
           <div className="flex gap-3">
-            {isPending && (isAdmin || isBP) && !isEditMode && (
+            {isPending && (isAdmin || isBPAllowed) && !isEditMode && (
               <>
                 <button
                   onClick={startEditMode}
@@ -947,8 +1266,8 @@ export default function InitiativeDetail() {
                 </button>
                 <button
                   onClick={handleApprove}
-                  disabled={!!(voboFileObj && fd._vobo_status !== "correcto")}
-                  title={voboFileObj && fd._vobo_status !== "correcto" ? "Por favor valida el visto bueno del VP antes de aprobar" : "Aprobar iniciativa"}
+                  disabled={validationErrors.length > 0}
+                  title={validationErrors.length > 0 ? `Requisitos pendientes:\n${validationErrors.join('\n')}` : "Aprobar iniciativa"}
                   className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
                 >
                   <CheckCircle className="w-4 h-4" />
@@ -957,7 +1276,61 @@ export default function InitiativeDetail() {
               </>
             )}
 
-            {initiative?.status === 'En demanda' && (isAdmin || isBP) && (
+            {isObserved && (isAdmin || isBPAllowed) && !isEditMode && (
+              <>
+                <button
+                  onClick={startEditMode}
+                  className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Pencil className="w-4 h-4" />
+                  Modo Edición
+                </button>
+                <button
+                  onClick={() => confirmAction(
+                    "Mover a Revisión",
+                    (
+                      <div className="space-y-4">
+                        <p>¿Estás seguro de regresar esta iniciativa observada a 'Pendiente de aprobación'?</p>
+                        <div className="p-3 bg-slate-100 rounded-lg border border-slate-200 flex gap-2 text-slate-800">
+                          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                          <span className="font-semibold text-sm">Al confirmar, volverá a la bandeja de pendientes de aprobación.</span>
+                        </div>
+                      </div>
+                    ),
+                    "Sí, Mover a Revisión",
+                    "bg-[#4F5AF5] hover:bg-[#3F49E0]",
+                    <Clock className="w-6 h-6 text-[#4F5AF5]" />,
+                    () => {
+                      const currentFormData = initiative.form_data || {};
+                      delete currentFormData._suggested_changes;
+                      updateInitiativeData("Pendiente de aprobación", { form_data: currentFormData });
+                    }
+                  )}
+                  className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Clock className="w-4 h-4" />
+                  Mover a Revisión
+                </button>
+                <button
+                  onClick={openDesestimarModal}
+                  className="flex items-center gap-2 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Ban className="w-4 h-4" />
+                  Desestimar
+                </button>
+                <button
+                  onClick={handleApprove}
+                  disabled={validationErrors.length > 0}
+                  title={validationErrors.length > 0 ? `Requisitos pendientes:\n${validationErrors.join('\n')}` : "Aprobar iniciativa"}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Aprobar
+                </button>
+              </>
+            )}
+
+            {initiative?.status === 'En demanda' && (isAdmin || isBPAllowed) && (
               <button
                 onClick={openDesestimarModal}
                 className="flex items-center gap-2 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
@@ -967,7 +1340,7 @@ export default function InitiativeDetail() {
               </button>
             )}
 
-            {initiative?.status === 'Desestimada' && (isAdmin || isBP) && (
+            {initiative?.status === 'Desestimada' && (isAdmin || isBPAllowed) && (
               <>
                 <button
                   onClick={() => confirmAction(
@@ -1024,24 +1397,39 @@ export default function InitiativeDetail() {
                 >
                   Cancelar
                 </button>
-                <button
-                  onClick={handleObserve}
-                  className="flex items-center gap-2 border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
-                >
-                  <AlertTriangle className="w-4 h-4" />
-                  Observar con Cambios
-                </button>
-                <button
-                  onClick={handleApprove}
-                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  Aprobar con Cambios
-                </button>
+                {initiative.status === "Borrador" ? (
+                  <button
+                    onClick={handleSaveDraftEdits}
+                    className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+                  >
+                    <Save className="w-4 h-4" />
+                    Guardar Cambios
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleObserve}
+                      className="flex items-center gap-2 border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      Observar con Cambios
+                    </button>
+                    <button
+                      onClick={handleApprove}
+                      disabled={validationErrors.length > 0}
+                      title={validationErrors.length > 0 ? `Requisitos pendientes:\n${validationErrors.join('\n')}` : "Aprobar con Cambios"}
+                      className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      Aprobar con Cambios
+                    </button>
+                  </>
+                )}
               </>
             )}
             
-            {isRegistrador && isObserved && (
+
+            {isRegistrador && isMine && isObserved && !isEditMode && (
               <button
                 onClick={handleReenviar}
                 className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
@@ -1051,18 +1439,44 @@ export default function InitiativeDetail() {
               </button>
             )}
 
-            {isRegistrador && initiative.status === "Borrador" && (
-              <Link
-                to={`/nueva/${id}`}
-                className="flex items-center gap-2 border border-[#4F5AF5] text-[#4F5AF5] hover:bg-[#EEF2FF] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-              >
-                <Pencil className="w-4 h-4" />
-                Editar Borrador
-              </Link>
+            {isRegistrador && isMine && initiative.status === "Borrador" && !isEditMode && (
+              <>
+                <button
+                  onClick={startEditMode}
+                  className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Pencil className="w-4 h-4" />
+                  Editar Borrador
+                </button>
+                <button
+                  onClick={handleEnviarAprobacion}
+                  className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+                >
+                  <Send className="w-4 h-4" />
+                  Enviar a BP
+                </button>
+              </>
             )}
           </div>
         </div>
       </div>
+
+      {(isPending || isObserved) && (isBPAllowed || isAdmin) && validationErrors.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-sm flex gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold text-amber-800">Requisitos Pendientes para Aprobación</h4>
+            <p className="text-xs text-amber-700 leading-normal">
+              Para poder pasar esta iniciativa a estado 'En demanda', se deben cumplir las siguientes condiciones obligatorias:
+            </p>
+            <ul className="list-disc pl-4 text-xs text-amber-700 space-y-1 mt-2">
+              {validationErrors.map((err, idx) => (
+                <li key={idx}>{err}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       <div className="grid md:grid-cols-3 gap-6">
         {/* Main content */}
@@ -1097,20 +1511,89 @@ export default function InitiativeDetail() {
                     <FileText className="w-4 h-4 text-blue-500 shrink-0" />
                   )}
                   <span className="text-xs font-semibold text-[#334155]">{voboFileObj.name}</span>
+                  {(voboFileObj.content || voboFileObj.url) && (
+                    <button 
+                      type="button" 
+                      onClick={() => setIsVoboPreviewOpen(true)}
+                      className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold ml-2 underline underline-offset-2 bg-transparent border-0 cursor-pointer p-0"
+                    >
+                      Vista preliminar
+                    </button>
+                  )}
+                  {voboFileObj.url && (
+                    <button 
+                      type="button"
+                      onClick={() => handleForceDownload(voboFileObj!.url!, voboFileObj!.name)}
+                      className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold ml-2 underline underline-offset-2 bg-transparent border-0 cursor-pointer p-0"
+                    >
+                      Descargar
+                    </button>
+                  )}
                 </div>
 
-                {/* Preview if image */}
-                {voboFileObj.url && (voboFileObj.type?.startsWith("image/") || voboFileObj.name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) ? (
-                  <div className="border border-[#E2E8F0] rounded-xl overflow-hidden max-w-full flex justify-center bg-slate-50 p-2">
-                    <img src={voboFileObj.url} alt="Visto Bueno" className="max-h-96 object-contain" />
+                {/* Vobo Preview Modal */}
+                {isVoboPreviewOpen && (
+                  <div className="fixed inset-0 bg-[#0F172A]/40 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] shadow-xl overflow-hidden flex flex-col">
+                      <div className="px-6 py-4 border-b border-[#F1F5F9] flex justify-between items-center bg-[#F8FAFC]">
+                        <h3 className="font-bold text-[#1E293B] flex items-center gap-2">
+                          {voboFileObj.name.toLowerCase().endsWith('.png') || voboFileObj.name.toLowerCase().endsWith('.jpg') || voboFileObj.name.toLowerCase().endsWith('.jpeg') || voboFileObj.name.toLowerCase().endsWith('.webp') ? (
+                            <ImageIcon className="w-5 h-5 text-emerald-600 shrink-0" />
+                          ) : (
+                            <FileText className="w-5 h-5 text-blue-500 shrink-0" />
+                          )}
+                          <span className="truncate max-w-lg">{voboFileObj.name}</span>
+                        </h3>
+                        <button 
+                          onClick={() => setIsVoboPreviewOpen(false)} 
+                          className="text-[#94A3B8] hover:text-[#1E293B] transition-colors p-1"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+                      <div className="p-6 overflow-y-auto flex-1 bg-slate-50 flex items-center justify-center min-h-[300px]">
+                        {voboFileObj.url && (voboFileObj.type?.startsWith("image/") || voboFileObj.name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) ? (
+                          <img src={voboFileObj.url} alt={voboFileObj.name} className="max-w-full max-h-[60vh] object-contain rounded-lg border border-[#E2E8F0] shadow-sm bg-white" />
+                        ) : voboFileObj.url && (voboFileObj.type === "application/pdf" || voboFileObj.name.toLowerCase().endsWith(".pdf")) ? (
+                          <div className="w-full h-[60vh] flex flex-col space-y-4">
+                            <iframe 
+                              src={voboFileObj.url} 
+                              title={voboFileObj.name} 
+                              className="w-full h-full rounded-lg border border-[#E2E8F0] shadow-sm bg-white"
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-full bg-white p-4 rounded-lg border border-[#E2E8F0] shadow-inner self-stretch">
+                            {voboFileObj.content ? (
+                              <pre className="font-mono text-xs whitespace-pre-wrap leading-relaxed text-[#334155]">{voboFileObj.content}</pre>
+                            ) : (
+                              <span className="text-sm text-slate-400">Sin vista previa disponible para este formato.</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="px-6 py-4 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-end gap-3">
+                        {voboFileObj.url && (
+                          <button
+                            onClick={() => {
+                              handleForceDownload(voboFileObj!.url!, voboFileObj!.name);
+                              setIsVoboPreviewOpen(false);
+                            }}
+                            className="px-4 py-2 text-sm font-semibold text-white bg-[#4F5AF5] hover:bg-[#3F49E0] rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+                          >
+                            Descargar
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setIsVoboPreviewOpen(false)}
+                          className="px-4 py-2 text-sm font-semibold text-[#64748B] hover:bg-[#E2E8F0] rounded-lg transition-colors"
+                        >
+                          Cerrar
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                ) : voboFileObj.url && (voboFileObj.type === "application/pdf" || voboFileObj.name.toLowerCase().endsWith(".pdf")) ? (
-                  <div>
-                    <a href={voboFileObj.url} download={voboFileObj.name} className="inline-flex items-center gap-1.5 bg-[#4F5AF5] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-[#3F49E0] transition-colors">
-                      Descargar PDF Visto Bueno
-                    </a>
-                  </div>
-                ) : null}
+                )}
 
                 {/* Verification Actions */}
                 {!showVoboRejectInput ? (
@@ -1172,7 +1655,7 @@ export default function InitiativeDetail() {
             </div>
           )}
 
-          {isRegistrador && isObserved && hasSuggestedChanges && (
+          {canModify && isObserved && hasSuggestedChanges && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 shadow-sm items-start">
               <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
               <div className="flex-1">
@@ -1191,16 +1674,57 @@ export default function InitiativeDetail() {
             </div>
           )}
 
-          {isEditMode && (
-             <div className="bg-[#EEF2FF] border border-[#4F5AF5]/20 rounded-xl p-4 flex gap-3 shadow-sm">
-               <Pencil className="w-5 h-5 text-[#4F5AF5] shrink-0 mt-0.5" />
-               <div>
-                 <h4 className="font-bold text-[#4F5AF5] text-sm mb-1">Modo Edición Activado</h4>
-                 <p className="text-[#4F5AF5]/80 text-sm leading-relaxed">
-                   Puedes editar directamente los campos a continuación. Luego elige "Aprobar con Cambios" para aplicar todo de forma definitiva, u "Observar con Cambios" para enviar estas sugerencias al Registrador.
-                 </p>
-               </div>
-             </div>
+
+
+          {initiative.status === "Observada" && (
+            <div className="bg-amber-50 border border-amber-250 rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-2 w-full">
+                  <h4 className="text-sm font-bold text-amber-900">Motivo de Observación</h4>
+                  
+                  {(() => {
+                    const history = fd._observation_history || [];
+                    const lastObs = [...history].reverse().find((h: any) => h.action === "Observada");
+                    
+                    if (!lastObs) {
+                      return <p className="text-xs text-amber-700">No se especificó un detalle en el historial.</p>;
+                    }
+
+                    return (
+                      <div className="text-xs text-amber-800 space-y-1.5 bg-white/60 p-3 rounded-lg border border-amber-200/50">
+                        <div className="flex justify-between items-center text-[10px] text-amber-600 font-bold uppercase">
+                          <span>Observado por: {lastObs.user_name || lastObs.user} ({lastObs.user_role || lastObs.role || "BP TI"})</span>
+                          <span>{lastObs.date ? new Date(lastObs.date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ""}</span>
+                        </div>
+                        <p className="font-semibold text-slate-800 text-sm mt-1">
+                          {lastObs.details || lastObs.comment || "Observó la iniciativa con cambios sugeridos."}
+                        </p>
+                      </div>
+                    );
+                  })()}
+
+                  {hasSuggestedChanges && (
+                    <div className="space-y-1.5 pt-1">
+                      <p className="text-xs font-bold text-amber-800">Campos con modificaciones sugeridas:</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.keys(suggestedChanges.form_data || {}).map(k => (
+                          <span key={k} className="bg-white border border-amber-200 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded">
+                            {formatLabel(k, fieldsMap)}
+                          </span>
+                        ))}
+                        {Object.keys(suggestedChanges.summary || {}).map(k => (
+                          <span key={k} className="bg-white border border-amber-200 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded">
+                            {formatLabel(k, fieldsMap)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Summary card */}
@@ -1209,22 +1733,26 @@ export default function InitiativeDetail() {
               <h3 className="text-sm font-bold text-[#1E293B]">Resumen del Requerimiento</h3>
             </div>
             <div className="px-6 py-2">
-              {Object.entries(s)
-                .filter(([k]) => !["titulo", "complejidad", "riesgo", "prioridadRecomendada", "beneficiosCualitativos"].includes(k))
-                .map(([k, v]) => (
-                  <Row 
-                    key={k} 
-                    label={formatLabel(k, fieldsMap)} 
-                    value={v}
-                    isEditMode={isEditMode}
-                    editValue={editedSummary[k]}
-                    onChange={(val: any) => handleFieldChange('summary', k, val)}
-                    fieldConfig={getFieldConfig(k)}
-                    suggestedValue={suggestedChanges.summary[k]}
-                    onAccept={isRegistrador && isObserved && suggestedChanges.summary[k] !== undefined ? () => handleAcceptChange('summary', k, suggestedChanges.summary[k]) : undefined}
-                    onReject={isRegistrador && isObserved && suggestedChanges.summary[k] !== undefined ? () => handleRejectChange('summary', k) : undefined}
-                  />
-                ))}
+              {fieldsConfig
+                .filter(f => f.is_visible && f.section === 'ai' && !["titulo", "complejidad", "riesgo", "prioridadRecomendada", "beneficiosCualitativos"].includes(f.key))
+                .map(f => {
+                  const k = f.key;
+                  const v = getValueCaseInsensitive(s, k) ?? "";
+                  return (
+                    <Row 
+                      key={k} 
+                      label={f.label} 
+                      value={v}
+                      isEditMode={isEditMode}
+                      editValue={getValueCaseInsensitive(editedSummary, k) ?? ""}
+                      onChange={(val: any) => handleFieldChange('summary', k, val)}
+                      fieldConfig={f}
+                      suggestedValue={suggestedChanges.summary[k]}
+                      onAccept={canModify && isObserved && suggestedChanges.summary[k] !== undefined ? () => handleAcceptChange('summary', k, suggestedChanges.summary[k]) : undefined}
+                      onReject={canModify && isObserved && suggestedChanges.summary[k] !== undefined ? () => handleRejectChange('summary', k) : undefined}
+                    />
+                  );
+                })}
             </div>
           </div>
 
@@ -1242,37 +1770,41 @@ export default function InitiativeDetail() {
                   editValue={editedSummary.beneficiosCualitativos}
                   onChange={(val: any) => handleFieldChange('summary', 'beneficiosCualitativos', val)}
                   suggestedValue={suggestedChanges.summary.beneficiosCualitativos}
-                  onAccept={isRegistrador && isObserved && suggestedChanges.summary.beneficiosCualitativos ? () => handleAcceptChange('summary', 'beneficiosCualitativos', suggestedChanges.summary.beneficiosCualitativos) : undefined}
-                  onReject={isRegistrador && isObserved && suggestedChanges.summary.beneficiosCualitativos ? () => handleRejectChange('summary', 'beneficiosCualitativos') : undefined}
+                  onAccept={canModify && isObserved && suggestedChanges.summary.beneficiosCualitativos ? () => handleAcceptChange('summary', 'beneficiosCualitativos', suggestedChanges.summary.beneficiosCualitativos) : undefined}
+                  onReject={canModify && isObserved && suggestedChanges.summary.beneficiosCualitativos ? () => handleRejectChange('summary', 'beneficiosCualitativos') : undefined}
                 />
               </div>
             </div>
           )}
 
           {/* Form data */}
-          {fd && Object.keys(fd).filter(k => k !== "_suggested_changes" && k !== "_observation_history").length > 0 && (
-            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#F1F5F9]">
-                <h3 className="text-sm font-bold text-[#1E293B]">Datos del Formulario</h3>
-              </div>
-              <div className="px-6 py-2">
-                {Object.entries(fd).filter(([k]) => k !== "_suggested_changes" && k !== "_observation_history").map(([k, v]) => (
-                  <Row 
-                    key={k} 
-                    label={formatLabel(k, fieldsMap)} 
-                    value={v}
-                    isEditMode={isEditMode}
-                    editValue={editedFormData[k]}
-                    onChange={(val: any) => handleFieldChange('form_data', k, val)}
-                    fieldConfig={getFieldConfig(k)}
-                    suggestedValue={suggestedChanges.form_data[k]}
-                    onAccept={isRegistrador && isObserved && suggestedChanges.form_data[k] !== undefined ? () => handleAcceptChange('form_data', k, suggestedChanges.form_data[k]) : undefined}
-                    onReject={isRegistrador && isObserved && suggestedChanges.form_data[k] !== undefined ? () => handleRejectChange('form_data', k) : undefined}
-                  />
-                ))}
-              </div>
+          <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#F1F5F9]">
+              <h3 className="text-sm font-bold text-[#1E293B]">Datos del Formulario</h3>
             </div>
-          )}
+            <div className="px-6 py-2">
+              {fieldsConfig
+                .filter(f => f.is_visible && (f.section || 'form') === 'form')
+                .map(f => {
+                  const k = f.key;
+                  const v = getValueCaseInsensitive(fd, k) ?? "";
+                  return (
+                    <Row 
+                      key={k} 
+                      label={f.label} 
+                      value={v}
+                      isEditMode={isEditMode}
+                      editValue={getValueCaseInsensitive(editedFormData, k) ?? ""}
+                      onChange={(val: any) => handleFieldChange('form_data', k, val)}
+                      fieldConfig={f}
+                      suggestedValue={suggestedChanges.form_data[k]}
+                      onAccept={canModify && isObserved && suggestedChanges.form_data[k] !== undefined ? () => handleAcceptChange('form_data', k, suggestedChanges.form_data[k]) : undefined}
+                      onReject={canModify && isObserved && suggestedChanges.form_data[k] !== undefined ? () => handleRejectChange('form_data', k) : undefined}
+                    />
+                  );
+                })}
+            </div>
+          </div>
 
           {/* Observation History */}
           {fd._observation_history && fd._observation_history.length > 0 && (
@@ -1288,7 +1820,7 @@ export default function InitiativeDetail() {
                       <div className="absolute top-8 left-[13px] bottom-[-24px] w-0.5 bg-[#E2E8F0]" />
                     )}
                     <div className="w-7 h-7 shrink-0 rounded-full bg-[#F8FAFC] border border-[#CBD5E1] flex items-center justify-center relative z-10">
-                       <span className="text-[10px] font-bold text-[#64748B]">{h.user_name.substring(0, 2).toUpperCase()}</span>
+                       <span className="text-[10px] font-bold text-[#64748B]">{(h.user_name || "Usuario").substring(0, 2).toUpperCase()}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[11px] text-[#94A3B8] font-bold uppercase tracking-wider mb-1">
@@ -1297,7 +1829,7 @@ export default function InitiativeDetail() {
                       <div className="flex items-start justify-between gap-4">
                         <div>
                           <p className="text-sm text-[#1E293B]">
-                            <span className="font-bold">{h.user_name}</span> <span className="text-[#64748B] text-xs">({h.user_role})</span>
+                            <span className="font-bold">{h.user_name || "Usuario"}</span> <span className="text-[#64748B] text-xs">({h.user_role || "Sistema"})</span>
                           </p>
                           <p className="text-xs text-[#4F5AF5] font-semibold mt-0.5">{h.action}</p>
                           {h.details && <p className="text-sm text-[#475569] mt-1">{h.details}</p>}

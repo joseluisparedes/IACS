@@ -22,6 +22,7 @@ export interface FieldDefinition {
   depends_on?: string;
   options_map?: Record<string, string[]>;
   ai_instructions?: string;
+  allow_multiple?: boolean;
   created_at?: string;
 }
 

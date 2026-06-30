@@ -158,7 +158,7 @@ export default function EmailLogs() {
 
       {/* Preview Modal */}
       {selectedEmail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-[#F1F5F9] bg-slate-50 flex justify-between items-center">

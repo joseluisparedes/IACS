@@ -37,7 +37,8 @@ const defaultFileOptions = () => ({
 const emptyForm = {
   label: "", key: "", field_type: "select" as FieldType,
   options: [] as string[], is_required: false, is_visible: true,
-  depends_on: "", options_map: {} as Record<string, string[]>, ai_instructions: ""
+  depends_on: "", options_map: {} as Record<string, string[]>, ai_instructions: "",
+  allow_multiple: false
 };
 
 // ─── Input/Label styles ───────────────────────────────────────────────────────
@@ -162,7 +163,7 @@ export default function AdminFields() {
     const initialOptions = field.field_type === "file"
       ? (field.options && typeof field.options === "object" && !Array.isArray(field.options) ? { ...field.options } : defaultFileOptions())
       : [...(field.options ?? [])];
-    setForm({ label: field.label, key: field.key, field_type: field.field_type, options: initialOptions, is_required: field.is_required, is_visible: field.is_visible, depends_on: field.depends_on || "", options_map: field.options_map || {}, ai_instructions: field.ai_instructions || "" });
+    setForm({ label: field.label, key: field.key, field_type: field.field_type, options: initialOptions, is_required: field.is_required, is_visible: field.is_visible, depends_on: field.depends_on || "", options_map: field.options_map || {}, ai_instructions: field.ai_instructions || "", allow_multiple: field.allow_multiple ?? false });
     setOptionInput(""); setError(""); setShowPanel(true);
   };
 
@@ -209,7 +210,7 @@ export default function AdminFields() {
         const res = await fetch("/api/fields", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         if (!res.ok) throw new Error((await res.json()).error ?? "Error al crear.");
       } else {
-        const payload = { label: form.label, field_type: form.field_type, options: payloadOptions, is_required: form.is_required, is_visible: form.is_visible, depends_on: form.depends_on, options_map: form.options_map, ai_instructions: form.ai_instructions };
+        const payload = { label: form.label, field_type: form.field_type, options: payloadOptions, is_required: form.is_required, is_visible: form.is_visible, depends_on: form.depends_on, options_map: form.options_map, ai_instructions: form.ai_instructions, allow_multiple: form.allow_multiple };
         const res = await fetch(`/api/fields/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         if (!res.ok) throw new Error((await res.json()).error ?? "Error al actualizar.");
       }
@@ -349,7 +350,7 @@ export default function AdminFields() {
 
       {/* Slide-in Panel */}
       {showPanel && (
-        <div className="fixed inset-0 z-50 flex">
+        <div className="fixed inset-0 z-[80] flex">
           <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={closePanel} />
           <div className="w-full max-w-md bg-white border-l border-[#E2E8F0] flex flex-col shadow-2xl">
 
@@ -401,6 +402,16 @@ export default function AdminFields() {
                   ))}
                 </div>
               </div>
+
+              {form.field_type === "select" && (
+                <div className="flex items-center justify-between p-4 bg-[#F8FAFC] rounded-xl border border-[#F1F5F9]">
+                  <div>
+                    <p className="text-sm font-semibold text-[#1E293B]">Selección múltiple</p>
+                    <p className="text-xs text-[#94A3B8] mt-0.5">Permite seleccionar más de una opción.</p>
+                  </div>
+                  <Toggle checked={form.allow_multiple} onChange={() => setForm(f => ({ ...f, allow_multiple: !f.allow_multiple }))} />
+                </div>
+              )}
 
               {/* Options */}
               {form.field_type === "select" && !form.depends_on && (

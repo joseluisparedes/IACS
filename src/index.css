@@ -100,11 +100,18 @@ input[type="date"] { color-scheme: light; }
 
 /* ── Corporate Header Styles ── */
 .corp-header {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--navy, #0D436C) 100%) !important;
   position: relative;
-  overflow: hidden;
+  /* Allow dropdowns to overflow */
+  overflow: visible;
 }
-.corp-header::before {
+.corp-header-bg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--navy, #0D436C) 100%) !important;
+  overflow: hidden;
+  z-index: 0;
+}
+.corp-header-bg::before {
   content: '';
   position: absolute;
   top: -60px;
@@ -114,9 +121,8 @@ input[type="date"] { color-scheme: light; }
   background: rgba(255, 255, 255, 0.06);
   border-radius: 50%;
   pointer-events: none;
-  z-index: 1;
 }
-.corp-header::after {
+.corp-header-bg::after {
   content: '';
   position: absolute;
   bottom: -80px;
@@ -126,6 +132,5 @@ input[type="date"] { color-scheme: light; }
   background: rgba(255, 255, 255, 0.04);
   border-radius: 50%;
   pointer-events: none;
-  z-index: 1;
 }
 

@@ -724,7 +724,7 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
     <div className="space-y-4">
       {/* Upload doc modal */}
       {showUpload && extracted.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowUpload(false)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-[#E2E8F0] flex items-center justify-between">

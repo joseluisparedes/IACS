@@ -156,10 +156,10 @@ async function startServer() {
   });
 
   app.post("/api/fields", async (req, res) => {
-    const { label, key, field_type, options, is_visible, is_required, sort_order, section, depends_on, options_map, ai_instructions } = req.body;
+    const { label, key, field_type, options, is_visible, is_required, sort_order, section, depends_on, options_map, ai_instructions, allow_multiple } = req.body;
     const { data, error } = await supabase
       .from("initiative_fields")
-      .insert([{ label, key, field_type, options: options ?? [], is_visible: is_visible ?? true, is_required: is_required ?? false, sort_order: sort_order ?? 0, section: section ?? 'form', depends_on: depends_on ?? null, options_map: options_map ?? null, ai_instructions: ai_instructions ?? null }])
+      .insert([{ label, key, field_type, options: options ?? [], is_visible: is_visible ?? true, is_required: is_required ?? false, sort_order: sort_order ?? 0, section: section ?? 'form', depends_on: depends_on ?? null, options_map: options_map ?? null, ai_instructions: ai_instructions ?? null, allow_multiple: allow_multiple ?? false }])
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -270,7 +270,7 @@ async function startServer() {
 
   app.post("/api/initiatives/draft", async (req, res) => {
     if (!req.body.id) return res.status(400).json({ error: "id is required for draft" });
-    const record = {
+    const record: Record<string, any> = {
       id: req.body.id,
       status: req.body.status || "Borrador",
       form_data: req.body.form_data ?? req.body,
@@ -278,6 +278,10 @@ async function startServer() {
       summary: req.body.summary ?? null,
       updated_at: new Date().toISOString()
     };
+    // Persist user_id when provided so drafts can be filtered by authenticated user
+    if (req.body.user_id) {
+      record.user_id = req.body.user_id;
+    }
     
     // Fetch old status before upserting to check for transitions
     const { data: oldData } = await supabase.from("initiatives").select("status").eq("id", record.id).single();
@@ -389,7 +393,7 @@ async function startServer() {
 
       let content = "";
 
-      // Text-based documents
+      // Text-based documents - extract text for AI context
       if (mime === "application/pdf" || name.endsWith(".pdf")) {
         const parsed = await pdfParse(req.file.buffer);
         content = parsed.text.trim();
@@ -411,12 +415,32 @@ async function startServer() {
         return res.status(400).json({ error: "No se pudo extraer contenido del archivo. Verifica que no esté protegido." });
       }
 
-      let fileUrl = "";
-      if (mime.startsWith("image/") || mime === "application/pdf") {
-        fileUrl = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
+      // ── Upload to Supabase Storage (instead of Base64) ──────────────────────
+      let fileUrl: string | null = null;
+      const ext = req.file.originalname.split(".").pop() || "bin";
+      const uniqueName = `uploads/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("iacs-attachments")
+        .upload(uniqueName, req.file.buffer, {
+          contentType: mime,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error("Supabase Storage upload error:", uploadError.message);
+        // Fallback: if storage fails, use Base64 for images only so functionality is preserved
+        if (mime.startsWith("image/") || mime === "application/pdf") {
+          fileUrl = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
+        }
+      } else {
+        const { data: publicData } = supabase.storage
+          .from("iacs-attachments")
+          .getPublicUrl(uniqueName);
+        fileUrl = publicData?.publicUrl || null;
       }
 
-      res.json({ content, filename: req.file.originalname, type: mime, url: fileUrl || null });
+      res.json({ content, filename: req.file.originalname, type: mime, url: fileUrl });
     } catch (e: any) {
       console.error("Chat attach-file error:", e.message);
       res.status(500).json({ error: "Error al procesar el archivo: " + e.message });

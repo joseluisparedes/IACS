@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Filter, Eye, ChevronRight } from "lucide-react";
+import { Filter, Eye, ChevronRight, User, Search } from "lucide-react";
 import { Initiative } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -60,6 +60,8 @@ export default function ApprovalBoard() {
   const [selectedDirecciones, setSelectedDirecciones] = useState<string[]>([]);
   const [selectedBPs, setSelectedBPs] = useState<string[]>([]);
   const [selectedVicepresidencias, setSelectedVicepresidencias] = useState<string[]>([]);
+  const [showOnlyMine, setShowOnlyMine] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { profile } = useAuth();
   const [direccionesMap, setDireccionesMap] = useState<Record<string, string>>({});
@@ -97,16 +99,26 @@ export default function ApprovalBoard() {
 
   const roleFilteredInitiatives = initiatives.filter(i => {
     if (isAdmin || isInvitado) return true;
+
+    // Check if the current user is the owner of the draft/initiative (legacy by name or new by user_id)
+    const isMine = i.user_id === profile?.id || i.form_data?.registrador === profile?.name;
+
+    // A user should always see their own drafts regardless of their other roles
+    if (STATUS_MAP[i.status] === "borrador") {
+      return isMine;
+    }
+
     if (isBP) {
       const tab = STATUS_MAP[i.status];
       const dir = i.form_data?.direccion;
       const isMyDir = dir && bpAllowedDirNames.has(dir);
-      return (tab === "nueva" || tab === "aprobada" || tab === "subsanacion") && isMyDir;
+      // BPs see new, approved or observed initiatives in their assigned directories, OR their own items
+      return ((tab === "nueva" || tab === "aprobada" || tab === "subsanacion") && isMyDir) || isMine;
     }
+
     if (isRegistrador) {
       const tab = STATUS_MAP[i.status];
       if (tab === "desestimada") return false;
-      const isMine = i.form_data?.registrador === profile?.name;
       const dir = i.form_data?.direccion;
       const isMyDir = dir && userAllowedDirNames.has(dir);
       return isMine || isMyDir;
@@ -116,8 +128,18 @@ export default function ApprovalBoard() {
 
   const visibleTabs = TABS.filter(tab => {
     if (isAdmin || isInvitado) return true;
-    if (isBP) return tab.key === "nueva" || tab.key === "aprobada" || tab.key === "desestimada" || tab.key === "subsanacion";
+    
+    // If the user has a registrador role, they can see the draft tab
     if (isRegistrador) return true;
+
+    // If the user is only a BP, they don't see drafts unless they've created one (we'll show the tab if they have one, or if they have the role)
+    if (isBP) {
+      if (tab.key === "borrador") {
+        // Only show draft tab for BP if they have at least one draft initiative
+        return initiatives.some(i => i.status === "Borrador" && (i.user_id === profile?.id || i.form_data?.registrador === profile?.name));
+      }
+      return tab.key === "nueva" || tab.key === "aprobada" || tab.key === "desestimada" || tab.key === "subsanacion";
+    }
     return false;
   });
 
@@ -147,6 +169,29 @@ export default function ApprovalBoard() {
   const byTab = (tab: TabKey) => roleFilteredInitiatives.filter(i => {
     if (STATUS_MAP[i.status] !== tab) return false;
     
+    // 1. Filter by "Mis iniciativas"
+    if (showOnlyMine) {
+      const isMine = i.user_id === profile?.id || i.form_data?.registrador === profile?.name;
+      if (!isMine) return false;
+    }
+
+    // 2. Filter by Search Query
+    if (searchQuery.trim() !== "") {
+      const query = searchQuery.toLowerCase();
+      
+      const idMatch = i.id.toLowerCase().includes(query);
+      
+      const summaryMatch = i.summary ? Object.values(i.summary).some(val => 
+        String(val).toLowerCase().includes(query)
+      ) : false;
+      
+      const formDataMatch = i.form_data ? Object.values(i.form_data).some(val => 
+        String(val).toLowerCase().includes(query)
+      ) : false;
+      
+      if (!idMatch && !summaryMatch && !formDataMatch) return false;
+    }
+
     const reg = i.form_data?.registrador || i.form_data?.solicitante;
     if (selectedRegistradores.length > 0 && (!reg || !selectedRegistradores.includes(reg))) return false;
 
@@ -172,145 +217,155 @@ export default function ApprovalBoard() {
           <h2 className="text-2xl font-bold text-[#1E293B]">4. Revisión BP</h2>
           <p className="text-sm text-[#64748B]">El BP revisa la solicitud en esta pantalla dentro del mismo sistema.</p>
         </div>
-        <div className="relative z-30">
-          <button 
-            onClick={() => setFilterOpen(!filterOpen)} 
-            className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm relative"
-          >
-            <Filter className="w-4 h-4" />
-            Filtrar
-            {(selectedRegistradores.length > 0 || selectedDirecciones.length > 0 || selectedBPs.length > 0 || selectedVicepresidencias.length > 0) && (
-              <span className="w-2.5 h-2.5 bg-red-500 rounded-full absolute -top-1 -right-1 border-2 border-white" />
-            )}
-          </button>
-
-          {filterOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
-              <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-xl border border-[#E2E8F0] z-50 p-5 overflow-hidden">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-bold text-[#1E293B]">Filtros</h4>
-                  {(selectedRegistradores.length > 0 || selectedDirecciones.length > 0 || selectedBPs.length > 0 || selectedVicepresidencias.length > 0) && (
-                    <button 
-                      onClick={() => { 
-                        setSelectedRegistradores([]); 
-                        setSelectedDirecciones([]); 
-                        setSelectedBPs([]); 
-                        setSelectedVicepresidencias([]); 
-                      }}
-                      className="text-xs font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors"
-                    >
-                      Limpiar
-                    </button>
-                  )}
-                </div>
-                
-                {/* Registradores */}
-                <div className="mb-5">
-                  <label className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-2 block">Registrador</label>
-                  <div className="max-h-36 overflow-y-auto space-y-1 custom-scrollbar pr-2">
-                    {registradoresOptions.map(reg => (
-                      <label key={reg} className="flex items-start gap-3 text-sm text-[#1E293B] hover:bg-[#F8FAFC] p-2 rounded-lg cursor-pointer transition-colors">
-                        <div className="mt-0.5">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedRegistradores.includes(reg)}
-                            onChange={(e) => {
-                              if (e.target.checked) setSelectedRegistradores(prev => [...prev, reg]);
-                              else setSelectedRegistradores(prev => prev.filter(r => r !== reg));
-                            }}
-                            className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-4 h-4 cursor-pointer"
-                          />
-                        </div>
-                        <span className="truncate leading-tight">{reg}</span>
-                      </label>
-                    ))}
-                    {registradoresOptions.length === 0 && <p className="text-xs text-[#94A3B8] italic">Sin datos disponibles</p>}
-                  </div>
-                </div>
-
-                {/* Direcciones */}
-                <div className="mb-5">
-                  <label className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-2 block">Dirección</label>
-                  <div className="max-h-36 overflow-y-auto space-y-1 custom-scrollbar pr-2">
-                    {direccionesOptions.map(dir => (
-                      <label key={dir} className="flex items-start gap-3 text-sm text-[#1E293B] hover:bg-[#F8FAFC] p-2 rounded-lg cursor-pointer transition-colors">
-                        <div className="mt-0.5">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedDirecciones.includes(dir)}
-                            onChange={(e) => {
-                              if (e.target.checked) setSelectedDirecciones(prev => [...prev, dir]);
-                              else setSelectedDirecciones(prev => prev.filter(d => d !== dir));
-                            }}
-                            className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-4 h-4 cursor-pointer"
-                          />
-                        </div>
-                        <span className="truncate leading-tight">{direccionesMap[dir] || dir}</span>
-                      </label>
-                    ))}
-                    {direccionesOptions.length === 0 && <p className="text-xs text-[#94A3B8] italic">Sin datos disponibles</p>}
-                  </div>
-                </div>
-
-                {/* BP TI */}
-                <div className="mb-5">
-                  <label className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-2 block">BP TI</label>
-                  <div className="max-h-36 overflow-y-auto space-y-1 custom-scrollbar pr-2">
-                    {bpsOptions.map(bp => (
-                      <label key={bp} className="flex items-start gap-3 text-sm text-[#1E293B] hover:bg-[#F8FAFC] p-2 rounded-lg cursor-pointer transition-colors">
-                        <div className="mt-0.5">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedBPs.includes(bp)}
-                            onChange={(e) => {
-                              if (e.target.checked) setSelectedBPs(prev => [...prev, bp]);
-                              else setSelectedBPs(prev => prev.filter(b => b !== bp));
-                            }}
-                            className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-4 h-4 cursor-pointer"
-                          />
-                        </div>
-                        <span className="truncate leading-tight">{bp}</span>
-                      </label>
-                    ))}
-                    {bpsOptions.length === 0 && <p className="text-xs text-[#94A3B8] italic">Sin datos disponibles</p>}
-                  </div>
-                </div>
-
-                {/* Vicepresidencia */}
-                <div>
-                  <label className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-2 block">Vicepresidencia</label>
-                  <div className="max-h-36 overflow-y-auto space-y-1 custom-scrollbar pr-2">
-                    {vicepresidenciasOptions.map(vp => (
-                      <label key={vp} className="flex items-start gap-3 text-sm text-[#1E293B] hover:bg-[#F8FAFC] p-2 rounded-lg cursor-pointer transition-colors">
-                        <div className="mt-0.5">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedVicepresidencias.includes(vp)}
-                            onChange={(e) => {
-                              if (e.target.checked) setSelectedVicepresidencias(prev => [...prev, vp]);
-                              else setSelectedVicepresidencias(prev => prev.filter(v => v !== vp));
-                            }}
-                            className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-4 h-4 cursor-pointer"
-                          />
-                        </div>
-                        <span className="truncate leading-tight">{vp}</span>
-                      </label>
-                    ))}
-                    {vicepresidenciasOptions.length === 0 && <p className="text-xs text-[#94A3B8] italic">Sin datos disponibles</p>}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
       </div>
 
-      {/* Status tabs */}
-      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.06)] overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center justify-between">
-          <h3 className="text-sm font-bold text-[#1E293B]">Mis solicitudes para revisión</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+        {/* Left Side: Visible Filters, Search and "Mis iniciativas" */}
+        <div className="lg:col-span-1 bg-white rounded-2xl border border-[#E2E8F0] p-5 space-y-5 shadow-sm">
+          <div className="flex items-center justify-between border-b pb-3 mb-2">
+            <h3 className="font-bold text-sm text-[#1E293B] flex items-center gap-1.5">
+              <Filter className="w-4 h-4 text-[#4F5AF5]" />
+              Filtros y Búsqueda
+            </h3>
+            {(selectedRegistradores.length > 0 || selectedDirecciones.length > 0 || selectedBPs.length > 0 || selectedVicepresidencias.length > 0 || showOnlyMine || searchQuery !== "") && (
+              <button 
+                onClick={() => { 
+                  setSelectedRegistradores([]); 
+                  setSelectedDirecciones([]); 
+                  setSelectedBPs([]); 
+                  setSelectedVicepresidencias([]); 
+                  setShowOnlyMine(false);
+                  setSearchQuery("");
+                }}
+                className="text-xs font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors"
+              >
+                Limpiar Todo
+              </button>
+            )}
+          </div>
+
+          {/* Search Input */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider block">Búsqueda de Contenido</label>
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar por título, objetivo, ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full text-xs pl-9 pr-3 py-2.5 rounded-lg border border-[#E2E8F0] focus:border-[#4F5AF5] focus:ring-1 focus:ring-[#4F5AF5] focus:outline-none placeholder-[#94A3B8] shadow-inner transition-all"
+              />
+            </div>
+          </div>
+
+          {/* "Mis iniciativas" Button */}
+          <button
+            onClick={() => setShowOnlyMine(!showOnlyMine)}
+            className={`w-full py-2.5 px-4 rounded-lg text-xs font-bold transition-all border flex items-center justify-center gap-2 ${
+              showOnlyMine 
+                ? "bg-[#4F5AF5] text-white border-[#4F5AF5] shadow-sm shadow-[#4F5AF5]/20" 
+                : "bg-white text-[#4F5AF5] border-[#E2E8F0] hover:bg-[#F8FAFC]"
+            }`}
+          >
+            <User className="w-3.5 h-3.5" />
+            {showOnlyMine ? "Viendo: Mis Iniciativas" : "Ver solo Mis Iniciativas"}
+          </button>
+
+          {/* Vicepresidencia */}
+          <div className="space-y-1.5 pt-3 border-t">
+            <label className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider block">Vicepresidencia</label>
+            <div className="max-h-32 overflow-y-auto space-y-1 custom-scrollbar pr-1">
+              {vicepresidenciasOptions.map(vp => (
+                <label key={vp} className="flex items-center gap-2.5 text-xs text-[#1E293B] hover:bg-[#F8FAFC] p-1 rounded cursor-pointer transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedVicepresidencias.includes(vp)}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedVicepresidencias(prev => [...prev, vp]);
+                      else setSelectedVicepresidencias(prev => prev.filter(v => v !== vp));
+                    }}
+                    className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <span className="truncate leading-none">{vp}</span>
+                </label>
+              ))}
+              {vicepresidenciasOptions.length === 0 && <p className="text-[10px] text-[#94A3B8] italic">Sin opciones</p>}
+            </div>
+          </div>
+
+          {/* Registrador */}
+          <div className="space-y-1.5 pt-3 border-t">
+            <label className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider block">Registrador</label>
+            <div className="max-h-32 overflow-y-auto space-y-1 custom-scrollbar pr-1">
+              {registradoresOptions.map(reg => (
+                <label key={reg} className="flex items-center gap-2.5 text-xs text-[#1E293B] hover:bg-[#F8FAFC] p-1 rounded cursor-pointer transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedRegistradores.includes(reg)}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedRegistradores(prev => [...prev, reg]);
+                      else setSelectedRegistradores(prev => prev.filter(r => r !== reg));
+                    }}
+                    className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <span className="truncate leading-none">{reg}</span>
+                </label>
+              ))}
+              {registradoresOptions.length === 0 && <p className="text-[10px] text-[#94A3B8] italic">Sin opciones</p>}
+            </div>
+          </div>
+
+          {/* Dirección */}
+          <div className="space-y-1.5 pt-3 border-t">
+            <label className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider block">Dirección</label>
+            <div className="max-h-32 overflow-y-auto space-y-1 custom-scrollbar pr-1">
+              {direccionesOptions.map(dir => (
+                <label key={dir} className="flex items-center gap-2.5 text-xs text-[#1E293B] hover:bg-[#F8FAFC] p-1 rounded cursor-pointer transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedDirecciones.includes(dir)}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedDirecciones(prev => [...prev, dir]);
+                      else setSelectedDirecciones(prev => prev.filter(d => d !== dir));
+                    }}
+                    className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <span className="truncate leading-none">{direccionesMap[dir] || dir}</span>
+                </label>
+              ))}
+              {direccionesOptions.length === 0 && <p className="text-[10px] text-[#94A3B8] italic">Sin opciones</p>}
+            </div>
+          </div>
+
+          {/* BP TI */}
+          <div className="space-y-1.5 pt-3 border-t">
+            <label className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider block">BP TI</label>
+            <div className="max-h-32 overflow-y-auto space-y-1 custom-scrollbar pr-1">
+              {bpsOptions.map(bp => (
+                <label key={bp} className="flex items-center gap-2.5 text-xs text-[#1E293B] hover:bg-[#F8FAFC] p-1 rounded cursor-pointer transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedBPs.includes(bp)}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedBPs(prev => [...prev, bp]);
+                      else setSelectedBPs(prev => prev.filter(b => b !== bp));
+                    }}
+                    className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <span className="truncate leading-none">{bp}</span>
+                </label>
+              ))}
+              {bpsOptions.length === 0 && <p className="text-[10px] text-[#94A3B8] italic">Sin opciones</p>}
+            </div>
+          </div>
         </div>
+
+        {/* Right Side: Status Tabs + Table */}
+        <div className="lg:col-span-3 bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center justify-between">
+            <h3 className="text-sm font-bold text-[#1E293B]">Mis solicitudes para revisión</h3>
+          </div>
 
         {/* Tabs */}
         <div className="flex overflow-x-auto border-b border-[#F1F5F9] gap-1 px-6 pt-3">
@@ -423,6 +478,7 @@ export default function ApprovalBoard() {
             </table>
           )}
         </div>
+      </div>
       </div>
 
       {/* Flow reference footer */}

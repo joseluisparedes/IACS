@@ -9,12 +9,36 @@
 // Vite worker bundles this as an ES module — @xenova/transformers is ESM-compatible.
 import { pipeline, env } from '@xenova/transformers';
 
+// Global console overrides to filter out third-party library warning noise in F12
+const originalWarn = console.warn;
+const originalLog = console.log;
+
+console.warn = (...args: any[]) => {
+  const msg = args.join(' ');
+  if (msg.includes('content-length') || msg.includes('onnxruntime') || msg.includes('CleanUnusedInitializers')) {
+    return; // Suppress
+  }
+  originalWarn(...args);
+};
+
+console.log = (...args: any[]) => {
+  const msg = args.join(' ');
+  if (msg.includes('content-length') || msg.includes('onnxruntime') || msg.includes('CleanUnusedInitializers')) {
+    return; // Suppress
+  }
+  originalLog(...args);
+};
+
 // Use CDN model files; disable local model search (we have none bundled)
 env.allowLocalModels = false;
 env.allowRemoteModels = true;
-// Force single-thread ONNX backend to avoid SharedArrayBuffer issues on plain HTTP
-if (env.backends?.onnx?.wasm) {
-  env.backends.onnx.wasm.numThreads = 1;
+
+// Silence ONNX runtime logging and warnings to keep console clean
+if (env.backends?.onnx) {
+  env.backends.onnx.logLevel = 'error';
+  if (env.backends.onnx.wasm) {
+    env.backends.onnx.wasm.numThreads = 1;
+  }
 }
 
 type AnyPipeline = Awaited<ReturnType<typeof pipeline>>;
