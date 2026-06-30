@@ -1,267 +1,223 @@
 import React, { useState } from 'react';
 import { 
-  GitBranch, HelpCircle, User, CheckCircle2, 
-  Send, Info, Check, X, RefreshCcw, FileText, AlertCircle,
-  TrendingUp, Compass, Table, Layers, ArrowRight, ArrowDown,
-  CornerRightDown, RotateCcw, Shield, CheckCircle, Ban, AlertTriangle
+  GitBranch, User, CheckCircle2, Info, ArrowRight, ArrowDown,
+  Shield, CheckCircle, Ban, AlertTriangle, ChevronRight, ChevronDown,
+  FileText, CheckSquare, Settings, Play, RefreshCw, XCircle, HelpCircle, Layers
 } from 'lucide-react';
 
-interface Transition {
-  action: string;
-  target: string;
-  conditions: string[];
-  role: string;
+interface SubActivity {
+  name: string;
+  responsible: string;
+  description: string;
+  inputs?: string[];
+  outputs?: string[];
+  rules?: string[];
 }
 
-interface StateDetail {
+interface GatewayInfo {
+  question: string;
+  branches: {
+    condition: string;
+    targetState: string;
+    description: string;
+  }[];
+}
+
+interface MacroPhase {
   id: string;
+  number: string;
   name: string;
-  description: string;
+  shortDesc: string;
   color: string;
   bg: string;
   border: string;
-  iconBg: string;
-  roles: string[];
-  actions: string[];
-  transitions: Transition[];
-  details: string[];
+  accentBg: string;
+  responsibleRoles: string[];
+  activities: SubActivity[];
+  gateways?: GatewayInfo[];
 }
 
 export default function StateFlow() {
-  const [activeTab, setActiveTab] = useState<'flowchart' | 'journey' | 'matrix'>('flowchart');
-  const [selectedState, setSelectedState] = useState<string>('Pendiente de aprobación');
+  const [expandedPhase, setExpandedPhase] = useState<string | null>('evaluacion');
+  const [selectedSubActivity, setSelectedSubActivity] = useState<string | null>(null);
 
-  const statesData: Record<string, StateDetail> = {
-    'Borrador': {
-      id: 'Borrador',
-      name: 'Borrador',
-      description: 'Estado inicial cuando una iniciativa es creada por el Registrador. Aún no se ha enviado al flujo formal de revisión.',
-      color: 'text-slate-700',
-      bg: 'bg-slate-50',
-      border: 'border-slate-300',
-      iconBg: 'bg-slate-200 text-slate-700',
-      roles: ['Registrador (Solicitante)'],
-      actions: [
-        'Crear iniciativa',
-        'Guardar borrador con cambios temporales',
-        'Cargar adjuntos preliminares'
-      ],
-      details: [
-        'Los borradores sólo son visibles por el usuario creador (Registrador) o Administradores.',
-        'No se gatillan correos de notificación en este estado.',
-        'Se pueden realizar modificaciones ilimitadas a los campos.'
-      ],
-      transitions: [
+  const macroPhases: MacroPhase[] = [
+    {
+      id: 'registro',
+      number: 'Fase 01',
+      name: 'Registro y Ajustes de la Iniciativa',
+      shortDesc: 'Creación de propuestas preliminares y subsanación de campos observados por el solicitante.',
+      color: 'text-slate-800',
+      bg: 'bg-[#F8FAFC]',
+      border: 'border-slate-350',
+      accentBg: 'bg-slate-100 text-slate-705',
+      responsibleRoles: ['Registrador (Solicitante)', 'BP TI (soporte de edición)'],
+      activities: [
         {
-          action: 'Enviar a Aprobación',
-          target: 'Pendiente de aprobación',
-          conditions: ['Se validan los campos requeridos mínimos.', 'Cambia el estado para que sea visible en la bandeja del BP TI.'],
-          role: 'Registrador'
-        }
-      ]
-    },
-    'Pendiente de aprobación': {
-      id: 'Pendiente de aprobación',
-      name: 'Pendiente de aprobación',
-      description: 'La iniciativa ha sido enviada y está lista para ser evaluada por el equipo técnico o de negocio.',
-      color: 'text-[#4F5AF5]',
-      bg: 'bg-[#EEF2FF]',
-      border: 'border-[#4F5AF5]',
-      iconBg: 'bg-[#4F5AF5] text-white',
-      roles: ['Business Partner TI (BP TI)', 'Administrador'],
-      actions: [
-        'Asignar Business Partner de TI específico (bp_ti_asignado)',
-        'Activar Modo Edición (modificar campos directamente)',
-        'Validación de Visto Bueno (VoBo VP)'
-      ],
-      details: [
-        'Si la iniciativa adjunta un archivo en "Aprobación de Director", se activa el módulo de validación de VoBo.',
-        'Si se marca VoBo como "Correcto", se habilita el botón de Aprobar.',
-        'Si se marca VoBo como "Incorrecto" indicando motivo, la iniciativa pasa automáticamente a Observada.',
-        'Si no posee archivo de aprobación de director, el botón de Aprobar está habilitado por defecto.'
-      ],
-      transitions: [
-        {
-          action: 'Aprobar Iniciativa',
-          target: 'En demanda',
-          conditions: ['Si hay VoBo, debe marcarse como "Correcto".', 'Se guarda el registro de aprobación en el historial.'],
-          role: 'BP TI / Administrador'
+          name: '1. Creación de Borrador',
+          responsible: 'Registrador (Solicitante)',
+          description: 'El solicitante ingresa la información básica, pilar estratégico, justificación técnica y carga el archivo de Visto Bueno (VoBo VP) si ya lo posee.',
+          inputs: ['Formulario de Iniciativa (Descripción, Pilar, Institución, etc.)', 'Adjunto de VoBo VP (Opcional en esta etapa)'],
+          outputs: ['Registro en base de datos con estado "Borrador"', 'Visibilidad exclusiva para el creador y administradores'],
+          rules: [
+            'Los borradores no gatillan correos electrónicos.',
+            'Se pueden editar todos los campos tantas veces como sea necesario antes del envío.'
+          ]
         },
         {
-          action: 'Observar Iniciativa',
-          target: 'Observada',
-          conditions: ['Requiere ingresar al menos un cambio sugerido en los campos.', 'Mantiene la iniciativa bajo revisión pero devuelta al originador.'],
-          role: 'BP TI / Administrador'
+          name: '2. Subsanación de Observaciones',
+          responsible: 'Registrador / BP TI (en caso de ausencia)',
+          description: 'Si la iniciativa es observada, el registrador visualiza los campos sugeridos destacados y procede a corregirlos o aceptar sugerencias del BP.',
+          inputs: ['Campos observados', 'Objeto de cambios sugeridos (_suggested_changes)', 'Historial de observaciones'],
+          outputs: ['Campos corregidos', 'Cambios sugeridos vaciados tras el reenvío'],
+          rules: [
+            'Si solo tiene rol de Registrador, solo el creador original (isMine) puede editar u operar transiciones.',
+            'Si está fuera de oficina, el rol de BP TI asignado a sus direcciones puede editar y regresar la iniciativa al flujo.'
+          ]
+        }
+      ],
+      gateways: [
+        {
+          question: '¿Campos obligatorios completos al enviar?',
+          branches: [
+            {
+              condition: 'Sí',
+              targetState: 'Pendiente de aprobación',
+              description: 'La iniciativa pasa a la bandeja principal de evaluación y es visible por el BP TI.'
+            },
+            {
+              condition: 'No',
+              targetState: 'Borrador / Observada',
+              description: 'El sistema bloquea la transición indicando qué campos falta completar.'
+            }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'evaluacion',
+      number: 'Fase 02',
+      name: 'Evaluación y Aprobación de TI',
+      shortDesc: 'Control de firmas del Visto Bueno, asignación de BP TI por dirección y decisión final del requerimiento.',
+      color: 'text-indigo-800',
+      bg: 'bg-[#F5F7FF]',
+      border: 'border-indigo-200',
+      accentBg: 'bg-[#EEF2FF] text-[#4F5AF5]',
+      responsibleRoles: ['Business Partner TI (BP TI)', 'Administrador de Sistema'],
+      activities: [
+        {
+          name: '1. Asignación de BP TI',
+          responsible: 'BP TI / Administrador',
+          description: 'La iniciativa ingresada se vincula a un Business Partner de TI específico según las direcciones a las que pertenece el requerimiento.',
+          inputs: ['Iniciativa en estado "Pendiente de aprobación"', 'Dirección solicitante'],
+          outputs: ['Campo bp_ti_asignado configurado con el usuario correspondiente'],
+          rules: [
+            'Solo los BPs de TI asignados a la dirección de la iniciativa (o administradores) pueden interactuar con el flujo formal.'
+          ]
         },
         {
-          action: 'Desestimar Iniciativa',
-          target: 'Desestimada',
-          conditions: ['Requiere ingresar un comentario de justificación para descartar la iniciativa.'],
-          role: 'BP TI / Administrador'
-        }
-      ]
-    },
-    'Observada': {
-      id: 'Observada',
-      name: 'Observada',
-      description: 'La iniciativa contiene observaciones o cambios sugeridos que el Registrador debe subsanar.',
-      color: 'text-amber-700',
-      bg: 'bg-amber-50',
-      border: 'border-amber-300',
-      iconBg: 'bg-amber-100 text-amber-700',
-      roles: ['Registrador (Solicitante)'],
-      actions: [
-        'Ver historial de observaciones detallado',
-        'Aceptar o rechazar cambios sugeridos uno a uno o de forma masiva',
-        'Subsanar campos del formulario observados'
-      ],
-      details: [
-        'Los cambios sugeridos se guardan en el campo interno `_suggested_changes`.',
-        'El Registrador ve resaltados los campos que tienen observaciones específicas.'
-      ],
-      transitions: [
-        {
-          action: 'Reenviar a Aprobación',
-          target: 'Pendiente de aprobación',
-          conditions: ['Se vacía el listado de cambios sugeridos y se guarda un snapshot en el historial.', 'Vuelve a la bandeja de aprobación del BP TI.'],
-          role: 'Registrador'
-        }
-      ]
-    },
-    'En demanda': {
-      id: 'En demanda',
-      name: 'En demanda',
-      description: 'Estado final de aprobación. La iniciativa ha sido aceptada e ingresa formalmente al backlog de demandas para desarrollo o implementación.',
-      color: 'text-emerald-700',
-      bg: 'bg-emerald-50',
-      border: 'border-emerald-300',
-      iconBg: 'bg-emerald-100 text-emerald-700',
-      roles: ['Business Partner TI (BP TI)', 'Administrador'],
-      actions: [
-        'Visualización de detalles aprobados',
-        'Exportar datos',
-        'Desestimar post-aprobación'
-      ],
-      details: [
-        'Es el estado óptimo de finalización de flujo.',
-        'La iniciativa ya no puede ser editada a menos que sea desestimada primero.'
-      ],
-      transitions: [
-        {
-          action: 'Desestimar Iniciativa',
-          target: 'Desestimada',
-          conditions: ['Permite descartar iniciativas que por cambios de prioridad de negocio ya no se realizarán.'],
-          role: 'BP TI / Administrador'
-        }
-      ]
-    },
-    'Desestimada': {
-      id: 'Desestimada',
-      name: 'Desestimada',
-      description: 'La iniciativa ha sido descartada. Este estado actúa como un archivo lógico de propuestas no viables.',
-      color: 'text-red-700',
-      bg: 'bg-red-50',
-      border: 'border-red-300',
-      iconBg: 'bg-red-100 text-red-700',
-      roles: ['Business Partner TI (BP TI)', 'Administrador'],
-      actions: [
-        'Mover a Nueva (Reactivar)',
-        'Mover a En demanda (Aprobar Directamente)'
-      ],
-      details: [
-        'Mantiene el historial de por qué fue desestimada.',
-        'Permite flexibilidad de recuperar la iniciativa sin necesidad de que el Registrador la digite de nuevo.'
-      ],
-      transitions: [
-        {
-          action: 'Mover a Nueva',
-          target: 'Pendiente de aprobación',
-          conditions: ['Devuelve la iniciativa para re-evaluación en la bandeja principal.'],
-          role: 'BP TI / Administrador'
+          name: '2. Evaluación de Visto Bueno (VoBo VP)',
+          responsible: 'Business Partner TI (BP TI)',
+          description: 'El BP analiza la firma o documento adjunto de aprobación del Vicepresidente. Marca el documento como "Correcto" o "Incorrecto" según corresponda.',
+          inputs: ['Archivo adjunto aprobacin_de_director'],
+          outputs: ['Estado de VoBo actualizado en el registro (_vobo_status)'],
+          rules: [
+            'Si existe un VoBo cargado, no se habilitará la aprobación definitiva hasta que el estado del VoBo sea validado como "Correcto".',
+            'Si se marca como "Incorrecto" con observaciones, la iniciativa se mueve automáticamente a "Observada" alertando al registrador.'
+          ]
         },
         {
-          action: 'Mover a En demanda',
-          target: 'En demanda',
-          conditions: ['Re-aprueba la iniciativa directamente sin pasar por filtros adicionales.'],
-          role: 'BP TI / Administrador'
+          name: '3. Resolución de la Iniciativa',
+          responsible: 'BP TI / Administrador',
+          description: 'El BP TI toma la decisión sobre la propuesta basándose en los criterios del negocio y factibilidad técnica.',
+          inputs: ['Iniciativa con VoBo validado (si aplica)', 'Campos completados'],
+          outputs: ['Transición a estado final: "En demanda" o "Desestimada"'],
+          rules: [
+            'Aprobar: Requiere VoBo Correcto. Genera estado "En demanda".',
+            'Observar: Requiere al menos un cambio sugerido. Genera estado "Observada" y notifica al originador.',
+            'Desestimar: Requiere comentario de rechazo. Genera estado "Desestimada".'
+          ]
+        }
+      ],
+      gateways: [
+        {
+          question: '¿Cuenta con Visto Bueno de VP?',
+          branches: [
+            {
+              condition: 'No adjuntó archivo',
+              targetState: 'Aprobar directamente',
+              description: 'Se permite la aprobación sin módulo de VoBo obligatorio.'
+            },
+            {
+              condition: 'Adjuntó archivo & VoBo Correcto',
+              targetState: 'Habilitado para Aprobar',
+              description: 'Se valida la firma de manera conforme y se habilita la transición a demanda.'
+            },
+            {
+              condition: 'Adjuntó archivo & VoBo Incorrecto',
+              targetState: 'Observada',
+              description: 'Devuelve automáticamente la iniciativa a subsanación del originador.'
+            }
+          ]
         }
       ]
-    }
-  };
-
-  const activeState = statesData[selectedState];
-
-  // Datos para el Journey Map
-  const journeySteps = [
+    },
     {
-      phase: '1. Ideación y Borrador',
-      role: 'Registrador (Solicitante)',
-      icon: <FileText className="w-5 h-5 text-slate-600" />,
-      state: 'Borrador',
-      description: 'El originador define los objetivos, costos estimados y beneficios de la iniciativa técnica.',
-      action: 'Completa formulario inicial y sube el Visto Bueno (VoBo) si aplica.',
-      exits: [
-        { label: 'Guardar Borrador', target: 'Borrador', desc: 'Permite continuar editando después.' },
-        { label: 'Enviar a Aprobación', target: 'Pendiente de aprobación', desc: 'Gatilla validaciones e ingresa a bandeja de TI.' }
+      id: 'backlog',
+      number: 'Fase 03',
+      name: 'Paso a Demanda (Backlog)',
+      shortDesc: 'Aprobación definitiva del requerimiento e incorporación a la cola formal de desarrollo.',
+      color: 'text-emerald-800',
+      bg: 'bg-[#F4FBF7]',
+      border: 'border-emerald-250',
+      accentBg: 'bg-emerald-50 text-emerald-700',
+      responsibleRoles: ['Equipo Técnico', 'BP TI', 'Administrador'],
+      activities: [
+        {
+          name: '1. Registro en Cola de Demandas',
+          responsible: 'Sistema / BP TI',
+          description: 'La iniciativa entra al backlog oficial de TI. Se congela la edición de datos para preservar el requerimiento aprobado.',
+          inputs: ['Iniciativa aprobada en estado "En demanda"'],
+          outputs: ['Iniciativa en modo de solo lectura para todos los roles'],
+          rules: [
+            'Los campos no pueden ser modificados por ningún usuario en este estado.',
+            'Se notifica a los interesados del ingreso al backlog.'
+          ]
+        }
       ]
     },
     {
-      phase: '2. Ingreso y Asignación',
-      role: 'Administrador / Sistema',
-      icon: <Layers className="w-5 h-5 text-indigo-600" />,
-      state: 'Pendiente de aprobación',
-      description: 'La iniciativa ingresa a la bandeja central de TI y se asigna a un BP de TI según VP.',
-      action: 'El Administrador o el sistema asigna la iniciativa a un BP TI responsable para evaluación técnica.',
-      exits: [
-        { label: 'Asignación de BP', target: 'Pendiente de aprobación', desc: 'Define quién evaluará la iniciativa.' }
-      ]
-    },
-    {
-      phase: '3. Evaluación y Filtros VoBo',
-      role: 'BP TI / Administrador',
-      icon: <AlertCircle className="w-5 h-5 text-amber-600" />,
-      state: 'Pendiente de aprobación',
-      description: 'Se valida la viabilidad técnica y las firmas de aprobación correspondientes.',
-      action: 'El BP TI valida el archivo de VoBo de VP adjunto (si existe).',
-      exits: [
-        { label: 'VoBo VP Incorrecto', target: 'Observada', desc: 'Rechaza la firma y devuelve la iniciativa al Registrador.' },
-        { label: 'VoBo VP Correcto', target: 'Pendiente de aprobación', desc: 'Habilita botón de aprobación definitiva.' }
-      ]
-    },
-    {
-      phase: '4. Hito de Decisión',
-      role: 'BP TI / Administrador',
-      icon: <Compass className="w-5 h-5 text-emerald-600" />,
-      state: 'Pendiente de aprobación',
-      description: 'Se emite la resolución de la propuesta de iniciativa.',
-      action: 'Se selecciona una de las tres acciones de decisión final.',
-      exits: [
-        { label: 'Aprobar', target: 'En demanda', desc: 'Mueve la propuesta a la cola de demandas autorizadas (Estado Final).' },
-        { label: 'Observar', target: 'Observada', desc: 'Se proponen cambios de campos y se regresa al originador para correcciones.' },
-        { label: 'Desestimar', target: 'Desestimada', desc: 'Se cancela de manera definitiva o temporal la iniciativa (Estado Final).' }
-      ]
-    },
-    {
-      phase: '5. Retorno y Ciclo de Ajustes',
-      role: 'Registrador / BP TI',
-      icon: <RefreshCcw className="w-5 h-5 text-blue-600" />,
-      state: 'Observada',
-      description: 'Ciclo interactivo de corrección de observaciones por parte del Registrador.',
-      action: 'El Registrador acepta o ajusta los campos sugeridos por TI.',
-      exits: [
-        { label: 'Reenviar', target: 'Pendiente de aprobación', desc: 'Limpia campos de sugerencia e ingresa a revisión nuevamente.' }
-      ]
-    },
-    {
-      phase: '6. Recuperación o Reactivación',
-      role: 'BP TI / Administrador',
-      icon: <RotateCcw className="w-5 h-5 text-red-600" />,
-      state: 'Desestimada',
-      description: 'Opción de rescate para iniciativas que fueron descartadas previamente.',
-      action: 'El Administrador evalúa si las condiciones de negocio cambiaron.',
-      exits: [
-        { label: 'Mover a Nueva', target: 'Pendiente de aprobación', desc: 'Se vuelve a evaluar desde cero.' },
-        { label: 'Mover a En demanda', target: 'En demanda', desc: 'Se aprueba directamente sin filtros adicionales.' }
+      id: 'rescate',
+      number: 'Fase 04',
+      name: 'Archivo Lógico y Rescate de Iniciativas',
+      shortDesc: 'Gestión de propuestas desestimadas y flujo extraordinario de reactivación.',
+      color: 'text-red-800',
+      bg: 'bg-[#FFF5F5]',
+      border: 'border-red-200',
+      accentBg: 'bg-red-50 text-red-700',
+      responsibleRoles: ['Administrador de Sistema', 'BP TI'],
+      activities: [
+        {
+          name: '1. Desestimación',
+          responsible: 'BP TI / Administrador',
+          description: 'Iniciativas canceladas o cuya prioridad ya no es viable se archivan lógicamente conservando su histórico.',
+          inputs: ['Comentario de desestimación'],
+          outputs: ['Registro en estado "Desestimada"'],
+          rules: [
+            'Mantiene visible el motivo de desestimación en el historial de revisiones.'
+          ]
+        },
+        {
+          name: '2. Reactivación Extraordinaria',
+          responsible: 'Administrador / BP TI asignado',
+          description: 'Permite revivir una iniciativa archivada sin necesidad de que el Registrador tenga que registrarla de nuevo.',
+          inputs: ['Acción manual del evaluador'],
+          outputs: ['Transición a "Pendiente de aprobación" (Mover a nueva) o "En demanda" (Mover a demanda)'],
+          rules: [
+            'Mover a Nueva: Devuelve la iniciativa al flujo formal para re-evaluación.',
+            'Mover a Demanda: Aprueba directamente la iniciativa desestimada.'
+          ]
+        }
       ]
     }
   ];
@@ -271,457 +227,313 @@ export default function StateFlow() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-[#1E293B] flex items-center gap-2">
-            <GitBranch className="w-7 h-7 text-[#4F5AF5]" />
-            Journey y Flujos de la Iniciativa
+          <h1 className="text-2xl font-bold text-[#1E293B] flex items-center gap-3">
+            <GitBranch className="w-8 h-8 text-[#4F5AF5]" />
+            Journey y Mapa de Procesos BPMN
           </h1>
           <p className="text-sm text-[#64748B] mt-1">
-            Visualiza quién opera cada estado, las reglas de negocio y cómo avanza el ciclo de vida de las propuestas.
+            Explora las fases del ciclo de vida en niveles jerárquicos. Haz clic en una fase para abrir su diagrama BPMN detallado, reglas de negocio y transiciones lógicas.
           </p>
-        </div>
-        
-        {/* Selector de Pestañas con Premium UX */}
-        <div className="flex bg-[#F1F5F9] p-1.5 rounded-xl border border-slate-200 self-start md:self-auto shadow-inner">
-          <button
-            onClick={() => setActiveTab('flowchart')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'flowchart' 
-                ? 'bg-white text-[#4F5AF5] shadow-sm' 
-                : 'text-[#64748B] hover:text-slate-900'
-            }`}
-          >
-            <GitBranch className="w-3.5 h-3.5" />
-            Flujograma (Swimlanes)
-          </button>
-          <button
-            onClick={() => setActiveTab('journey')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'journey' 
-                ? 'bg-white text-[#4F5AF5] shadow-sm' 
-                : 'text-[#64748B] hover:text-slate-900'
-            }`}
-          >
-            <Compass className="w-3.5 h-3.5" />
-            Paso a Paso
-          </button>
-          <button
-            onClick={() => setActiveTab('matrix')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === 'matrix' 
-                ? 'bg-white text-[#4F5AF5] shadow-sm' 
-                : 'text-[#64748B] hover:text-slate-900'
-            }`}
-          >
-            <Table className="w-3.5 h-3.5" />
-            Matriz de Reglas
-          </button>
         </div>
       </div>
 
-      {/* RENDER SEGÚN TAB SELECCIONADA */}
-      {activeTab === 'flowchart' && (
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-fadeIn">
-          
-          {/* Panel Izquierdo/Centro: Swimlanes Flowchart */}
-          <div className="xl:col-span-3 bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm overflow-x-auto">
-            <div className="min-w-[850px] space-y-6">
-              
-              {/* Cabeceras de Roles (Carriles/Swimlanes) */}
-              <div className="grid grid-cols-3 gap-4 text-center border-b pb-3 border-slate-200">
-                <div className="bg-slate-50 py-2 rounded-lg border border-slate-200 font-bold text-xs text-slate-700 flex items-center justify-center gap-1.5">
-                  <User className="w-4 h-4 text-slate-500" />
-                  REGISTRADOR (SOLICITANTE)
-                </div>
-                <div className="bg-indigo-50 py-2 rounded-lg border border-indigo-150 font-bold text-xs text-indigo-800 flex items-center justify-center gap-1.5">
-                  <Shield className="w-4 h-4 text-indigo-500" />
-                  BP TI / ADMINISTRADOR
-                </div>
-                <div className="bg-emerald-50 py-2 rounded-lg border border-emerald-150 font-bold text-xs text-emerald-800 flex items-center justify-center gap-1.5">
-                  <CheckCircle className="w-4 h-4 text-emerald-500" />
-                  ESTADOS FINALIZADOS
-                </div>
-              </div>
-
-              {/* Fila 1: Creación & Envío */}
-              <div className="grid grid-cols-3 gap-4 items-center min-h-[100px]">
-                {/* Carril Registrador */}
-                <div className="flex flex-col items-center">
-                  <button
-                    onClick={() => setSelectedState('Borrador')}
-                    className={`p-4 w-full rounded-xl border text-left transition-all ${
-                      selectedState === 'Borrador' 
-                        ? 'bg-slate-50 border-slate-500 shadow-md ring-2 ring-slate-100 font-bold' 
-                        : 'bg-white border-slate-200 hover:border-slate-400'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-800">1. Borrador</span>
-                      <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">Borrador</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1.5 leading-tight">Iniciativa en edición preliminar por el originador.</p>
-                  </button>
-                </div>
-
-                {/* Arrow to middle lane */}
-                <div className="flex items-center justify-center h-full">
-                  <div className="flex items-center gap-1 text-[#4F5AF5] text-[10px] font-bold bg-[#EEF2FF] px-2.5 py-1 rounded-full border border-indigo-100 shadow-sm">
-                    <span>Enviar a aprobación</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+      {/* BPMN Nivel 1: Macro-Proceso (Horizontal) */}
+      <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm overflow-hidden">
+        <h2 className="text-xs font-extrabold uppercase text-slate-400 tracking-wider mb-4 flex items-center gap-1.5">
+          <Layers className="w-4 h-4 text-[#64748B]" />
+          BPMN Nivel 1: Mapa del Macro-Proceso General
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative">
+          {macroPhases.map((phase, idx) => {
+            const isSelected = expandedPhase === phase.id;
+            return (
+              <div key={phase.id} className="relative flex flex-col md:flex-row items-center gap-2">
+                <div 
+                  onClick={() => setExpandedPhase(isSelected ? null : phase.id)}
+                  className={`w-full p-4 rounded-xl border text-left cursor-pointer transition-all ${phase.bg} ${
+                    isSelected 
+                      ? `border-[#4F5AF5] shadow-md ring-2 ring-indigo-50 border-t-4` 
+                      : 'border-[#E2E8F0] hover:border-slate-300 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${phase.accentBg}`}>{phase.number}</span>
+                    <span className="text-[10px] text-slate-400 italic font-medium">Clic para expandir</span>
+                  </div>
+                  <h3 className={`text-sm font-extrabold text-[#1E293B] truncate`}>{phase.name}</h3>
+                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">{phase.shortDesc}</p>
+                  
+                  <div className="mt-3 pt-2.5 border-t border-slate-200/50 flex flex-wrap gap-1">
+                    {phase.responsibleRoles.slice(0, 1).map((r, i) => (
+                      <span key={i} className="text-[9px] bg-white border border-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold flex items-center gap-1">
+                        <User className="w-2.5 h-2.5 text-slate-400" /> {r}
+                      </span>
+                    ))}
+                    {phase.responsibleRoles.length > 1 && (
+                      <span className="text-[9px] bg-slate-100 text-slate-600 px-1 py-0.5 rounded font-mono font-bold">+{phase.responsibleRoles.length - 1}</span>
+                    )}
                   </div>
                 </div>
-
-                {/* Carril Finalizado (Vacío en esta fila) */}
-                <div className="text-center text-xs text-slate-300 italic">-</div>
-              </div>
-
-              {/* Fila 2: Revisión y Decisiones */}
-              <div className="grid grid-cols-3 gap-4 items-center min-h-[140px] border-t border-dashed pt-4">
-                {/* Carril Registrador: Observada */}
-                <div className="flex flex-col items-center">
-                  <button
-                    onClick={() => setSelectedState('Observada')}
-                    className={`p-4 w-full rounded-xl border text-left transition-all ${
-                      selectedState === 'Observada' 
-                        ? 'bg-amber-50 border-amber-500 shadow-md ring-2 ring-amber-100 font-bold' 
-                        : 'bg-white border-slate-200 hover:border-amber-400'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-amber-700">Observada</span>
-                      <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-mono">Observada</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1.5 leading-tight">Tiene observaciones / cambios sugeridos. El Registrador debe ajustar y Reenviar.</p>
-                  </button>
-
-                  <div className="flex items-center gap-1 text-[#4F5AF5] text-[9px] font-bold mt-3">
-                    <RefreshCcw className="w-3 h-3 animate-spin" />
-                    <span>Reenviar vuelve a Revisión</span>
+                {idx !== 3 && (
+                  <div className="hidden md:flex text-slate-350 pointer-events-none absolute right-[-10px] z-10 shrink-0">
+                    <ChevronRight className="w-6 h-6" />
                   </div>
-                </div>
-
-                {/* Carril BP/Admin: Pendiente de aprobación */}
-                <div className="flex flex-col items-center gap-3">
-                  <button
-                    onClick={() => setSelectedState('Pendiente de aprobación')}
-                    className={`p-4 w-full rounded-xl border text-left transition-all ${
-                      selectedState === 'Pendiente de aprobación' 
-                        ? 'bg-[#EEF2FF] border-[#4F5AF5] shadow-md ring-2 ring-indigo-100 font-bold' 
-                        : 'bg-white border-slate-200 hover:border-[#4F5AF5]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-[#4F5AF5]">2. Pendiente de aprobación</span>
-                      <span className="text-[9px] bg-[#EEF2FF] text-[#4F5AF5] px-1.5 py-0.5 rounded font-mono">Revisión</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1.5 leading-tight">Evaluación de firmas de VoBo VP. Si hay VoBo, debe marcarse Correcto antes de aprobar.</p>
-                  </button>
-
-                  {/* Decision Tree Actions */}
-                  <div className="flex flex-col gap-1.5 w-full bg-slate-50 p-2 rounded-lg border border-slate-200">
-                    <span className="text-[9px] font-extrabold uppercase text-slate-400 block text-center mb-1">Acciones del Evaluador</span>
-                    <div className="grid grid-cols-3 gap-1">
-                      <span className="bg-emerald-50 text-emerald-700 text-[8px] font-bold text-center py-1 rounded border border-emerald-100">Aprobar</span>
-                      <span className="bg-amber-50 text-amber-700 text-[8px] font-bold text-center py-1 rounded border border-amber-100">Observar</span>
-                      <span className="bg-red-50 text-red-700 text-[8px] font-bold text-center py-1 rounded border border-red-100 font-medium">Desestimar</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Carril Finalizado: En demanda o Desestimada */}
-                <div className="space-y-4">
-                  {/* Aprobado */}
-                  <button
-                    onClick={() => setSelectedState('En demanda')}
-                    className={`p-4 w-full rounded-xl border text-left transition-all ${
-                      selectedState === 'En demanda' 
-                        ? 'bg-emerald-50 border-emerald-500 shadow-md ring-2 ring-emerald-100 font-bold' 
-                        : 'bg-white border-slate-200 hover:border-emerald-500'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-emerald-800">3A. En demanda</span>
-                      <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-mono">Aprobado</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1.5 leading-tight">Iniciativa lista en el backlog. No se puede editar.</p>
-                  </button>
-
-                  {/* Desestimada */}
-                  <button
-                    onClick={() => setSelectedState('Desestimada')}
-                    className={`p-4 w-full rounded-xl border text-left transition-all ${
-                      selectedState === 'Desestimada' 
-                        ? 'bg-red-50 border-red-500 shadow-md ring-2 ring-red-100 font-bold' 
-                        : 'bg-white border-slate-200 hover:border-red-400'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-red-700">3B. Desestimada</span>
-                      <span className="text-[9px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-mono">Descartado</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1.5 leading-tight">Iniciativa descartada. Recuperable por el Administrador.</p>
-                  </button>
-                </div>
+                )}
               </div>
-
-              {/* Fila 3: Acciones de Recuperación (Administración) */}
-              <div className="grid grid-cols-3 gap-4 items-center min-h-[80px] border-t border-dashed pt-4">
-                {/* Carril Registrador (Vacío) */}
-                <div className="text-center text-xs text-slate-300 italic">-</div>
-
-                {/* Carril Admin (Rescate) */}
-                <div className="flex justify-center">
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center max-w-[240px] shadow-sm">
-                    <span className="text-[9px] font-extrabold uppercase text-[#4F5AF5] block mb-1">Módulo de Rescate</span>
-                    <p className="text-[10px] text-slate-500 mb-2 leading-none">Permite reactivar iniciativas desestimadas.</p>
-                    <div className="flex justify-center gap-1.5">
-                      <span className="bg-white border px-2 py-0.5 rounded text-[8px] font-semibold text-indigo-700">Mover a Nueva</span>
-                      <span className="bg-white border px-2 py-0.5 rounded text-[8px] font-semibold text-emerald-700">Mover a Demanda</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Carril Finalizado (Vacío) */}
-                <div className="text-center text-xs text-slate-300 italic">-</div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* Panel Derecho: Detalle del Estado Seleccionado */}
-          <div className={`bg-white rounded-2xl border ${activeState.border} p-6 shadow-sm flex flex-col justify-between transition-all`}>
-            <div className="space-y-6">
-              
-              {/* Header del Estado */}
-              <div className="flex items-center justify-between border-b pb-4">
-                <div>
-                  <span className="text-xs text-slate-400 font-mono tracking-wider uppercase">Detalle del Estado</span>
-                  <h3 className={`text-lg font-bold ${activeState.color} mt-0.5`}>
-                    {activeState.name}
-                  </h3>
-                </div>
-                <div className={`p-2.5 rounded-xl ${activeState.iconBg}`}>
-                  <GitBranch className="w-5 h-5" />
-                </div>
-              </div>
-
-              {/* Descripción */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Descripción</h4>
-                <p className="text-sm text-[#64748B] leading-relaxed">
-                  {activeState.description}
-                </p>
-              </div>
-
-              {/* Roles con Permiso */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Roles con Permiso</h4>
-                <div className="flex flex-wrap gap-1.5">
-                  {activeState.roles.map((r, i) => (
-                    <span key={i} className="inline-flex items-center gap-1 bg-slate-50 text-slate-800 text-[11px] font-medium px-2.5 py-1 rounded-full border border-slate-200">
-                      <User className="w-3 h-3 text-slate-400" />
-                      {r}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Acciones del Estado */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Acciones permitidas</h4>
-                <ul className="space-y-1.5">
-                  {activeState.actions.map((act, i) => (
-                    <li key={i} className="text-xs text-[#64748B] flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                      <span>{act}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Detalles Operativos */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Reglas de Negocio y Datos</h4>
-                <ul className="space-y-1.5">
-                  {activeState.details.map((det, i) => (
-                    <li key={i} className="text-xs text-[#64748B] flex items-start gap-1.5 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                      <Info className="w-3.5 h-3.5 text-[#4F5AF5] shrink-0 mt-0.5" />
-                      <span>{det}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-            </div>
-          </div>
+            );
+          })}
         </div>
-      )}
+      </div>
 
-      {activeTab === 'journey' && (
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm space-y-8 animate-fadeIn">
-          <div>
-            <h2 className="text-lg font-bold text-[#1E293B] mb-1">User Journey del Proceso de Demandas</h2>
-            <p className="text-xs text-[#64748B]">Mapa cronológico del ciclo de vida detallado, desde la idea inicial del Registrador hasta los estados de resolución finales.</p>
-          </div>
-
-          <div className="relative border-l-2 border-[#4F5AF5]/20 ml-4 pl-8 space-y-10">
-            {journeySteps.map((step, idx) => (
-              <div key={idx} className="relative">
-                {/* Indicador de hito */}
-                <div className="absolute -left-[45px] top-0 w-8 h-8 rounded-full bg-white border-2 border-[#4F5AF5] flex items-center justify-center shadow-sm">
-                  {step.icon}
+      {/* BPMN Nivel 2: Detalle de la Fase Expandida */}
+      {expandedPhase && (() => {
+        const phase = macroPhases.find(p => p.id === expandedPhase)!;
+        return (
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-fadeIn">
+            
+            {/* Diagrama BPMN Interactivo */}
+            <div className="xl:col-span-2 bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between border-b pb-3 mb-6">
+                  <div>
+                    <span className="text-[10px] text-[#4F5AF5] font-extrabold uppercase tracking-widest">{phase.number} • Sub-proceso BPMN</span>
+                    <h2 className="text-base font-extrabold text-[#1E293B] mt-0.5">{phase.name}</h2>
+                  </div>
+                  <button 
+                    onClick={() => setExpandedPhase(null)}
+                    className="text-xs font-bold text-[#64748B] hover:text-[#1E293B] bg-slate-50 hover:bg-slate-100 px-2.5 py-1.5 rounded-lg border border-[#E2E8F0]"
+                  >
+                    Contraer
+                  </button>
                 </div>
-                
-                {/* Card de la etapa */}
-                <div className="bg-[#F8FAFC] border border-slate-200 rounded-xl p-5 hover:shadow-md transition-shadow">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-3 mb-3">
-                    <div>
-                      <span className="text-xs text-[#4F5AF5] font-extrabold uppercase tracking-wide block">{step.phase}</span>
-                      <h3 className="text-sm font-bold text-slate-800 mt-0.5 flex items-center gap-1.5">
-                        {step.description}
-                      </h3>
-                    </div>
-                    <div className="flex gap-2">
-                      <span className="bg-slate-200 text-slate-800 text-[10px] font-bold px-2.5 py-1 rounded">
-                        Rol: {step.role}
-                      </span>
-                      <span className="bg-[#EEF2FF] text-[#4F5AF5] text-[10px] font-mono px-2.5 py-1 rounded border border-indigo-100">
-                        Estado BD: {step.state}
-                      </span>
+
+                {/* Swimlanes o Flujo Visual de Actividades */}
+                <div className="space-y-6">
+                  <div className="bg-[#F8FAFC] border border-slate-200/80 rounded-xl p-5 space-y-4">
+                    <h3 className="text-xs font-extrabold uppercase text-[#64748B] tracking-wider mb-2 flex items-center gap-1">
+                      <Play className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500" />
+                      Flujo de Actividades y Tareas en Serie
+                    </h3>
+                    
+                    <div className="flex flex-col md:flex-row items-stretch gap-4 justify-between">
+                      {phase.activities.map((act, actIdx) => {
+                        const isSubSelected = selectedSubActivity === act.name;
+                        return (
+                          <React.Fragment key={act.name}>
+                            <div 
+                              onClick={() => setSelectedSubActivity(isSubSelected ? null : act.name)}
+                              className={`flex-1 p-4 rounded-xl border text-left cursor-pointer transition-all ${
+                                isSubSelected 
+                                  ? 'bg-[#EEF2FF] border-[#4F5AF5] shadow-sm ring-2 ring-indigo-50' 
+                                  : 'bg-white border-[#E2E8F0] hover:border-slate-400'
+                              }`}
+                            >
+                              <span className="text-[9px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono font-bold uppercase">{act.responsible}</span>
+                              <h4 className="text-xs font-extrabold text-slate-800 mt-2">{act.name}</h4>
+                              <p className="text-[11px] text-slate-500 mt-1 line-clamp-3 leading-relaxed">{act.description}</p>
+                              <div className="mt-3 flex justify-between items-center text-[10px] font-bold text-[#4F5AF5]">
+                                <span>Ver reglas y E/S</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </div>
+                            </div>
+                            {actIdx !== phase.activities.length - 1 && (
+                              <div className="flex md:hidden items-center justify-center text-slate-350 py-2">
+                                <ArrowDown className="w-5 h-5" />
+                              </div>
+                            )}
+                            {actIdx !== phase.activities.length - 1 && (
+                              <div className="hidden md:flex items-center justify-center text-slate-300 shrink-0">
+                                <ArrowRight className="w-5 h-5" />
+                              </div>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Acción del paso */}
-                    <div className="space-y-1">
-                      <h4 className="text-[10px] font-extrabold uppercase text-slate-400">Acción Requerida en esta fase</h4>
-                      <p className="text-xs text-[#4F5AF5] font-medium bg-white p-3 rounded-lg border border-slate-100">
-                        {step.action}
-                      </p>
-                    </div>
+                  {/* Gateways y Criterios Lógicos (BPMN Gateways) */}
+                  {phase.gateways && phase.gateways.length > 0 && (
+                    <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-6 h-6 rotate-45 border-2 border-amber-500 bg-white flex items-center justify-center shrink-0">
+                          <span className="-rotate-45 text-[10px] font-bold text-amber-600">?</span>
+                        </div>
+                        <h4 className="text-xs font-extrabold text-amber-800 uppercase tracking-wider">
+                          Gateway Lógico BPMN: {phase.gateways[0].question}
+                        </h4>
+                      </div>
 
-                    {/* Caminos de salida / Decisiones */}
-                    <div className="space-y-2">
-                      <h4 className="text-[10px] font-extrabold uppercase text-slate-400">Posibles Salidas e Hitos</h4>
-                      <div className="space-y-2">
-                        {step.exits.map((ex, exIdx) => (
-                          <div key={exIdx} className="bg-white border rounded-lg p-2.5 flex items-start gap-2">
-                            <CornerRightDown className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[11px] font-bold text-slate-800">{ex.label}</span>
-                                <ArrowRight className="w-3 h-3 text-slate-400" />
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">
-                                  {ex.target}
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-slate-500 mt-0.5">{ex.desc}</p>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {phase.gateways[0].branches.map((br, bIdx) => (
+                          <div key={bIdx} className="bg-white border border-amber-100 rounded-lg p-3 shadow-sm">
+                            <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-extrabold font-mono uppercase">{br.condition}</span>
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <span className="text-[11px] text-slate-500">Mueve a:</span>
+                              <span className="text-[10px] font-bold bg-[#EEF2FF] text-[#4F5AF5] px-1.5 py-0.5 rounded font-mono border border-indigo-100">{br.targetState}</span>
                             </div>
+                            <p className="text-[10px] text-[#64748B] mt-1.5 leading-relaxed">{br.description}</p>
                           </div>
                         ))}
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {activeTab === 'matrix' && (
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm space-y-6 animate-fadeIn">
-          <div>
-            <h2 className="text-lg font-bold text-[#1E293B] mb-1">Matriz de Reglas y Condiciones Técnicas</h2>
-            <p className="text-xs text-[#64748B]">Mapa detallado de todas las transiciones del sistema, campos de base de datos alterados y condiciones lógicas.</p>
-          </div>
+              {/* Botón de cierre o contraer */}
+              <div className="mt-6 pt-4 border-t border-slate-200/50 flex justify-end">
+                <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                  Selecciona una actividad para ver detalles de Entradas/Salidas y Reglas Operativas.
+                </span>
+              </div>
+            </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="p-3 text-xs font-bold text-slate-500 uppercase">Estado Origen</th>
-                  <th className="p-3 text-xs font-bold text-slate-500 uppercase">Acción disparadora</th>
-                  <th className="p-3 text-xs font-bold text-slate-500 uppercase">Estado Destino</th>
-                  <th className="p-3 text-xs font-bold text-slate-500 uppercase">Condiciones Lógicas & Campos BD</th>
-                  <th className="p-3 text-xs font-bold text-slate-500 uppercase">Operado por</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                <tr>
-                  <td className="p-3 font-semibold text-slate-600">Borrador</td>
-                  <td className="p-3 font-semibold text-indigo-600">Enviar a Aprobación</td>
-                  <td className="p-3"><span className="bg-[#EEF2FF] text-[#4F5AF5] px-2 py-0.5 rounded font-medium">Pendiente de aprobación</span></td>
-                  <td className="p-3 text-slate-500">Valida que se ingresen campos mínimos requeridos en el formulario.</td>
-                  <td className="p-3 text-slate-600">Registrador (Originador)</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-600">Pendiente de aprobación</td>
-                  <td className="p-3 font-semibold text-emerald-600">Aprobar</td>
-                  <td className="p-3"><span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-medium">En demanda</span></td>
-                  <td className="p-3 text-slate-500">
-                    Si el campo `aprobacin_de_director` contiene un VoBo adjunto, se requiere que la validación manual del BP sea `_vobo_status === "correcto"`.
-                  </td>
-                  <td className="p-3 text-slate-600">BP TI, Admin</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-600">Pendiente de aprobación</td>
-                  <td className="p-3 font-semibold text-amber-600">Observar</td>
-                  <td className="p-3"><span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-medium">Observada</span></td>
-                  <td className="p-3 text-slate-500">
-                    El evaluador debe ingresar cambios sugeridos en los campos editables. Estos se almacenan en `_suggested_changes` para guiar al registrador.
-                  </td>
-                  <td className="p-3 text-slate-600">BP TI, Admin</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-600">Pendiente de aprobación</td>
-                  <td className="p-3 font-semibold text-red-600">Desestimar</td>
-                  <td className="p-3"><span className="bg-red-50 text-red-700 px-2 py-0.5 rounded font-medium">Desestimada</span></td>
-                  <td className="p-3 text-slate-500">
-                    Requiere ingresar un motivo en `rejection_reason` o en el historial (`_observation_history`).
-                  </td>
-                  <td className="p-3 text-slate-600">BP TI, Admin</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-600">Observada</td>
-                  <td className="p-3 font-semibold text-indigo-600">Reenviar a Aprobación</td>
-                  <td className="p-3"><span className="bg-[#EEF2FF] text-[#4F5AF5] px-2 py-0.5 rounded font-medium">Pendiente de aprobación</span></td>
-                  <td className="p-3 text-slate-500">
-                    Limpia el objeto `_suggested_changes` de `form_data` y añade una entrada al historial del flujo (`_observation_history`).
-                  </td>
-                  <td className="p-3 text-slate-600">Registrador (Originador)</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-600">En demanda</td>
-                  <td className="p-3 font-semibold text-red-600">Desestimar</td>
-                  <td className="p-3"><span className="bg-red-50 text-red-700 px-2 py-0.5 rounded font-medium">Desestimada</span></td>
-                  <td className="p-3 text-slate-500">
-                    Mueve la iniciativa a archivado lógico. Se registra el cambio en el historial.
-                  </td>
-                  <td className="p-3 text-slate-600">BP TI, Admin</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-600">Desestimada</td>
-                  <td className="p-3 font-semibold text-indigo-600">Mover a Nueva</td>
-                  <td className="p-3"><span className="bg-[#EEF2FF] text-[#4F5AF5] px-2 py-0.5 rounded font-medium">Pendiente de aprobación</span></td>
-                  <td className="p-3 text-slate-500">
-                    Devuelve la iniciativa a la bandeja de pendientes. Útil si se decide reevaluarla después de descartada.
-                  </td>
-                  <td className="p-3 text-slate-600">BP TI, Admin</td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-semibold text-slate-600">Desestimada</td>
-                  <td className="p-3 font-semibold text-emerald-600">Mover a En demanda</td>
-                  <td className="p-3"><span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-medium">En demanda</span></td>
-                  <td className="p-3 text-slate-500">
-                    Rescata la iniciativa y la aprueba directamente, moviéndola al backlog técnico.
-                  </td>
-                  <td className="p-3 text-slate-600">BP TI, Admin</td>
-                </tr>
-              </tbody>
-            </table>
+            {/* Ficha Técnica de la Actividad Seleccionada */}
+            <div className={`bg-white rounded-2xl border ${selectedSubActivity ? 'border-[#4F5AF5]' : 'border-[#E2E8F0]'} p-6 shadow-sm flex flex-col justify-between transition-all`}>
+              {(() => {
+                const activity = phase.activities.find(a => a.name === selectedSubActivity);
+                if (!activity) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-20 text-center text-[#94A3B8] h-full space-y-3">
+                      <HelpCircle className="w-10 h-10 text-slate-300" />
+                      <div>
+                        <p className="font-bold text-slate-500 text-sm">Ficha Técnica de Actividad</p>
+                        <p className="text-xs text-slate-400 max-w-[200px] mt-1">Haz clic en cualquier actividad del diagrama para inspeccionar sus datos.</p>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="space-y-6">
+                    <div className="border-b pb-4">
+                      <span className="text-[9px] text-[#4F5AF5] font-extrabold uppercase tracking-wider block">Ficha de Actividad</span>
+                      <h3 className="text-sm font-extrabold text-slate-800 mt-1">{activity.name}</h3>
+                      <span className="inline-flex items-center gap-1 bg-slate-50 text-slate-800 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200 mt-2">
+                        <User className="w-3 h-3 text-slate-400" /> {activity.responsible}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2">Entradas (Inputs)</h4>
+                      <div className="space-y-1.5">
+                        {activity.inputs?.map((inp, idx) => (
+                          <div key={idx} className="bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs text-slate-700 font-semibold flex items-center gap-1.5">
+                            <FileText className="w-3.5 h-3.5 text-[#4F5AF5] shrink-0" />
+                            {inp}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2">Salidas (Outputs)</h4>
+                      <div className="space-y-1.5">
+                        {activity.outputs?.map((out, idx) => (
+                          <div key={idx} className="bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs text-slate-700 font-semibold flex items-center gap-1.5">
+                            <CheckSquare className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            {out}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider mb-2">Reglas de Negocio Aplicadas</h4>
+                      <ul className="space-y-2">
+                        {activity.rules?.map((rule, idx) => (
+                          <li key={idx} className="text-xs text-[#64748B] flex items-start gap-1.5">
+                            <span className="w-1.5 h-1.5 bg-[#4F5AF5] rounded-full mt-1.5 shrink-0" />
+                            <span>{rule}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
           </div>
+        );
+      })()}
+      
+      {/* Matriz y Reglas Adicionales */}
+      <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm space-y-6">
+        <div>
+          <h2 className="text-sm font-bold text-[#1E293B] mb-1 flex items-center gap-1.5">
+            <Settings className="w-4 h-4 text-[#64748B]" />
+            Resumen Lógico de Transiciones del Sistema
+          </h2>
+          <p className="text-xs text-[#64748B]">Detalle técnico de los disparadores y cambios en base de datos para todas las transiciones lógicas del software.</p>
         </div>
-      )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[800px] text-xs">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold">
+                <th className="p-3">Estado Origen</th>
+                <th className="p-3">Acción Disparadora</th>
+                <th className="p-3">Estado Destino</th>
+                <th className="p-3">Responsable</th>
+                <th className="p-3">Condiciones de Validación & Campo DB</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-[#475569]">
+              <tr className="hover:bg-slate-50/50">
+                <td className="p-3 font-bold text-slate-800">Borrador</td>
+                <td className="p-3 font-semibold text-[#4F5AF5]">Enviar a aprobación</td>
+                <td className="p-3 font-bold text-[#4F5AF5]">Pendiente de aprobación</td>
+                <td className="p-3">Registrador</td>
+                <td className="p-3">Valida que se ingresen campos mínimos obligatorios. Modifica campo `status` a "Pendiente de aprobación".</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="p-3 font-bold text-slate-800">Pendiente de aprobación</td>
+                <td className="p-3 font-semibold text-emerald-600">Aprobar</td>
+                <td className="p-3 font-bold text-emerald-700">En demanda</td>
+                <td className="p-3">BP TI, Admin</td>
+                <td className="p-3">Si hay VoBo VP (`aprobacin_de_director`), requiere que esté validado como "correcto" (`_vobo_status === "correcto"`).</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="p-3 font-bold text-slate-800">Pendiente de aprobación</td>
+                <td className="p-3 font-semibold text-amber-600">Observar</td>
+                <td className="p-3 font-bold text-amber-700">Observada</td>
+                <td className="p-3">BP TI, Admin</td>
+                <td className="p-3">Requiere ingresar cambios sugeridos en los campos. Los valores se almacenan temporalmente en `_suggested_changes`.</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="p-3 font-bold text-slate-800">Pendiente de aprobación</td>
+                <td className="p-3 font-semibold text-red-600">Desestimar</td>
+                <td className="p-3 font-bold text-red-700">Desestimada</td>
+                <td className="p-3">BP TI, Admin</td>
+                <td className="p-3">Requiere ingresar comentario de desestimación en el historial. Modifica `status` a "Desestimada".</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="p-3 font-bold text-slate-800">Observada</td>
+                <td className="p-3 font-semibold text-[#4F5AF5]">Reenviar a aprobación</td>
+                <td className="p-3 font-bold text-[#4F5AF5]">Pendiente de aprobación</td>
+                <td className="p-3">Registrador</td>
+                <td className="p-3">Aplica correcciones, limpia `_suggested_changes` y añade snapshot del estado del formulario en `_observation_history`.</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="p-3 font-bold text-slate-800">Desestimada</td>
+                <td className="p-3 font-semibold text-[#4F5AF5]">Mover a Nueva (Rescate)</td>
+                <td className="p-3 font-bold text-[#4F5AF5]">Pendiente de aprobación</td>
+                <td className="p-3">BP TI, Admin</td>
+                <td className="p-3">Reactiva el requerimiento moviéndolo de regreso a la bandeja de pendientes.</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="p-3 font-bold text-slate-800">Desestimada</td>
+                <td className="p-3 font-semibold text-emerald-600">Mover a En demanda</td>
+                <td className="p-3 font-bold text-emerald-700">En demanda</td>
+                <td className="p-3">BP TI, Admin</td>
+                <td className="p-3">Aprueba y rescata directamente la propuesta desestimada, registrándola en la cola técnica.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
     </div>
   );
