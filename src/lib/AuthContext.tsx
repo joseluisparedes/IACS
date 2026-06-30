@@ -51,6 +51,36 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+
+    const existingChannel = supabase.getChannels().find(c => c.topic === 'realtime:online-users');
+    if (existingChannel) {
+      supabase.removeChannel(existingChannel);
+    }
+
+    const channel = supabase.channel('online-users', {
+      config: {
+        presence: {
+          key: user.email?.toLowerCase().trim() || user.id,
+        },
+      },
+    });
+
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await channel.track({
+          email: user.email?.toLowerCase().trim(),
+          online_at: new Date().toISOString()
+        });
+      }
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   const fetchProfile = async (currentUser: User) => {
     try {
       if (!currentUser.email) return;

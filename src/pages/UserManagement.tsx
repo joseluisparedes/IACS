@@ -67,8 +67,46 @@ export default function UserManagement() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Estado de presencia online en tiempo real
+  const [onlineEmails, setOnlineEmails] = useState<Set<string>>(new Set());
+  const [selectedConnection, setSelectedConnection] = useState<'all' | 'online' | 'offline'>('all');
+  const [connectionDropdownOpen, setConnectionDropdownOpen] = useState(false);
+
   useEffect(() => {
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    const existingChannel = supabase.getChannels().find(c => c.topic === 'realtime:online-users');
+    if (existingChannel) {
+      supabase.removeChannel(existingChannel);
+    }
+
+    const channel = supabase.channel('online-users');
+
+    const handleSync = () => {
+      const state = channel.presenceState();
+      const emails = new Set<string>();
+      Object.keys(state).forEach((key) => {
+        emails.add(key.toLowerCase().trim());
+      });
+      Object.values(state).forEach((presences: any) => {
+        presences.forEach((p: any) => {
+          if (p.email) {
+            emails.add(p.email.toLowerCase().trim());
+          }
+        });
+      });
+      setOnlineEmails(emails);
+    };
+
+    channel
+      .on('presence', { event: 'sync' }, handleSync)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchData = async () => {
@@ -240,6 +278,12 @@ export default function UserManagement() {
       if (selectedActivation === 'pending' && isActivated) return false;
     }
 
+    if (selectedConnection !== 'all') {
+      const isOnline = onlineEmails.has(user.email.toLowerCase().trim());
+      if (selectedConnection === 'online' && !isOnline) return false;
+      if (selectedConnection === 'offline' && isOnline) return false;
+    }
+
     return true;
   });
 
@@ -381,13 +425,14 @@ export default function UserManagement() {
                 />
               </div>
 
-              {(selectedVPs.length > 0 || selectedDirs.length > 0 || selectedRoles.length > 0 || selectedActivation !== 'all' || searchQuery !== '') && (
+              {(selectedVPs.length > 0 || selectedDirs.length > 0 || selectedRoles.length > 0 || selectedActivation !== 'all' || selectedConnection !== 'all' || searchQuery !== '') && (
                 <button 
                   onClick={() => {
                     setSelectedVPs([]);
                     setSelectedDirs([]);
                     setSelectedRoles([]);
                     setSelectedActivation('all');
+                    setSelectedConnection('all');
                     setSearchQuery('');
                   }}
                   className="text-xs font-bold text-red-500 hover:text-red-700 transition-colors shrink-0 text-center"
@@ -582,6 +627,56 @@ export default function UserManagement() {
                 </>
               )}
             </div>
+
+            {/* Dropdown Conexión */}
+            <div className="relative">
+              <button 
+                type="button"
+                onClick={() => {
+                  setConnectionDropdownOpen(!connectionDropdownOpen);
+                  setActivationDropdownOpen(false);
+                  setVpDropdownOpen(false);
+                  setDirDropdownOpen(false);
+                  setRoleDropdownOpen(false);
+                }}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  selectedConnection !== 'all' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-[#E2E8F0] text-[#64748B]'
+                }`}
+              >
+                <span>Conexión: {selectedConnection === 'all' ? 'Todos' : selectedConnection === 'online' ? 'Online' : 'Offline'}</span>
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+              {connectionDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setConnectionDropdownOpen(false)} />
+                  <div className="absolute left-0 mt-1 w-48 bg-white border border-[#E2E8F0] rounded-xl shadow-lg z-50 p-2">
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedConnection('all'); setConnectionDropdownOpen(false); }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-slate-50 ${selectedConnection === 'all' ? 'font-bold text-[#4F5AF5]' : 'text-[#1E293B]'}`}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedConnection('online'); setConnectionDropdownOpen(false); }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-slate-50 ${selectedConnection === 'online' ? 'font-bold text-[#4F5AF5]' : 'text-[#1E293B]'}`}
+                      >
+                        Online (Conectados)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedConnection('offline'); setConnectionDropdownOpen(false); }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-slate-50 ${selectedConnection === 'offline' ? 'font-bold text-[#4F5AF5]' : 'text-[#1E293B]'}`}
+                      >
+                        Offline (Desconectados)
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           
           <div className="flex-1 overflow-auto p-0">
@@ -621,6 +716,16 @@ export default function UserManagement() {
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-amber-50 text-amber-600 border border-amber-200 shrink-0">
                                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
                                   Pendiente
+                                </span>
+                              )}
+                              {onlineEmails.has(user.email.toLowerCase().trim()) ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-green-50 text-green-700 border border-green-200 shrink-0">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                                  Online
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-slate-100 text-slate-400 border border-slate-200 shrink-0">
+                                  Offline
                                 </span>
                               )}
                             </div>
