@@ -54,6 +54,7 @@ export default function ApprovalBoard() {
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [loading, setLoading] = useState(true);
   const [slowLoad, setSlowLoad] = useState(false);
+  const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("nueva");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedRegistradores, setSelectedRegistradores] = useState<string[]>([]);
@@ -86,6 +87,28 @@ export default function ApprovalBoard() {
 
     return () => clearTimeout(slowTimer);
   }, []);
+
+  const handleStatusChange = async (initiativeId: string, newStatus: string) => {
+    try {
+      const response = await fetch(`/api/initiatives/${initiativeId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!response.ok) {
+        throw new Error("Error al actualizar el estado");
+      }
+      const updatedData = await response.json();
+      setInitiatives(prev => prev.map(i => i.id === initiativeId ? { ...i, status: updatedData.status } : i));
+    } catch (error) {
+      console.error(error);
+      alert("No se pudo actualizar el estado de la iniciativa.");
+    } finally {
+      setEditingStatusId(null);
+    }
+  };
 
   const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
   const isInvitado = profile?.profile_roles?.some((r: any) => r.role === 'invitado');
@@ -457,10 +480,53 @@ export default function ApprovalBoard() {
                         </p>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[tabKey]}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
-                          {STATUS_LABEL[i.status] ?? i.status}
-                        </span>
+                        {(isBP || isAdmin) && (i.status === "Pendiente de aprobación" || i.status === "Desestimada" || i.status === "En demanda") ? (
+                          editingStatusId === i.id ? (
+                            <select
+                              value={i.status}
+                              onChange={(e) => handleStatusChange(i.id, e.target.value)}
+                              onBlur={() => setEditingStatusId(null)}
+                              autoFocus
+                              className="text-xs font-semibold bg-white border border-[#CBD5E1] rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-[#4F5AF5] text-[#1E293B]"
+                            >
+                              {i.status === "Pendiente de aprobación" && (
+                                <>
+                                  <option value="Pendiente de aprobación">Pendiente de aprobación</option>
+                                  <option value="En demanda">En demanda</option>
+                                  <option value="Desestimada">Desestimada</option>
+                                </>
+                              )}
+                              {i.status === "Desestimada" && (
+                                <>
+                                  <option value="Desestimada">Desestimada</option>
+                                  <option value="En demanda">En demanda</option>
+                                  <option value="Pendiente de aprobación">Pendiente de aprobación</option>
+                                </>
+                              )}
+                              {i.status === "En demanda" && (
+                                <>
+                                  <option value="En demanda">En demanda</option>
+                                  <option value="Pendiente de aprobación">Pendiente de aprobación</option>
+                                  <option value="Desestimada">Desestimada</option>
+                                </>
+                              )}
+                            </select>
+                          ) : (
+                            <span 
+                              onDoubleClick={() => setEditingStatusId(i.id)}
+                              title="Doble clic para cambiar estado"
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity ${STATUS_BADGE[tabKey]}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
+                              {STATUS_LABEL[i.status] ?? i.status}
+                            </span>
+                          )
+                        ) : (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[tabKey]}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
+                            {STATUS_LABEL[i.status] ?? i.status}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <Link

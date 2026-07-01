@@ -34,6 +34,7 @@ export interface Initiative {
   chat_history: ChatMessage[];
   summary?: AI_Summary;
   rejection_reason?: string;
+  user_id?: string;
 }
 
 export interface ChatMessage {
