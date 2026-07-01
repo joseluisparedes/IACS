@@ -90,18 +90,47 @@ export default function ApprovalBoard() {
 
   const handleStatusChange = async (initiativeId: string, newStatus: string) => {
     try {
+      const currentInit = initiatives.find(i => i.id === initiativeId);
+      if (!currentInit) return;
+
+      const currentFormData = (currentInit.form_data || {}) as any;
+      const history = Array.isArray(currentFormData._observation_history)
+        ? currentFormData._observation_history
+        : [];
+
+      let userRole = 'Sistema';
+      if (isAdmin) userRole = 'Administrador';
+      else if (isBP) userRole = 'BP TI';
+      else if (profile?.profile_roles?.some((r: any) => r.role === 'registrador')) userRole = 'Registrador';
+
+      const newHistoryEntry = {
+        date: new Date().toISOString(),
+        user_name: profile?.name || 'Desconocido',
+        user_role: userRole,
+        action: `Cambio de estado`,
+        details: `Se cambió el estado de '${currentInit.status}' a '${newStatus}' desde la bandeja de revisión.`,
+      };
+
+      const updatedFormData = {
+        ...currentFormData,
+        _observation_history: [...history, newHistoryEntry]
+      };
+
       const response = await fetch(`/api/initiatives/${initiativeId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ 
+          status: newStatus,
+          form_data: updatedFormData
+        }),
       });
       if (!response.ok) {
         throw new Error("Error al actualizar el estado");
       }
       const updatedData = await response.json();
-      setInitiatives(prev => prev.map(i => i.id === initiativeId ? { ...i, status: updatedData.status } : i));
+      setInitiatives(prev => prev.map(i => i.id === initiativeId ? { ...i, status: updatedData.status, form_data: updatedData.form_data } : i));
     } catch (error) {
       console.error(error);
       alert("No se pudo actualizar el estado de la iniciativa.");
