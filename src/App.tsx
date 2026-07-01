@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
@@ -14,10 +14,11 @@ import AITraining from './pages/AITraining';
 import EmailLogs from './pages/EmailLogs';
 import BulkUpload from './pages/BulkUpload';
 import StateFlow from './pages/StateFlow';
+import C4Architecture from './pages/C4Architecture';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
 
-const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados'];
+const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura'];
 
 function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -138,6 +139,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       items: [
         { name: 'Flujo de Estados', path: '/admin/flujo-estados', icon: GitBranch },
         { name: 'Campos del Formulario', path: '/admin', icon: Settings2 },
+        { name: 'Arquitectura C4', path: '/admin/arquitectura', icon: Layers },
       ]
     },
     {
@@ -596,6 +598,7 @@ export default function App() {
           <Route path="/admin/correos" element={<ProtectedRoute><EmailLogs /></ProtectedRoute>} />
           <Route path="/admin/cargas-masivas" element={<ProtectedRoute><BulkUpload /></ProtectedRoute>} />
           <Route path="/admin/flujo-estados" element={<ProtectedRoute><StateFlow /></ProtectedRoute>} />
+          <Route path="/admin/arquitectura" element={<ProtectedRoute><C4Architecture /></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
