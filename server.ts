@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
+import Groq from "groq-sdk";
 import { createClient } from "@supabase/supabase-js";
 import multer from "multer";
 import mammoth from "mammoth";
@@ -18,13 +19,93 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
+// ─── Gemini AI Client ──────────────────────────────────────────────────────
+let _genAI: GoogleGenAI | null = null;
+function getGenAI() {
+  if (!_genAI) _genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  return _genAI;
+}
+
+// ─── Groq AI Client (fallback) ────────────────────────────────────────────
+let _groq: Groq | null = null;
+function getGroq(): Groq | null {
+  if (!process.env.GROQ_API_KEY) return null;
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return _groq;
+}
+
+// ─── Unified AI JSON Call with Auto-Fallback ─────────────────────────────
+// Tries Gemini first. If quota is exceeded (429) or model not found (404),
+// automatically switches to Groq (llama-3.3-70b-versatile) at no cost.
+async function callAIForJSON(prompt: string): Promise<string> {
+  // 1. Try Gemini first
+  try {
+    const response = await getGenAI().models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { responseMimeType: "application/json" }
+    });
+    return response.text;
+  } catch (geminiErr: any) {
+    const errBody = geminiErr?.message ? JSON.parse(geminiErr.message.includes('{') ? geminiErr.message : '{}') : {};
+    const code = errBody?.error?.code ?? geminiErr?.status ?? 0;
+    const isQuotaOrNotFound = code === 429 || code === 404 || code === 503;
+    if (!isQuotaOrNotFound) throw geminiErr; // Re-throw non-quota errors
+
+    // 2. Fallback to Groq
+    const groq = getGroq();
+    if (!groq) throw new Error("Gemini quota exceeded and no GROQ_API_KEY configured. Please add a Groq API key to .env");
+
+    console.log("[AI Fallback] Gemini quota/unavailable, switching to Groq...");
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+    });
+    return completion.choices[0]?.message?.content ?? "{}";
+  }
+}
+
+
+const startAgentTask = async (role: string, title: string) => {
+  try {
+    const { data, error } = await supabase
+      .from("agent_logs")
+      .insert({
+        agent_role: role,
+        task_title: title,
+        status: 'in_progress',
+        progress: 10
+      })
+      .select('id')
+      .single();
+    if (!error && data) return (data as any).id;
+  } catch (err) {
+    console.error("Error starting agent task:", err);
+  }
+  return null;
+};
+
+const updateAgentTask = async (id: string | null, progress: number, status: 'completed' | 'in_progress') => {
+  if (!id) return;
+  try {
+    await supabase
+      .from("agent_logs")
+      .update({ progress, status })
+      .eq("id", id);
+  } catch (err) {
+    console.error("Error updating agent task:", err);
+  }
+};
+
 // ─── Multer (in-memory storage for document uploads) ──────────────────────────
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ─── AI Training Config Cache (5 min TTL) ────────────────────────────────────
 let trainingCache: any[] | null = null;
 let trainingCacheTime = 0;
-const TRAINING_CACHE_TTL = 5 * 60 * 1000;
+const TRAINING_CACHE_TTL = 2 * 1000; // 2 seconds TTL for instant admin updates
 
 async function getTrainingConfig() {
   const now = Date.now();
@@ -67,21 +148,12 @@ function buildSystemPrompt(training: any[]): string {
   return `${identity}${contextSection}${examplesSection}${guardrailsSection}`.trim();
 }
 
-// ─── Gemini Client ────────────────────────────────────────────────────────────
-let aiClient: GoogleGenAI | null = null;
+// ─── Gemini Client ─────────────────────────────────────────────────────────
+// (initialized via getGenAI() and getGroq() at top of file)
 
 function isApiKeyConfigured(): boolean {
   const key = process.env.GEMINI_API_KEY;
   return !!key && key !== "MY_GEMINI_API_KEY" && key.trim() !== "";
-}
-
-function getGenAI(): GoogleGenAI {
-  if (!aiClient) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) throw new Error("GEMINI_API_KEY environment variable is required");
-    aiClient = new GoogleGenAI({ apiKey: key, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
-  }
-  return aiClient;
 }
 
 // ─── Mock fallbacks ───────────────────────────────────────────────────────────
@@ -156,14 +228,160 @@ async function startServer() {
   });
 
   app.post("/api/fields", async (req, res) => {
-    const { label, key, field_type, options, is_visible, is_required, sort_order, section, depends_on, options_map, ai_instructions, allow_multiple } = req.body;
+    const { label, key, field_type, options, is_visible, is_required, sort_order, section, depends_on, options_map, ai_instructions, allow_multiple, help_text } = req.body;
     const { data, error } = await supabase
       .from("initiative_fields")
-      .insert([{ label, key, field_type, options: options ?? [], is_visible: is_visible ?? true, is_required: is_required ?? false, sort_order: sort_order ?? 0, section: section ?? 'form', depends_on: depends_on ?? null, options_map: options_map ?? null, ai_instructions: ai_instructions ?? null, allow_multiple: allow_multiple ?? false }])
+      .insert([{ label, key, field_type, options: options ?? [], is_visible: is_visible ?? true, is_required: is_required ?? false, sort_order: sort_order ?? 0, section: section ?? 'form', depends_on: depends_on ?? null, options_map: options_map ?? null, ai_instructions: ai_instructions ?? null, allow_multiple: allow_multiple ?? false, help_text: help_text ?? null }])
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
+  });
+
+  app.post("/api/fields/analyze-unstructured", async (req, res) => {
+    const { text } = req.body;
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: "El texto no puede estar vacío." });
+    }
+
+    const tOrqId = await startAgentTask("Orquestador", "Analizando propuesta de texto libre del usuario");
+    const tPoId = await startAgentTask("Product Owner", "Mapeando propuesta a campos de la iniciativa");
+
+    try {
+      await updateAgentTask(tOrqId, 30, 'in_progress');
+      await updateAgentTask(tPoId, 45, 'in_progress');
+      const [fieldsRes, vpsRes, dirsRes, training] = await Promise.all([
+        supabase
+          .from("initiative_fields")
+          .select("*")
+          .eq("is_visible", true)
+          .order("sort_order", { ascending: true }),
+        supabase.from("vps").select("name"),
+        supabase.from("direcciones").select("name"),
+        getTrainingConfig()
+      ]);
+ 
+      if (fieldsRes.error) throw fieldsRes.error;
+ 
+      const fields = fieldsRes.data;
+      const vps = vpsRes.data?.map(v => v.name) || [];
+      const dirs = dirsRes.data?.map(d => d.name) || [];
+      const systemPrompt = buildSystemPrompt(training);
+ 
+      let fieldsConfigDescription = [
+        `- Campo: "Vicepresidencia" (Clave: "vicepresidencia", Tipo: "select"). [OBLIGATORIO]. Opciones válidas: ${JSON.stringify(vps)}.`,
+        `- Campo: "Dirección" (Clave: "direccion", Tipo: "select"). [OBLIGATORIO]. Opciones válidas: ${JSON.stringify(dirs)}.`
+      ].join("\n") + "\n";
+ 
+      fieldsConfigDescription += fields.map((f: any) => {
+        let details = `- Campo: "${f.label}" (Clave: "${f.key}", Tipo: "${f.field_type}")`;
+        if (f.field_type === 'select') {
+          details += `. Opciones válidas: ${JSON.stringify(f.options)}. Si no se puede mapear a una de estas opciones, déjalo vacío o usa la opción más cercana si es obvio.`;
+        }
+        if (f.is_required) {
+          details += ` [OBLIGATORIO]`;
+        }
+        if (f.help_text) {
+          details += `. Descripción/Ayuda del campo: ${f.help_text}`;
+        }
+        if (f.ai_instructions) {
+          details += `. INSTRUCCIONES ESPECÍFICAS OBLIGATORIAS PARA ESTE CAMPO (Debes cumplirlas a rajatabla y tienen prioridad absoluta sobre cualquier otra regla general): ${f.ai_instructions}`;
+        }
+        return details;
+      }).join("\n");
+  
+      const prompt = `${systemPrompt}
+
+Analiza el siguiente texto escrito por un usuario que describe una necesidad o requerimiento de TI. Tu tarea es extraer la información relevante y mapearla a los campos del formulario definidos abajo.
+ 
+Campos disponibles en el formulario:
+${fieldsConfigDescription}
+ 
+Texto del usuario a analizar:
+"""
+${text}
+"""
+ 
+Reglas OBLIGATORIAS y proceso de autocrítica (Debes ejecutar estos 3 pasos internamente antes de generar la respuesta final):
+1. PASO 1 (Extracción Inicial): Extrae los datos del texto y mapéalos a las claves de campo indicadas. Si no se menciona un campo, déjalo vacío.
+2. PASO 2 (Refinamiento y Auto-Corrección según Guardarrieles y Prompts de Campos):
+   - Revisa el valor asignado a cada campo y contrástalo estrictamente contra sus "INSTRUCCIONES ESPECÍFICAS OBLIGATORIAS PARA ESTE CAMPO". Si el valor inicial no cumple con alguna regla (como la del campo "titulo" que exige empezar con verbo en infinitivo), DEBES reescribir el título inicial para que se alinee 100% con esa regla.
+   - Si un campo tiene una advertencia ("warning") pero su información se puede deducir o inferir de manera obvia y lógica a partir del texto del usuario y las reglas de negocio, elimina la advertencia y autocompleta el valor.
+   - Corrige la redacción, coherencia, ortografía y claridad de todos los campos de texto libre para que se presenten de manera impecable y profesional.
+3. PASO 3 (Generación de Salida): Entrega ÚNICAMENTE el JSON final refinado y corregido, respetando los guardarrieles globales y los prompts específicos. No incluyas explicaciones adicionales fuera del JSON.
+Responde estrictamente en formato JSON con la siguiente estructura:
+{
+  "values": {
+    "clave_de_campo_1": "valor extraído (en caso de 'select' debe coincidir exactamente con una de sus opciones si es posible, en caso de 'date' debe estar en formato YYYY-MM-DD)",
+    "clave_de_campo_2": ""
+  },
+  "warnings": {
+    "clave_de_campo_2": "Falta información: Por favor, detalla ... para completar este campo."
+  }
+}`;
+ 
+      console.log("[AI Analyze] Sending prompt to Gemini. Input text length:", text.length);
+      const tRegId = await startAgentTask("Regulador de Tokens", "Auditando llamada a Gemini API y tokens usados");
+      const tDocId = await startAgentTask("Documentador", "Refinando propuesta para mejorar redacción y autocompletados");
+      
+      await updateAgentTask(tOrqId, 50, 'in_progress');
+      await updateAgentTask(tPoId, 70, 'in_progress');
+      await updateAgentTask(tDocId, 85, 'in_progress');
+ 
+      const rawText = await callAIForJSON(prompt);
+ 
+      console.log("[AI Analyze] Raw AI response:", rawText);
+      const parsed = JSON.parse(rawText.trim());
+      console.log("[AI Analyze] Parsed response:", JSON.stringify(parsed, null, 2));
+      
+      await updateAgentTask(tOrqId, 100, 'completed');
+      await updateAgentTask(tPoId, 100, 'completed');
+      await updateAgentTask(tRegId, 100, 'completed');
+      await updateAgentTask(tDocId, 100, 'completed');
+
+      res.json(parsed);
+    } catch (e: any) {
+      console.error("Error al analizar texto estructurado:", e.message);
+      await updateAgentTask(tOrqId, 100, 'completed');
+      await updateAgentTask(tPoId, 100, 'completed');
+      res.status(500).json({ error: "Error al procesar el texto con la IA: " + e.message });
+    }
+  });
+
+  app.post("/api/fields/validate-field", async (req, res) => {
+    const { fieldKey, value, label, context } = req.body;
+    if (value === undefined || value === null || String(value).trim() === "") {
+      return res.json({ warning: `Falta información: Por favor, completa este campo.` });
+    }
+
+    const tQAId = await startAgentTask("Tester", `Validando campo: ${label}`);
+
+    try {
+      const prompt = `Estás validando los datos de una iniciativa de TI en un formulario.
+El usuario ha ingresado el siguiente valor para el campo "${label}" (Clave: "${fieldKey}"):
+"${value}"
+
+Contexto adicional de otros campos del formulario (si están disponibles):
+${JSON.stringify(context, null, 2)}
+
+Analiza si el valor ingresado tiene sentido para este campo en el contexto de una iniciativa de TI.
+Si el valor tiene sentido, responde con una cadena vacía en la propiedad "warning".
+Si el valor no tiene sentido o requiere mayor detalle, responde con una advertencia corta y amigable en español que le indique al usuario qué está mal o cómo mejorarlo (en la propiedad "warning").
+
+Responde estrictamente en formato JSON:
+{
+  "warning": "tu advertencia aquí o una cadena vacía si está bien"
+}`;
+
+      const rawText = await callAIForJSON(prompt);
+      const parsed = JSON.parse(rawText.trim());
+      await updateAgentTask(tQAId, 100, 'completed');
+      res.json(parsed);
+    } catch (e: any) {
+      console.error("Error al validar campo:", e.message);
+      await updateAgentTask(tQAId, 100, 'completed');
+      res.json({ warning: "" });
+    }
   });
 
   app.patch("/api/fields/:id", async (req, res) => {
@@ -260,6 +478,8 @@ async function startServer() {
       form_data: req.body.form_data ?? req.body,
       chat_history: req.body.chatHistory ?? req.body.chat_history ?? [],
       summary: req.body.summary ?? null,
+      confirmed_fields: req.body.confirmed_fields ?? {},
+      unstructured_text: req.body.unstructured_text ?? null,
     };
     const { data, error } = await supabase.from("initiatives").insert([record]).select().single();
     if (error) return res.status(500).json({ error: error.message });
@@ -276,6 +496,8 @@ async function startServer() {
       form_data: req.body.form_data ?? req.body,
       chat_history: req.body.chatHistory ?? req.body.chat_history ?? [],
       summary: req.body.summary ?? null,
+      confirmed_fields: req.body.confirmed_fields ?? {},
+      unstructured_text: req.body.unstructured_text ?? null,
       updated_at: new Date().toISOString()
     };
     // Persist user_id when provided so drafts can be filtered by authenticated user
@@ -475,22 +697,23 @@ async function startServer() {
       ? aiFields.map((f: any) => `- ${f.label}${f.ai_instructions ? ` (Instrucciones: ${f.ai_instructions})` : ''}`).join("\n")
       : `- Usuarios involucrados.\n- Proceso actual.\n- Proceso deseado.\n- Sistemas impactados.\n- Frecuencia de uso.\n- Beneficios esperados.`;
 
+    const tOrqId = await startAgentTask("Orquestador", "Procesando mensaje de chat");
+    const tPoId = await startAgentTask("Product Owner", "Analizando respuestas de la iniciativa");
+
     if (!isApiKeyConfigured()) {
+      await updateAgentTask(tOrqId, 100, 'completed');
+      await updateAgentTask(tPoId, 100, 'completed');
       return res.json({ text: getMockChatResponse(history, sanitizedInitialData, message), options: ["No estoy seguro", "Explícame mejor", "Sí, continuemos"] });
     }
 
     try {
+      await updateAgentTask(tOrqId, 40, 'in_progress');
+      await updateAgentTask(tPoId, 60, 'in_progress');
       const training = await getTrainingConfig();
       const systemPrompt = buildSystemPrompt(training);
 
-      const response = await getGenAI().models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: `${systemPrompt}
+      const tRegId = await startAgentTask("Regulador de Tokens", "Validando seguridad y tokens");
+      const chatPrompt = `${systemPrompt}
 
 Datos iniciales proporcionados por el usuario:
 ${Object.entries(sanitizedInitialData || {}).map(([k, v]) => `${k}: ${v}`).join("\n")}
@@ -506,15 +729,13 @@ Usuario: ${message}
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
   "text": "Tu respuesta amigable y concisa (en formato Markdown si deseas enfatizar o listar algo). Si consideras que ya tienes TODA la información, finaliza incluyendo la etiqueta exacta '[INFORMACION_COMPLETA]' en tu texto.",
-  "options": ["Opción sugerida 1", "Opción sugerida 2"] // (Opcional) Array de hasta 3 respuestas rápidas que el usuario podría seleccionar. Útil cuando el usuario es impreciso o necesitas ofrecerle alternativas claras. Si no aplica, déjalo vacío [].
-}`,
-              },
-            ],
-          },
-        ],
-        config: { responseMimeType: "application/json" },
-      });
-      const parsed = JSON.parse(response.text.trim());
+  "options": ["Opción sugerida 1", "Opción sugerida 2"]
+}`;
+      const rawChat = await callAIForJSON(chatPrompt);
+      const parsed = JSON.parse(rawChat.trim());
+      await updateAgentTask(tOrqId, 100, 'completed');
+      await updateAgentTask(tPoId, 100, 'completed');
+      await updateAgentTask(tRegId, 100, 'completed');
       res.json({ text: parsed.text, options: parsed.options || [] });
     } catch (e: any) {
       console.error("Gemini API error, falling back to mock:", e.message);
@@ -533,6 +754,8 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       
       const useMic = data?.find(e => e.title === "use_mic")?.content !== "false";
       const useAttachments = data?.find(e => e.title === "use_attachments")?.content !== "false";
+      const aiName = data?.find(e => e.title === "ai_name")?.content || "Asistente IA";
+      const aiAvatar = data?.find(e => e.title === "ai_avatar")?.content || "";
       
       const fileTypes = {
         pdf: {
@@ -553,12 +776,14 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
         }
       };
 
-      res.json({ useMic, useAttachments, fileTypes });
+      res.json({ useMic, useAttachments, aiName, aiAvatar, fileTypes });
     } catch (e: any) {
       console.error("Error loading feature configs:", e.message);
       res.json({ 
         useMic: true, 
         useAttachments: true, 
+        aiName: "Asistente IA",
+        aiAvatar: "",
         fileTypes: {
           pdf: { enabled: true, maxMb: 1.0 },
           docx: { enabled: true, maxMb: 1.0 },
@@ -632,17 +857,9 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
     try {
       const training = await getTrainingConfig();
       const systemPrompt = buildSystemPrompt(training);
-      const response = await getGenAI().models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{
-          role: "user",
-          parts: [{
-            text: `${systemPrompt}\n\nHistorial:\n${(history || []).map((h: any) => `${h.role}: ${h.text}`).join("\n")}\n\nUsuario: ${message}\n\nResponde en JSON: {"text": "...", "options": []}`,
-          }],
-        }],
-        config: { responseMimeType: "application/json" },
-      });
-      const parsed = JSON.parse(response.text.trim());
+      const previewPrompt = `${systemPrompt}\n\nHistorial:\n${(history || []).map((h: any) => `${h.role}: ${h.text}`).join("\n")}\n\nUsuario: ${message}\n\nResponde en JSON: {"text": "...", "options": []}`;
+      const rawPreview = await callAIForJSON(previewPrompt);
+      const parsed = JSON.parse(rawPreview.trim());
       res.json({ text: parsed.text, options: parsed.options || [] });
     } catch (e: any) {
       console.error("Preview chat error:", e.message);
@@ -719,6 +936,45 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
     }
   });
 
+  // ── AI Training Upload Avatar ─────────────────────────────────────────────────
+  app.post("/api/ai-training/upload-avatar", upload.single("file"), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    try {
+      const mime = req.file.mimetype;
+      if (!mime.startsWith("image/")) {
+        return res.status(400).json({ error: "Solo se permiten imágenes (JPG, PNG, WEBP, GIF, SVG)." });
+      }
+
+      const ext = req.file.originalname.split(".").pop() || "bin";
+      const uniqueName = `avatars/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("iacs-attachments")
+        .upload(uniqueName, req.file.buffer, {
+          contentType: mime,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error("Supabase Storage upload error:", uploadError.message);
+        // Fallback to base64
+        const base64Url = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
+        return res.json({ url: base64Url });
+      }
+
+      const { data: publicData } = supabase.storage
+        .from("iacs-attachments")
+        .getPublicUrl(uniqueName);
+
+      const fileUrl = publicData?.publicUrl || null;
+      res.json({ url: fileUrl });
+    } catch (e: any) {
+      console.error("Avatar upload error:", e.message);
+      res.status(500).json({ error: "Error al procesar el avatar: " + e.message });
+    }
+  });
+
   // ── AI Feedback ──────────────────────────────────────────────────────────────
   app.get("/api/ai-feedback", async (_req, res) => {
     const { data, error } = await supabase
@@ -785,14 +1041,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       : `  "titulo": "string - nombre corto descriptivo",\n  "objetivo": "string - objetivo principal"`;
 
     try {
-      const response = await getGenAI().models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: `Eres un Business Analyst Senior. A partir del siguiente levantamiento de información, genera un resumen estructurado en formato JSON estrictamente.
+      const summarizePrompt = `Eres un Business Analyst Senior. A partir del siguiente levantamiento de información, genera un resumen estructurado en formato JSON estrictamente.
 Datos iniciales del formulario:
 ${JSON.stringify(sanitizedInitialData, null, 2)}
 
@@ -802,14 +1051,9 @@ ${history.map((h: any) => `${h.role === "user" ? "Solicitante" : "Business Analy
 Devuelve SOLO un JSON válido con esta estructura exacta (sin texto adicional). Asegúrate de llenar todos los campos solicitados en la estructura:
 {
 ${dynamicSchema}
-}`,
-              },
-            ],
-          },
-        ],
-        config: { responseMimeType: "application/json" },
-      });
-      res.json(JSON.parse(response.text.trim()));
+}`;
+      const rawSummary = await callAIForJSON(summarizePrompt);
+      res.json(JSON.parse(rawSummary.trim()));
     } catch (e: any) {
       console.error("Gemini summarize error, falling back to mock:", e.message);
       res.json(getMockSummaryResponse(initialData));

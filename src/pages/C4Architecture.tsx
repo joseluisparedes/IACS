@@ -14,14 +14,14 @@ export default function C4Architecture() {
   const nodeDetails: Record<string, { title: string; tech?: string; desc: string; responsibilities?: string[] }> = {
     // Level 1: Context
     'user-solicitante': {
-      title: 'Registrador (Solicitante)',
+      title: 'Key user (Solicitante)',
       desc: 'Usuario final que propone iniciativas de desarrollo de software, completa el formulario dinámico, realiza observaciones e ingresa la justificación y documentos de VoBo (Visto Bueno).',
       responsibilities: ['Crear borradores', 'Subsanar observaciones de campos', 'Cargar VoBo VP', 'Enviar a aprobación']
     },
     'user-bp': {
       title: 'Business Partner (BP TI)',
       desc: 'Evaluador técnico y funcional de TI que revisa las iniciativas correspondientes a sus direcciones asignadas, pudiendo aprobarlas, rechazarlas o sugerir modificaciones.',
-      responsibilities: ['Evaluar iniciativas asignadas', 'Aprobar/Desestimar', 'Registrar observaciones en campos específicos', 'Modificar o dar soporte si el registrador no está']
+      responsibilities: ['Evaluar iniciativas asignadas', 'Aprobar/Desestimar', 'Registrar observaciones en campos específicos', 'Modificar o dar soporte si el key user no está']
     },
     'user-admin': {
       title: 'Administrador (Admin)',
@@ -189,7 +189,7 @@ export default function C4Architecture() {
                     }`}
                   >
                     <Users className="w-5 h-5 mx-auto text-[#64748B] mb-2" />
-                    <span className="text-xs font-bold text-[#1E293B] block">Registrador</span>
+                    <span className="text-xs font-bold text-[#1E293B] block">Key user</span>
                     <span className="text-[9px] text-[#94A3B8] font-semibold mt-0.5 block">Persona (Interno)</span>
                   </button>
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check, HelpCircle, Eye } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 
@@ -19,7 +19,7 @@ const LABEL_MAP: Record<string, string> = {
   "proceso_y_areas_impactadas": "Proceso y Áreas Impactadas",
   "beneficio_cuantitativo_anual": "Beneficio Cuantitativo Anual",
   "es_necesidad_spo": "Es Necesidad SPO",
-  "registrador": "Registrador",
+  "registrador": "Key user",
   "fecha_requerida": "Fecha Requerida",
   "vicepresidencia": "Vicepresidencia",
   "_vobo_status": "Visto Bueno (VoBo)",
@@ -160,7 +160,10 @@ function Row({
   fieldConfig,
   suggestedValue,
   onAccept,
-  onReject
+  onReject,
+  isConfirmed = false,
+  editConfirmed = false,
+  onConfirmedChange
 }: any) {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -372,8 +375,17 @@ function Row({
 
   return (
     <div className="flex gap-4 py-3 border-b border-[#F8FAFC] last:border-0 flex-col sm:flex-row">
-      <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider w-full sm:w-40 shrink-0 mt-0.5 break-words">
-        {label}
+      <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider w-full sm:w-40 shrink-0 mt-0.5 break-words flex items-center gap-1">
+        <span className="align-middle">{label}</span>
+        {fieldConfig?.help_text && (
+          <span className="relative group inline-block align-middle cursor-help">
+            <HelpCircle className="w-3.5 h-3.5 text-[#94A3B8] hover:text-[#64748B] transition-colors shrink-0" />
+            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block w-48 p-2.5 bg-[#1E293B] text-white text-[10px] font-normal normal-case leading-normal rounded-lg shadow-lg z-[999] text-center">
+              {fieldConfig.help_text}
+              <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1E293B]" />
+            </span>
+          </span>
+        )}
       </p>
       <div className="flex-1 space-y-3">
         {isEditMode ? (
@@ -513,6 +525,37 @@ function Row({
             )}
           </div>
         )}
+
+        {fieldConfig?.requires_confirmation && (
+          isEditMode ? (
+            <div className={`mt-2 flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all ${editConfirmed ? 'bg-emerald-50/50 border-emerald-200 text-emerald-800 shadow-sm shadow-emerald-100/50' : 'bg-amber-50/30 border-amber-200/60 text-[#64748B]'}`}>
+              <input
+                type="checkbox"
+                id={`confirm-${fieldConfig.key}`}
+                checked={editConfirmed || false}
+                onChange={e => onConfirmedChange && onConfirmedChange(e.target.checked)}
+                className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500 cursor-pointer"
+              />
+              <label htmlFor={`confirm-${fieldConfig.key}`} className="text-[11px] font-semibold leading-none cursor-pointer">
+                Confirmo que la información de este campo es correcta
+              </label>
+            </div>
+          ) : (
+            <div className={`mt-1 flex items-center gap-1.5 text-xs font-semibold ${isConfirmed ? 'text-emerald-600' : 'text-amber-600'}`}>
+              {isConfirmed ? (
+                <>
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span>Confirmado por el usuario</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Falta confirmación de usuario</span>
+                </>
+              )}
+            </div>
+          )
+        )}
       </div>
     </div>
   );
@@ -630,6 +673,18 @@ export default function InitiativeDetail() {
   const [fieldsMap, setFieldsMap] = useState<Record<string, string>>({});
   const [fieldsConfig, setFieldsConfig] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'error') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   // Reference data for selects
   const [dbVps, setDbVps] = useState<any[]>([]);
@@ -652,6 +707,8 @@ export default function InitiativeDetail() {
   const [showVoboRejectInput, setShowVoboRejectInput] = useState(false);
   const [voboRejectReason, setVoboRejectReason] = useState("");
   const [isVoboPreviewOpen, setIsVoboPreviewOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type?: string } | null>(null);
+  const [editedConfirmedFields, setEditedConfirmedFields] = useState<Record<string, boolean>>({});
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
@@ -741,7 +798,39 @@ export default function InitiativeDetail() {
 
   const updateInitiativeData = async (status: string, extraUpdates: any = {}) => {
     try {
-      const payload = { status, ...extraUpdates };
+      const currentFormData = extraUpdates.form_data || initiative.form_data || {};
+      const currentSummary = extraUpdates.summary || initiative.summary || {};
+      const nextFormData = { ...currentFormData };
+
+      const oldHistory = initiative.form_data?._observation_history || [];
+      const newHistory = nextFormData._observation_history || [];
+      const hasNewEntryAppended = newHistory.length > oldHistory.length;
+
+      if (status !== initiative.status && !hasNewEntryAppended) {
+        let userRole = 'Sistema';
+        if (isAdmin) userRole = 'Administrador';
+        else if (isBP) userRole = 'BP TI';
+        else if (isRegistrador) userRole = 'Key user';
+
+        const newHistoryEntry = {
+          date: new Date().toISOString(),
+          user_name: profile?.name || 'Desconocido',
+          user_role: userRole,
+          action: status,
+          details: `Se cambió el estado de '${initiative.status}' a '${status}'.`
+        };
+        nextFormData._observation_history = [
+          ...oldHistory,
+          newHistoryEntry
+        ];
+      }
+
+      const payload = { 
+        status, 
+        ...extraUpdates,
+        form_data: nextFormData 
+      };
+
       const res = await fetch(`/api/initiatives/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -801,7 +890,20 @@ export default function InitiativeDetail() {
 
   const startEditMode = () => {
     setEditedFormData({ ...(initiative.form_data || {}) });
-    setEditedSummary({ ...(initiative.summary || {}) });
+    setEditedConfirmedFields(initiative.confirmed_fields || {});
+    
+    // Initialize editedSummary with summary data, falling back to form_data for AI fields
+    const initialSummary = { ...(initiative.summary || {}) };
+    fieldsConfig.forEach((f: any) => {
+      if (f.section === 'ai') {
+        const val = getValueCaseInsensitive(initiative.summary || {}, f.key) 
+          ?? getValueCaseInsensitive(initiative.form_data || {}, f.key);
+        if (val !== undefined && val !== null) {
+          initialSummary[f.key] = val;
+        }
+      }
+    });
+    setEditedSummary(initialSummary);
     setIsEditMode(true);
   };
 
@@ -813,7 +915,24 @@ export default function InitiativeDetail() {
     if (!isEditMode) return;
     await updateInitiativeData("Borrador", {
       form_data: editedFormData,
-      summary: editedSummary
+      summary: editedSummary,
+      confirmed_fields: editedConfirmedFields
+    });
+    setIsEditMode(false);
+  };
+
+  const handleSaveObservedEdits = async () => {
+    if (!isEditMode) return;
+    const currentVobo = initiative.form_data?.aprobacin_de_director;
+    const editedVobo = editedFormData.aprobacin_de_director;
+    const newFormData = { ...editedFormData };
+    if (editedVobo !== currentVobo) {
+      delete newFormData._vobo_status;
+    }
+    await updateInitiativeData("Observada", {
+      form_data: newFormData,
+      summary: editedSummary,
+      confirmed_fields: editedConfirmedFields
     });
     setIsEditMode(false);
   };
@@ -846,7 +965,7 @@ export default function InitiativeDetail() {
       setConfirmDialog({
         isOpen: true,
         title: "¡Hola!",
-        message: "Para poder observar esta iniciativa, por favor ingresa al menos un cambio sugerido en los campos del formulario. Así el Registrador sabrá exactamente qué ajustar. 😊",
+        message: "Para poder observar esta iniciativa, por favor ingresa al menos un cambio sugerido en los campos del formulario. Así el Key user sabrá exactamente qué ajustar. 😊",
         confirmText: "Entendido",
         onConfirm: () => {},
         confirmStyle: "bg-amber-500 hover:bg-amber-600",
@@ -859,7 +978,7 @@ export default function InitiativeDetail() {
       "Observar Iniciativa",
       (
         <div className="space-y-4">
-          <p>¿Estás seguro de que deseas observar esta iniciativa y enviar los cambios sugeridos al Registrador?</p>
+          <p>¿Estás seguro de que deseas observar esta iniciativa y enviar los cambios sugeridos al Key user?</p>
           <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 flex gap-2 text-amber-800">
             <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
             <span className="font-semibold text-sm">Al confirmar, declaras que esta acción se realiza bajo tu revisión y consentimiento.</span>
@@ -911,7 +1030,7 @@ export default function InitiativeDetail() {
         const newHistoryEntry = {
           date: new Date().toISOString(),
           user: profile?.name || "Usuario Desconocido",
-          role: isAdmin ? "Admin" : (isBP ? "Business Partner TI" : "Registrador"),
+          role: isAdmin ? "Admin" : (isBP ? "Business Partner TI" : "Key user"),
           action: "En demanda",
           comment: isEditMode ? "Se aprobaron los cambios realizados." : "Movida a En demanda directamente sin cambios."
         };
@@ -997,7 +1116,7 @@ export default function InitiativeDetail() {
 
   const handleDesestimarConfirm = () => {
     if (!desestimarComment.trim()) {
-      alert("Debes ingresar un motivo.");
+      showToast("Debes ingresar un motivo.", "warning");
       return;
     }
 
@@ -1019,6 +1138,11 @@ export default function InitiativeDetail() {
   };
 
   const handleReenviar = () => {
+    if (initiative.form_data?._vobo_status === "incorrecto") {
+      showToast("El visto bueno del VP es incorrecto. Debes editar la iniciativa y subir un nuevo archivo de Visto Bueno antes de reenviar.", "error");
+      return;
+    }
+
     confirmAction(
       "Reenviar a Aprobación",
       (
@@ -1040,7 +1164,7 @@ export default function InitiativeDetail() {
         const newHistoryEntry = {
           date: new Date().toISOString(),
           user_name: profile?.name || 'Desconocido',
-          user_role: 'Registrador',
+          user_role: 'Key user',
           action: 'Reenviada a Aprobación',
           details: 'Subsanó la iniciativa y la reenvió para su revisión.',
           snapshot: {
@@ -1060,6 +1184,24 @@ export default function InitiativeDetail() {
   };
 
   const handleEnviarAprobacion = () => {
+    // Validate that all visible fields that require confirmation are checked
+    const missingConfirmationFields = fieldsConfig.filter(f => {
+      if (!f.is_visible) return false;
+      if (!f.requires_confirmation) return false;
+      
+      const val = getValueCaseInsensitive(initiative.form_data || {}, f.key);
+      const isEmpty = val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0);
+      if (isEmpty) return false;
+      
+      const isConfirmed = initiative.confirmed_fields && initiative.confirmed_fields[f.key];
+      return !isConfirmed;
+    });
+
+    if (missingConfirmationFields.length > 0) {
+      showToast(`Debes confirmar que la información mostrada para el campo "${missingConfirmationFields[0].label}" es correcta.`, "warning");
+      return;
+    }
+
     confirmAction(
       "Enviar a Aprobación",
       (
@@ -1397,9 +1539,9 @@ export default function InitiativeDetail() {
                 >
                   Cancelar
                 </button>
-                {initiative.status === "Borrador" ? (
+                {initiative.status === "Borrador" || (initiative.status === "Observada" && isRegistrador && isMine) ? (
                   <button
-                    onClick={handleSaveDraftEdits}
+                    onClick={initiative.status === "Borrador" ? handleSaveDraftEdits : handleSaveObservedEdits}
                     className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
                   >
                     <Save className="w-4 h-4" />
@@ -1430,13 +1572,22 @@ export default function InitiativeDetail() {
             
 
             {isRegistrador && isMine && isObserved && !isEditMode && (
-              <button
-                onClick={handleReenviar}
-                className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
-              >
-                <Send className="w-4 h-4" />
-                Reenviar a Aprobación
-              </button>
+              <>
+                <button
+                  onClick={startEditMode}
+                  className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Pencil className="w-4 h-4" />
+                  Editar
+                </button>
+                <button
+                  onClick={handleReenviar}
+                  className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+                >
+                  <Send className="w-4 h-4" />
+                  Reenviar a Aprobación
+                </button>
+              </>
             )}
 
             {isRegistrador && isMine && initiative.status === "Borrador" && !isEditMode && (
@@ -1737,7 +1888,7 @@ export default function InitiativeDetail() {
                 .filter(f => f.is_visible && f.section === 'ai' && !["titulo", "complejidad", "riesgo", "prioridadRecomendada", "beneficiosCualitativos"].includes(f.key))
                 .map(f => {
                   const k = f.key;
-                  const v = getValueCaseInsensitive(s, k) ?? "";
+                  const v = getValueCaseInsensitive(s, k) ?? getValueCaseInsensitive(fd, k) ?? "";
                   return (
                     <Row 
                       key={k} 
@@ -1750,6 +1901,9 @@ export default function InitiativeDetail() {
                       suggestedValue={suggestedChanges.summary[k]}
                       onAccept={canModify && isObserved && suggestedChanges.summary[k] !== undefined ? () => handleAcceptChange('summary', k, suggestedChanges.summary[k]) : undefined}
                       onReject={canModify && isObserved && suggestedChanges.summary[k] !== undefined ? () => handleRejectChange('summary', k) : undefined}
+                      isConfirmed={initiative.confirmed_fields?.[k] || false}
+                      editConfirmed={editedConfirmedFields[k] || false}
+                      onConfirmedChange={(checked: boolean) => setEditedConfirmedFields(prev => ({ ...prev, [k]: checked }))}
                     />
                   );
                 })}
@@ -1757,25 +1911,32 @@ export default function InitiativeDetail() {
           </div>
 
           {/* Qualitative benefits */}
-          {s.beneficiosCualitativos?.length > 0 && (
-            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#F1F5F9]">
-                <h3 className="text-sm font-bold text-[#1E293B]">Beneficios Cualitativos</h3>
+          {(() => {
+            const qualVal = s.beneficiosCualitativos ?? fd.beneficiosCualitativos ?? fd.beneficio_cualitativo ?? "";
+            if (!qualVal || (typeof qualVal === 'string' && qualVal.trim() === "")) return null;
+            return (
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-[#F1F5F9]">
+                  <h3 className="text-sm font-bold text-[#1E293B]">Beneficios Cualitativos</h3>
+                </div>
+                <div className="px-6 py-2">
+                  <Row
+                    label="Beneficios Cualitativos"
+                    value={qualVal}
+                    isEditMode={isEditMode}
+                    editValue={editedSummary.beneficiosCualitativos ?? editedSummary.beneficio_cualitativo ?? ""}
+                    onChange={(val: any) => handleFieldChange('summary', 'beneficiosCualitativos', val)}
+                    suggestedValue={suggestedChanges.summary.beneficiosCualitativos}
+                    onAccept={canModify && isObserved && suggestedChanges.summary.beneficiosCualitativos ? () => handleAcceptChange('summary', 'beneficiosCualitativos', suggestedChanges.summary.beneficiosCualitativos) : undefined}
+                    onReject={canModify && isObserved && suggestedChanges.summary.beneficiosCualitativos ? () => handleRejectChange('summary', 'beneficiosCualitativos') : undefined}
+                    isConfirmed={initiative.confirmed_fields?.beneficiosCualitativos || initiative.confirmed_fields?.beneficio_cualitativo || false}
+                    editConfirmed={editedConfirmedFields.beneficiosCualitativos || editedConfirmedFields.beneficio_cualitativo || false}
+                    onConfirmedChange={(checked: boolean) => setEditedConfirmedFields(prev => ({ ...prev, beneficiosCualitativos: checked, beneficio_cualitativo: checked }))}
+                  />
+                </div>
               </div>
-              <div className="px-6 py-2">
-                <Row
-                  label="Beneficios Cualitativos"
-                  value={s.beneficiosCualitativos}
-                  isEditMode={isEditMode}
-                  editValue={editedSummary.beneficiosCualitativos}
-                  onChange={(val: any) => handleFieldChange('summary', 'beneficiosCualitativos', val)}
-                  suggestedValue={suggestedChanges.summary.beneficiosCualitativos}
-                  onAccept={canModify && isObserved && suggestedChanges.summary.beneficiosCualitativos ? () => handleAcceptChange('summary', 'beneficiosCualitativos', suggestedChanges.summary.beneficiosCualitativos) : undefined}
-                  onReject={canModify && isObserved && suggestedChanges.summary.beneficiosCualitativos ? () => handleRejectChange('summary', 'beneficiosCualitativos') : undefined}
-                />
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Form data */}
           <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
@@ -1800,11 +1961,162 @@ export default function InitiativeDetail() {
                       suggestedValue={suggestedChanges.form_data[k]}
                       onAccept={canModify && isObserved && suggestedChanges.form_data[k] !== undefined ? () => handleAcceptChange('form_data', k, suggestedChanges.form_data[k]) : undefined}
                       onReject={canModify && isObserved && suggestedChanges.form_data[k] !== undefined ? () => handleRejectChange('form_data', k) : undefined}
+                      isConfirmed={initiative.confirmed_fields?.[k] || false}
+                      editConfirmed={editedConfirmedFields[k] || false}
+                      onConfirmedChange={(checked: boolean) => setEditedConfirmedFields(prev => ({ ...prev, [k]: checked }))}
                     />
                   );
                 })}
             </div>
           </div>
+
+          {/* Support attachments */}
+          {((editedFormData.attachments && Array.isArray(editedFormData.attachments)) ||
+            (fd.attachments && Array.isArray(fd.attachments)) ||
+            isEditMode) && (
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden mt-6">
+              <div className="px-6 py-4 border-b border-[#F1F5F9] flex justify-between items-center bg-[#F8FAFC]">
+                <h3 className="text-sm font-bold text-[#1E293B]">Archivos de soporte cargados</h3>
+                {isEditMode && (
+                  <div>
+                    <input
+                      type="file"
+                      id="support-file-upload"
+                      className="hidden"
+                      multiple
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || []);
+                        e.target.value = '';
+                        if (files.length === 0) return;
+                        
+                        const currentAttachments = Array.isArray(editedFormData.attachments) ? [...editedFormData.attachments] : [];
+                        for (const file of files) {
+                          try {
+                            const dataF = new FormData();
+                            dataF.append('file', file);
+                            const res = await fetch('/api/chat/attach-file', { method: 'POST', body: dataF });
+                            const resData = await res.json();
+                            if (!res.ok) {
+                              showToast(resData.error || `Error al subir el archivo "${file.name}"`, "error");
+                              continue;
+                            }
+                            if (resData.url) {
+                              currentAttachments.push({
+                                name: file.name,
+                                size: file.size,
+                                type: file.type,
+                                url: resData.url
+                              });
+                            }
+                          } catch (err: any) {
+                            console.error("Error uploading support file:", err);
+                            showToast(`Error de red al subir el archivo "${file.name}": ` + err.message, "error");
+                          }
+                        }
+                        setEditedFormData((prev: any) => ({
+                          ...prev,
+                          attachments: currentAttachments
+                        }));
+                      }}
+                    />
+                    <label
+                      htmlFor="support-file-upload"
+                      className="cursor-pointer inline-flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors shadow-sm"
+                    >
+                      <Paperclip className="w-3.5 h-3.5" />
+                      Adjuntar archivos
+                    </label>
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4">
+                {(() => {
+                  const attachmentsToRender = isEditMode
+                    ? (editedFormData.attachments || [])
+                    : (fd.attachments || []);
+                  
+                  if (attachmentsToRender.length === 0) {
+                    return <p className="text-xs text-slate-400 text-center py-4">No hay archivos cargados.</p>;
+                  }
+                  
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {attachmentsToRender.map((file: any, fileIdx: number) => {
+                        const isImage = file.type?.startsWith('image/') || file.name.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+                        return (
+                          <div key={fileIdx} className="flex items-center gap-2 bg-slate-50 border border-[#E2E8F0] rounded-xl p-3 shadow-sm">
+                            {isImage ? (
+                              <ImageIcon className="w-4 h-4 text-emerald-600 shrink-0" />
+                            ) : (
+                              <FileText className="w-4 h-4 text-blue-500 shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-[#1E293B] truncate" title={file.name}>
+                                {file.name}
+                              </p>
+                              <p className="text-[10px] text-[#64748B]">
+                                {file.size ? (file.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {file.url && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewFile({ url: file.url, name: file.name, type: file.type })}
+                                  className="text-[#64748B] hover:text-[#4F5AF5] transition-colors p-1"
+                                  title="Vista previa"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                              )}
+                              {file.url && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleForceDownload(file.url, file.name)}
+                                  className="text-[#94A3B8] hover:text-[#4F5AF5] transition-colors p-1"
+                                  title="Descargar"
+                                >
+                                  <span className="text-xs font-semibold underline">Descargar</span>
+                                </button>
+                              )}
+                              {isEditMode && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditedFormData((prev: any) => ({
+                                      ...prev,
+                                      attachments: (prev.attachments || []).filter((_: any, idx: number) => idx !== fileIdx)
+                                    }));
+                                  }}
+                                  className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg transition-colors shrink-0"
+                                  title="Eliminar archivo"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Declaración de Responsabilidad de Director */}
+          {fd._director_declaration_accepted && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex gap-3 shadow-sm shadow-emerald-500/5">
+              <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Declaración de Responsabilidad</h4>
+                <p className="text-xs text-emerald-700 leading-relaxed font-semibold">
+                  El solicitante declaró bajo su responsabilidad que la información ingresada es verídica y que la iniciativa cuenta con el conocimiento y aprobación de, como mínimo, su <span className="font-bold">Director</span>.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Observation History */}
           {fd._observation_history && fd._observation_history.length > 0 && (
@@ -2037,6 +2349,92 @@ export default function InitiativeDetail() {
                 {confirmDialog.confirmText || "Confirmar"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Preview File Modal */}
+      {previewFile && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-[#E2E8F0] animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center justify-between bg-[#F8FAFC]">
+              <div className="flex items-center gap-2 min-w-0">
+                {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+                  <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                ) : (
+                  <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                )}
+                <span className="font-semibold text-sm text-[#1E293B] truncate" title={previewFile.name}>
+                  {previewFile.name}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewFile.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold border border-[#4F5AF5]/20 hover:border-[#4F5AF5] px-3 py-1.5 rounded-lg bg-white transition-colors"
+                >
+                  Abrir en nueva pestaña
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewFile(null)}
+                  className="text-[#64748B] hover:text-[#1E293B] bg-slate-100 hover:bg-slate-200 p-1.5 rounded-lg transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            {/* Content */}
+            <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-50 min-h-[300px]">
+              {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+                <img
+                  src={previewFile.url}
+                  alt={previewFile.name}
+                  className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-sm"
+                />
+              ) : (
+                <div className="text-center p-8 max-w-md">
+                  <div className="w-16 h-16 bg-[#EEF2FF] text-[#4F5AF5] rounded-full flex items-center justify-center mx-auto mb-4">
+                    <FileText className="w-8 h-8" />
+                  </div>
+                  <h4 className="font-bold text-[#1E293B] mb-2">Vista previa no disponible</h4>
+                  <p className="text-xs text-[#64748B] mb-4">Este tipo de archivo no puede previsualizarse directamente aquí. Por favor ábrelo en una nueva pestaña para verlo o descargarlo.</p>
+                  <a
+                    href={previewFile.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Abrir archivo
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-[9999] animate-in fade-in slide-in-from-bottom-5 duration-300">
+          <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md text-white ${
+            toast.type === 'success' 
+              ? 'bg-emerald-600 border-emerald-500 shadow-emerald-500/10' 
+              : toast.type === 'warning'
+                ? 'bg-amber-600 border-amber-500 shadow-amber-500/10'
+                : 'bg-red-600 border-red-500 shadow-red-500/10'
+          }`}>
+            {toast.type === 'success' && <CheckCircle className="w-5 h-5 shrink-0 text-white" />}
+            {toast.type === 'warning' && <AlertTriangle className="w-5 h-5 shrink-0 text-white" />}
+            {toast.type === 'error' && <AlertCircle className="w-5 h-5 shrink-0 text-white" />}
+            <span className="text-xs font-semibold">{toast.message}</span>
+            <button 
+              onClick={() => setToast(null)}
+              className="ml-2 p-1 hover:bg-white/10 rounded-lg transition-colors text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}

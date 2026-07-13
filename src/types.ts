@@ -23,6 +23,8 @@ export interface FieldDefinition {
   options_map?: Record<string, string[]>;
   ai_instructions?: string;
   allow_multiple?: boolean;
+  help_text?: string;
+  requires_confirmation?: boolean;
   created_at?: string;
 }
 
@@ -35,6 +37,8 @@ export interface Initiative {
   summary?: AI_Summary;
   rejection_reason?: string;
   user_id?: string;
+  confirmed_fields?: Record<string, boolean>;
+  unstructured_text?: string;
 }
 
 export interface ChatMessage {

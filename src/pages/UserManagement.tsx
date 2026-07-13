@@ -30,7 +30,7 @@ interface Direccion {
 }
 
 const ROLES_DISPONIBLES = [
-  { value: 'registrador', label: 'Registrador de Iniciativas' },
+  { value: 'registrador', label: 'Key user' },
   { value: 'bp_ti', label: 'Business Partner (BP)' },
   { value: 'invitado', label: 'Invitado (Solo lectura)' }
 ];
@@ -239,7 +239,7 @@ export default function UserManagement() {
       case 'admin': return <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">ADMIN</span>;
       case 'bp_ti': return <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">BP TI</span>;
       case 'invitado': return <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">INVITADO</span>;
-      default: return <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">REGISTRADOR</span>;
+      default: return <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold shrink-0">KEY USER</span>;
     }
   };
 
@@ -821,7 +821,7 @@ export default function UserManagement() {
              </ul>
           </div>
           <div className="bg-white p-4 rounded-xl border border-blue-50 shadow-sm">
-             <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">REGISTRADOR</span>
+             <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold mb-2 inline-block">KEY USER</span>
              <ul className="text-xs text-[#64748B] leading-relaxed list-disc pl-4 space-y-1">
                <li>Crea iniciativas con IA.</li>
                <li>Gestiona iniciativas observadas.</li>

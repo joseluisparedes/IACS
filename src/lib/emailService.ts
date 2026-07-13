@@ -229,7 +229,7 @@ function getInitiativeDetailsTable(formData: any, summary: any, status: string):
           <td class="value">${title}</td>
         </tr>
         <tr>
-          <td class="label">Registrador:</td>
+          <td class="label">Key user:</td>
           <td class="value">${creator}</td>
         </tr>
         <tr>
@@ -327,7 +327,7 @@ export async function processEmailNotifications(
       const tableHtml = getInitiativeDetailsTable(formData, summary, newStatus);
       const bodyHtml = getBaseTemplate(
         'Iniciativa con Observaciones',
-        `<p>Estimado(a) ${formData?.registrador || 'Registrador(a)'},</p>
+        `<p>Estimado(a) ${formData?.registrador || 'Key user(a)'},</p>
          <p>Tu iniciativa de TI ha sido revisada por el Business Partner TI (BP) y se encuentra en estado <strong>Observada</strong>.</p>
          ${tableHtml}
          <div class="card" style="border-left: 4px solid #B45309; background-color: #FFFBEB;">
@@ -354,7 +354,7 @@ export async function processEmailNotifications(
       if (registradorEmail) {
         const bodyHtml = getBaseTemplate(
           'Iniciativa en Demanda',
-          `<p>Estimado(a) ${formData?.registrador || 'Registrador(a)'},</p>
+          `<p>Estimado(a) ${formData?.registrador || 'Key user(a)'},</p>
            <p>¡Buenas noticias! Tu iniciativa de TI ha sido aprobada y se encuentra en estado <strong>En demanda</strong>.</p>
            ${tableHtml}
            <p>La iniciativa entrará en planificación de demanda en coordinación con los equipos correspondientes.</p>`,
@@ -376,7 +376,7 @@ export async function processEmailNotifications(
       const tableHtml = getInitiativeDetailsTable(formData, summary, newStatus);
       const bodyHtml = getBaseTemplate(
         'Iniciativa Desestimada',
-        `<p>Estimado(a) ${formData?.registrador || 'Registrador(a)'},</p>
+        `<p>Estimado(a) ${formData?.registrador || 'Key user(a)'},</p>
          <p>Te informamos que tu iniciativa de TI ha sido revisada y marcada como <strong>Desestimada</strong>.</p>
          ${tableHtml}
          <div class="card" style="border-left: 4px solid #64748B;">

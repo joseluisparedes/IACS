@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Filter, Eye, ChevronRight, User, Search } from "lucide-react";
+import { Filter, Eye, ChevronRight, User, Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Initiative } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -63,6 +63,7 @@ export default function ApprovalBoard() {
   const [selectedVicepresidencias, setSelectedVicepresidencias] = useState<string[]>([]);
   const [showOnlyMine, setShowOnlyMine] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortConfig, setSortConfig] = useState<{ field: "solicitud" | "fecha" | "key_user" | "bp" | "estado"; order: "asc" | "desc" } | null>(null);
 
   const { profile } = useAuth();
   const [direccionesMap, setDireccionesMap] = useState<Record<string, string>>({});
@@ -101,7 +102,7 @@ export default function ApprovalBoard() {
       let userRole = 'Sistema';
       if (isAdmin) userRole = 'Administrador';
       else if (isBP) userRole = 'BP TI';
-      else if (profile?.profile_roles?.some((r: any) => r.role === 'registrador')) userRole = 'Registrador';
+      else if (profile?.profile_roles?.some((r: any) => r.role === 'registrador')) userRole = 'Key user';
 
       const newHistoryEntry = {
         date: new Date().toISOString(),
@@ -164,13 +165,13 @@ export default function ApprovalBoard() {
       const tab = STATUS_MAP[i.status];
       const dir = i.form_data?.direccion;
       const isMyDir = dir && bpAllowedDirNames.has(dir);
-      // BPs see new, approved or observed initiatives in their assigned directories, OR their own items
-      return ((tab === "nueva" || tab === "aprobada" || tab === "subsanacion") && isMyDir) || isMine;
+      // BPs see new, approved, observed or dismissed initiatives in their assigned directories, OR their own items
+      return ((tab === "nueva" || tab === "aprobada" || tab === "subsanacion" || tab === "desestimada") && isMyDir) || isMine;
     }
 
     if (isRegistrador) {
       const tab = STATUS_MAP[i.status];
-      if (tab === "desestimada") return false;
+      if (tab === "desestimada") return isMine;
       const dir = i.form_data?.direccion;
       const isMyDir = dir && userAllowedDirNames.has(dir);
       return isMine || isMyDir;
@@ -261,6 +262,60 @@ export default function ApprovalBoard() {
 
   const filtered = byTab(activeTab);
 
+  const sortedAndFiltered = useMemo(() => {
+    if (!sortConfig) return filtered;
+
+    return [...filtered].sort((a, b) => {
+      let valA: any = "";
+      let valB: any = "";
+
+      switch (sortConfig.field) {
+        case "solicitud":
+          valA = a.summary?.titulo ?? Object.values(a.form_data ?? {})[0] ?? a.id;
+          valB = b.summary?.titulo ?? Object.values(b.form_data ?? {})[0] ?? b.id;
+          break;
+        case "fecha":
+          valA = a.created_at || "";
+          valB = b.created_at || "";
+          break;
+        case "key_user":
+          valA = a.form_data?.registrador || a.form_data?.solicitante || "";
+          valB = b.form_data?.registrador || b.form_data?.solicitante || "";
+          break;
+        case "bp":
+          valA = a.form_data?.bp_ti_asignado || "";
+          valB = b.form_data?.bp_ti_asignado || "";
+          break;
+        case "estado":
+          valA = a.status || "";
+          valB = b.status || "";
+          break;
+      }
+
+      let comparison = 0;
+      if (typeof valA === "string" && typeof valB === "string") {
+        comparison = valA.localeCompare(valB, "es", { sensitivity: "base", numeric: true });
+      } else {
+        if (valA < valB) comparison = -1;
+        if (valA > valB) comparison = 1;
+      }
+
+      return sortConfig.order === "asc" ? comparison : -comparison;
+    });
+  }, [filtered, sortConfig]);
+
+  const handleSort = (field: "solicitud" | "fecha" | "key_user" | "bp" | "estado") => {
+    setSortConfig(prev => {
+      if (prev && prev.field === field) {
+        if (prev.order === "asc") {
+          return { field, order: "desc" };
+        }
+        return null;
+      }
+      return { field, order: "asc" };
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -346,9 +401,9 @@ export default function ApprovalBoard() {
             </div>
           </div>
 
-          {/* Registrador */}
+          {/* Key user */}
           <div className="space-y-1.5 pt-3 border-t">
-            <label className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider block">Registrador</label>
+            <label className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider block">Key user</label>
             <div className="max-h-32 overflow-y-auto space-y-1 custom-scrollbar pr-1">
               {registradoresOptions.map(reg => (
                 <label key={reg} className="flex items-center gap-2.5 text-xs text-[#1E293B] hover:bg-[#F8FAFC] p-1 rounded cursor-pointer transition-colors">
@@ -469,16 +524,78 @@ export default function ApprovalBoard() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-[#F1F5F9]">
-                  <th className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">Solicitud</th>
-                  <th className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">Fecha</th>
-                  <th className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">Registrador</th>
-                  <th className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">IT Business Partner</th>
-                  <th className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">Estado</th>
-                  <th className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">Acciones</th>
+                  <th 
+                    onClick={() => handleSort('solicitud')}
+                    className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider cursor-pointer hover:bg-slate-50 hover:text-slate-700 select-none group transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      Solicitud
+                      {sortConfig?.field === 'solicitud' ? (
+                        sortConfig.order === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4F5AF5]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('fecha')}
+                    className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider cursor-pointer hover:bg-slate-50 hover:text-slate-700 select-none group transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      Fecha
+                      {sortConfig?.field === 'fecha' ? (
+                        sortConfig.order === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4F5AF5]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('key_user')}
+                    className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider cursor-pointer hover:bg-slate-50 hover:text-slate-700 select-none group transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      Key user
+                      {sortConfig?.field === 'key_user' ? (
+                        sortConfig.order === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4F5AF5]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('bp')}
+                    className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider cursor-pointer hover:bg-slate-50 hover:text-slate-700 select-none group transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      IT Business Partner
+                      {sortConfig?.field === 'bp' ? (
+                        sortConfig.order === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4F5AF5]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('estado')}
+                    className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider cursor-pointer hover:bg-slate-50 hover:text-slate-700 select-none group transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      Estado
+                      {sortConfig?.field === 'estado' ? (
+                        sortConfig.order === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4F5AF5]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider select-none">
+                    Acciones
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F8FAFC]">
-                {filtered.map(i => {
+                {sortedAndFiltered.map(i => {
                   const tabKey = STATUS_MAP[i.status] ?? "nueva";
                   const title = i.summary?.titulo ?? Object.values(i.form_data ?? {})[0] ?? i.id;
                   const registrador = i.form_data?.registrador || i.form_data?.solicitante || "Desconocido";

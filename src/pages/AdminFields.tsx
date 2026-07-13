@@ -38,7 +38,7 @@ const emptyForm = {
   label: "", key: "", field_type: "select" as FieldType,
   options: [] as string[], is_required: false, is_visible: true,
   depends_on: "", options_map: {} as Record<string, string[]>, ai_instructions: "",
-  allow_multiple: false
+  allow_multiple: false, help_text: "", requires_confirmation: false
 };
 
 // ─── Input/Label styles ───────────────────────────────────────────────────────
@@ -163,7 +163,20 @@ export default function AdminFields() {
     const initialOptions = field.field_type === "file"
       ? (field.options && typeof field.options === "object" && !Array.isArray(field.options) ? { ...field.options } : defaultFileOptions())
       : [...(field.options ?? [])];
-    setForm({ label: field.label, key: field.key, field_type: field.field_type, options: initialOptions, is_required: field.is_required, is_visible: field.is_visible, depends_on: field.depends_on || "", options_map: field.options_map || {}, ai_instructions: field.ai_instructions || "", allow_multiple: field.allow_multiple ?? false });
+    setForm({
+      label: field.label,
+      key: field.key,
+      field_type: field.field_type,
+      options: initialOptions,
+      is_required: field.is_required,
+      is_visible: field.is_visible,
+      depends_on: field.depends_on || "",
+      options_map: field.options_map || {},
+      ai_instructions: field.ai_instructions || "",
+      allow_multiple: field.allow_multiple ?? false,
+      help_text: field.help_text || "",
+      requires_confirmation: field.requires_confirmation ?? false
+    });
     setOptionInput(""); setError(""); setShowPanel(true);
   };
 
@@ -210,7 +223,19 @@ export default function AdminFields() {
         const res = await fetch("/api/fields", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         if (!res.ok) throw new Error((await res.json()).error ?? "Error al crear.");
       } else {
-        const payload = { label: form.label, field_type: form.field_type, options: payloadOptions, is_required: form.is_required, is_visible: form.is_visible, depends_on: form.depends_on, options_map: form.options_map, ai_instructions: form.ai_instructions, allow_multiple: form.allow_multiple };
+        const payload = {
+          label: form.label,
+          field_type: form.field_type,
+          options: payloadOptions,
+          is_required: form.is_required,
+          is_visible: form.is_visible,
+          depends_on: form.depends_on,
+          options_map: form.options_map,
+          ai_instructions: form.ai_instructions,
+          allow_multiple: form.allow_multiple,
+          help_text: form.help_text,
+          requires_confirmation: form.requires_confirmation
+        };
         const res = await fetch(`/api/fields/${editingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         if (!res.ok) throw new Error((await res.json()).error ?? "Error al actualizar.");
       }
@@ -632,6 +657,20 @@ export default function AdminFields() {
                 </div>
               )}
 
+              {/* Help Text */}
+              <div>
+                <label className={labelCls}>Texto de ayuda (Tooltip) <span className="text-gray-400 font-normal lowercase">- Opcional</span></label>
+                <textarea
+                  value={form.help_text || ""}
+                  onChange={e => setForm(f => ({ ...f, help_text: e.target.value }))}
+                  placeholder="Ej: Describe la información o formato esperado para este campo."
+                  className={`${inputCls} min-h-[60px] resize-y`}
+                />
+                <p className="text-[11px] text-[#94A3B8] mt-1">
+                  Este texto se mostrará como una nubecita de ayuda junto a la etiqueta del campo.
+                </p>
+              </div>
+
               {/* Required */}
               <div className="flex items-center justify-between p-4 bg-[#F8FAFC] rounded-xl border border-[#F1F5F9]">
                 <div>
@@ -651,6 +690,15 @@ export default function AdminFields() {
                   <Toggle checked={form.is_visible} onChange={() => setForm(f => ({ ...f, is_visible: !f.is_visible }))} color="bg-emerald-500" />
                 </div>
               )}
+
+              {/* Requires Confirmation */}
+              <div className="flex items-center justify-between p-4 bg-[#F8FAFC] rounded-xl border border-[#F1F5F9]">
+                <div>
+                  <p className="text-sm font-semibold text-[#1E293B]">Requiere confirmación del usuario</p>
+                  <p className="text-xs text-[#94A3B8] mt-0.5">El usuario debe confirmar explícitamente el valor de este campo en el formulario.</p>
+                </div>
+                <Toggle checked={form.requires_confirmation || false} onChange={() => setForm(f => ({ ...f, requires_confirmation: !f.requires_confirmation }))} color="bg-amber-500" />
+              </div>
 
               {error && (
                 <div className="bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>

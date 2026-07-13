@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare } from "lucide-react";
+import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye } from "lucide-react";
 import STTWorker from '../workers/stt.worker?worker';
 import { FieldDefinition } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
@@ -103,18 +103,20 @@ function MultiSelectDropdown({ options, selected, onChange, disabled, placeholde
 }
 
 // ─── Dynamic field ────────────────────────────────────────────────────────────
-function DynamicField({ field, value, onChange, parentValue, disabled, optionsOverride, onUploadingChange }: {
+function DynamicField({ field, value, onChange, parentValue, disabled, optionsOverride, onUploadingChange, onBlur, onPreview }: {
   field: FieldDefinition; value: string; onChange: (v: string) => void; parentValue?: string;
   disabled?: boolean;
   optionsOverride?: string[];
   onUploadingChange?: (uploading: boolean) => void;
+  onBlur?: (val?: string) => void;
+  onPreview?: (file: { url: string; name: string; type?: string }) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Parse current value if it is a JSON file representation
-  let fileObj: { name: string; content?: string } | null = null;
+  let fileObj: { name: string; content?: string; url?: string; type?: string } | null = null;
   if (value && typeof value === "string" && value.startsWith('{"name":')) {
     try {
       fileObj = JSON.parse(value);
@@ -124,7 +126,7 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
   }
 
   if (field.field_type === "date")
-    return <input type="date" value={value} onChange={e => onChange(e.target.value)} required={field.is_required} disabled={disabled} className={inputCls} />;
+    return <input type="date" value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur ? () => onBlur(value) : undefined} required={field.is_required} disabled={disabled} className={inputCls} />;
   
   if (field.field_type === "select") {
     let options = optionsOverride || field.options;
@@ -141,15 +143,30 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
         <MultiSelectDropdown
           options={options}
           selected={selectedList}
-          onChange={(next) => onChange(next as any)}
+          onChange={(next) => { 
+            onChange(next as any); 
+            const valStr = Array.isArray(next) ? next.join(", ") : String(next);
+            onBlur?.(valStr); 
+          }}
           disabled={disabled || (!optionsOverride && field.depends_on ? !parentValue : false)}
-          placeholder="Selecciona..."
+          placeholder="Seleccionar"
         />
       );
     }
     return (
-      <select value={value} onChange={e => onChange(e.target.value)} required={field.is_required} className={inputCls} disabled={disabled || (!optionsOverride && field.depends_on ? !parentValue : false)}>
-        <option value="" disabled>Selecciona...</option>
+      <select 
+        value={value} 
+        onChange={e => { 
+          const val = e.target.value;
+          onChange(val); 
+          onBlur?.(val); 
+        }} 
+        onBlur={onBlur ? () => onBlur(value) : undefined} 
+        required={field.is_required} 
+        className={inputCls} 
+        disabled={disabled || (!optionsOverride && field.depends_on ? !parentValue : false)}
+      >
+        <option value="">Seleccionar</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     );
@@ -250,6 +267,16 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
               <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
             )}
             <span className="text-xs font-semibold text-[#4F5AF5] flex-1 truncate">{fileObj.name}</span>
+            {fileObj.url && (
+              <button 
+                type="button" 
+                onClick={() => onPreview?.({ url: fileObj.url || '', name: fileObj.name, type: fileObj.type })}
+                className="text-[#4F5AF5] hover:text-[#3F49E0] transition-colors p-1"
+                title="Ver vista previa"
+              >
+                <Eye className="w-4 h-4" />
+              </button>
+            )}
             <button 
               type="button" 
               onClick={handleRemove} 
@@ -290,7 +317,21 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
     );
   }
 
-  return <input type="text" value={value} onChange={e => onChange(e.target.value)} required={field.is_required} disabled={disabled} placeholder={`Ingresa ${field.label.toLowerCase()}...`} className={inputCls} />;
+  if (["titulo", "descripcion", "objetivo", "beneficio", "situacion", "proceso"].some(kw => field.key.toLowerCase().includes(kw))) {
+    return (
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onBlur={onBlur ? () => onBlur(value) : undefined}
+        required={field.is_required}
+        disabled={disabled}
+        placeholder={`Ingresa ${field.label.toLowerCase()}...`}
+        className={`${inputCls} min-h-[90px] resize-y py-2.5 leading-relaxed`}
+      />
+    );
+  }
+
+  return <input type="text" value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur ? () => onBlur(value) : undefined} required={field.is_required} disabled={disabled} placeholder={`Ingresa ${field.label.toLowerCase()}...`} className={inputCls} />;
 }
 
 // ─── Summary row ──────────────────────────────────────────────────────────────
@@ -314,10 +355,20 @@ const STEPS = [
   { n: "4", label: "Revisión BP" },
 ];
 
-function Stepper({ current }: { current: number }) {
+function Stepper({ current, path }: { current: number; path: 'unstructured' | 'direct' | 'select' }) {
+  const steps = path === 'unstructured' ? [
+    { n: "1", label: "Describe tu necesidad" },
+    { n: "2", label: "Revisión con IA" },
+  ] : [
+    { n: "1", label: "Formulario inicial" },
+    { n: "2", label: "Asistente IA" },
+    { n: "3", label: "Resumen" },
+    { n: "4", label: "Revisión BP" },
+  ];
+
   return (
     <div className="flex items-center gap-0 mb-8 overflow-x-auto pb-1">
-      {STEPS.map((s, i) => {
+      {steps.map((s, i) => {
         const idx = i + 1;
         const done = idx < current;
         const active = idx === current;
@@ -337,7 +388,7 @@ function Stepper({ current }: { current: number }) {
               </span>
               {s.label}
             </div>
-            {i < STEPS.length - 1 && (
+            {i < steps.length - 1 && (
               <ChevronRight className="w-3.5 h-3.5 text-[#CBD5E1] mx-1 shrink-0" />
             )}
           </div>
@@ -362,7 +413,20 @@ export default function InitiativeForm() {
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [aiFields, setAiFields] = useState<FieldDefinition[]>([]);
   const [loadingFields, setLoadingFields] = useState(true);
-  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [confirmedFields, setConfirmedFields] = useState<Record<string, boolean>>({});
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type?: string } | null>(null);
+  const [selectedPath, setSelectedPath] = useState<'select' | 'direct' | 'unstructured'>('select');
+  useEffect(() => {
+    (window as any).isInitiativeProcessInProgress = (selectedPath !== 'select');
+    return () => {
+      (window as any).isInitiativeProcessInProgress = false;
+    };
+  }, [selectedPath]);
+  const [unstructuredText, setUnstructuredText] = useState("");
+  const [aiWarnings, setAiWarnings] = useState<Record<string, string>>({});
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState("");
   
   const [dbVps, setDbVps] = useState<any[]>([]);
   const [dbDirecciones, setDbDirecciones] = useState<any[]>([]);
@@ -375,11 +439,28 @@ export default function InitiativeForm() {
   const [ratedMessages, setRatedMessages] = useState<Record<number, 'positive' | 'negative'>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
+  const [formErrors, setFormErrors] = useState<string[]>([]);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'error') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   // ── Voice input (MediaRecorder + local Whisper WASM) ──────────────────────
   const [isRecording, setIsRecording] = useState(false);
   const [useMic, setUseMic] = useState(true);
   const [useAttachments, setUseAttachments] = useState(true);
+  const [aiName, setAiName] = useState("Asistente IA");
+  const [aiAvatar, setAiAvatar] = useState("");
   const [fileTypes, setFileTypes] = useState({
     pdf: { enabled: true, maxMb: 1.0 },
     docx: { enabled: true, maxMb: 1.0 },
@@ -433,6 +514,7 @@ export default function InitiativeForm() {
   const [attachedFileContent, setAttachedFileContent] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -442,6 +524,7 @@ export default function InitiativeForm() {
       supabase.from('vps').select('id, name'),
       supabase.from('direcciones').select('id, name, vp_id'),
       id ? supabase.from('initiatives').select('*').eq('id', id).single() : Promise.resolve({ data: null }),
+      supabase.from('ai_training_config').select('*').eq('layer', 'settings'),
       fetch("/api/config/features").then(r => r.json()).catch(() => ({
         useMic: true,
         useAttachments: true,
@@ -453,11 +536,24 @@ export default function InitiativeForm() {
         }
       }))
     ])
-      .then(([data, vpsRes, dirRes, draftRes, features]) => {
+      .then(([data, vpsRes, dirRes, draftRes, configRes, features]) => {
         if (vpsRes.data) setDbVps(vpsRes.data);
         if (dirRes.data) setDbDirecciones(dirRes.data);
         setUseMic(features.useMic !== false);
         setUseAttachments(features.useAttachments !== false);
+        
+        // Load custom AI Name and Avatar directly from DB config to bypass backend server caching/restart issues
+        if (configRes.data) {
+          const nameItem = configRes.data.find((e: any) => e.title === 'ai_name');
+          const avatarItem = configRes.data.find((e: any) => e.title === 'ai_avatar');
+          if (nameItem?.content) setAiName(nameItem.content);
+          if (avatarItem?.content) setAiAvatar(avatarItem.content);
+        } else {
+          // Fallback
+          if (features.aiName) setAiName(features.aiName);
+          if (features.aiAvatar) setAiAvatar(features.aiAvatar);
+        }
+
         if (features.fileTypes) {
           setFileTypes(features.fileTypes);
         }
@@ -470,12 +566,23 @@ export default function InitiativeForm() {
         const draft = draftRes?.data;
         if (draft) {
           // Backend draft found — use it and clear any stale local backup
-          setFormData(draft.form_data || {});
+          const fData = { ...(draft.form_data || {}) };
+          if (draft.summary) {
+            Object.entries(draft.summary).forEach(([k, v]) => {
+              if (v !== undefined && v !== null && v !== "") {
+                fData[k] = v;
+              }
+            });
+          }
+          setFormData(fData);
+          setConfirmedFields(draft.confirmed_fields || {});
+          setUnstructuredText(draft.unstructured_text || "");
           setChatHistory(draft.chat_history || []);
           setSummary(draft.summary || null);
           if (draft.summary) setStep(3);
           else if (draft.chat_history && draft.chat_history.length > 0) setStep(2);
           else setStep(1);
+          setSelectedPath(fData.selectedPath || 'direct');
           try { localStorage.removeItem(localKey); } catch (_) {}
         } else {
           // No backend draft — check localStorage for a local backup
@@ -484,7 +591,24 @@ export default function InitiativeForm() {
             const local = localStorage.getItem(localKey);
             if (local) {
               const parsed = JSON.parse(local);
-              if (parsed.form_data) setFormData(parsed.form_data);
+              if (parsed.form_data) {
+                const fData = { ...parsed.form_data };
+                if (parsed.summary) {
+                  Object.entries(parsed.summary).forEach(([k, v]) => {
+                    if (v !== undefined && v !== null && v !== "") {
+                      fData[k] = v;
+                    }
+                  });
+                }
+                setFormData(fData);
+                setSelectedPath(fData.selectedPath || 'direct');
+              }
+              if (parsed.confirmed_fields) {
+                setConfirmedFields(parsed.confirmed_fields);
+              }
+              if (parsed.unstructured_text) {
+                setUnstructuredText(parsed.unstructured_text);
+              }
               if (parsed.chat_history?.length > 0) {
                 setChatHistory(parsed.chat_history);
                 if (parsed.summary) {
@@ -503,7 +627,7 @@ export default function InitiativeForm() {
             const initial: Record<string, any> = {};
             visibleFormFields.forEach((f: FieldDefinition) => {
               if (f.field_type === "select") {
-                initial[f.key] = f.allow_multiple ? [] : (f.options.length > 0 ? f.options[0] : "");
+                initial[f.key] = f.allow_multiple ? [] : "";
               } else {
                 initial[f.key] = "";
               }
@@ -516,14 +640,16 @@ export default function InitiativeForm() {
       .finally(() => setLoadingFields(false));
   }, [id]);
 
-  const autoSave = async (currentHistory: any[], currentSummary: any) => {
+  const autoSave = async (currentHistory: any[], currentSummary: any, currentFormData = formData) => {
     // Always save to localStorage first as a reliable offline backup
     try {
       localStorage.setItem(localKey, JSON.stringify({
         id: draftIdRef.current,
-        form_data: formData,
+        form_data: currentFormData,
         chat_history: currentHistory,
         summary: currentSummary,
+        confirmed_fields: confirmedFields,
+        unstructured_text: unstructuredText,
         savedAt: new Date().toISOString(),
       }));
     } catch (_) { /* localStorage may be unavailable in private mode */ }
@@ -535,9 +661,11 @@ export default function InitiativeForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: draftIdRef.current,
-          form_data: formData,
+          form_data: currentFormData,
           chat_history: currentHistory,
           summary: currentSummary,
+          confirmed_fields: confirmedFields,
+          unstructured_text: unstructuredText,
           status: "Borrador",
           user_id: profile?.id ?? null,
         }),
@@ -740,7 +868,9 @@ export default function InitiativeForm() {
     
     const typeConfig = fileTypes[typeKey];
     if (!typeConfig.enabled) {
-      setAttachError(`La subida de archivos de tipo ${typeKey.toUpperCase()} está deshabilitada.`);
+      const errorMsg = `La subida de archivos de tipo ${typeKey.toUpperCase()} está deshabilitada.`;
+      setAttachError(errorMsg);
+      showToast(errorMsg, 'error');
       return;
     }
 
@@ -748,15 +878,20 @@ export default function InitiativeForm() {
     const limitBytes = limitMb * 1024 * 1024;
 
     if (file.size > limitBytes) {
-      setAttachError(`El archivo supera el límite de ${limitMb} MB.`);
+      const errorMsg = `El archivo supera el límite de ${limitMb} MB.`;
+      setAttachError(errorMsg);
+      showToast(errorMsg, 'error');
       return;
     }
     const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'image/jpeg', 'image/png', 'image/webp'];
     if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i)) {
-      setAttachError('Formato no soportado. Usa PDF, DOCX, TXT o imagen.');
+      const errorMsg = 'Formato no soportado. Usa PDF, DOCX, TXT o imagen.';
+      setAttachError(errorMsg);
+      showToast(errorMsg, 'error');
       return;
     }
     setAttachedFile(file);
+    setUploadingFile(file);
     setIsProcessingFile(true);
     try {
       const formData = new FormData();
@@ -765,28 +900,147 @@ export default function InitiativeForm() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setAttachedFileContent(data.content);
+
+      setFormData(prev => {
+        const current = prev.attachments || [];
+        if (current.some((f: any) => f.name === file.name)) return prev;
+        return {
+          ...prev,
+          attachments: [...current, {
+            name: file.name,
+            content: data.content,
+            url: data.url,
+            size: file.size,
+            type: file.type
+          }]
+        };
+      });
+
+      if (step === 2 && selectedPath === 'unstructured') {
+        setTimeout(() => {
+          submitMessage(`He subido un archivo de soporte llamado: ${file.name}. Por favor analízalo.`);
+        }, 100);
+      } else if (step !== 2) {
+        setAttachedFile(null);
+        setAttachedFileContent(null);
+      }
     } catch (err: any) {
-      setAttachError('Error al procesar el archivo: ' + (err.message || 'desconocido'));
+      const errorMsg = 'Error al procesar el archivo: ' + (err.message || 'desconocido');
+      showToast(errorMsg, 'error');
       setAttachedFile(null);
     } finally {
       setIsProcessingFile(false);
+      setUploadingFile(null);
     }
   };
 
-  const removeAttachment = () => {
+  const removeAttachment = (fileName?: string) => {
     setAttachedFile(null);
     setAttachedFileContent(null);
     setAttachError(null);
+    if (fileName && typeof fileName === 'string') {
+      setFormData(prev => {
+        const current = prev.attachments || [];
+        return {
+          ...prev,
+          attachments: current.filter((f: any) => f.name !== fileName)
+        };
+      });
+    }
+  };
+
+  const handleAnalyzeText = async () => {
+    if (!unstructuredText.trim()) return;
+    setIsAnalyzing(true);
+    setError("");
+    try {
+      let textToAnalyze = unstructuredText;
+      const attachments = formData.attachments || [];
+      if (attachments.length > 0) {
+        const fileContents = attachments
+          .map((f: any) => `[Archivo: ${f.name}]\n---\n${f.content || 'Sin contenido'}\n---`)
+          .join('\n\n');
+        textToAnalyze = `${fileContents}\n\n[Mensaje del usuario]: ${textToAnalyze}`;
+      }
+
+      const res = await fetch("/api/fields/analyze-unstructured", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: textToAnalyze })
+      });
+      if (!res.ok) {
+        throw new Error((await res.json()).error ?? "Error al analizar texto.");
+      }
+      const data = await res.json();
+      
+      setFormData(prev => {
+        const next = { ...prev };
+        Object.entries(data.values || {}).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== "") {
+            next[k] = v as string;
+          }
+        });
+        return next;
+      });
+
+      setAiWarnings(data.warnings || {});
+      setStep(2);
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || "Error al procesar el texto con la IA.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const validateField = async (fieldKey: string, value: string, label: string) => {
+    if (selectedPath !== 'direct' || unstructuredText.trim() === "") return;
+    try {
+      const res = await fetch("/api/fields/validate-field", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fieldKey,
+          value,
+          label,
+          context: formData
+        })
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setAiWarnings(prev => {
+        const next = { ...prev };
+        if (data.warning) {
+          next[fieldKey] = data.warning;
+        } else {
+          delete next[fieldKey];
+        }
+        return next;
+      });
+    } catch (e) {
+      console.error("Error validating field:", e);
+    }
   };
 
   const handleStartChat = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (unstructuredText.trim() !== "") {
+      setIsAiTyping(true);
+      const summaryData: Record<string, any> = {};
+      aiFields.forEach(f => {
+        summaryData[f.key] = formData[f.key] || "";
+      });
+      setSummary(summaryData);
+      setStep(3);
+      setIsAiTyping(false);
+      await autoSave([], summaryData);
+      return;
+    }
+
     setStep(2);
     setIsAiTyping(true);
 
-    // ── Guardar borrador en BD ANTES de llamar a la IA ────────────────────────
-    // Esto garantiza que el chat aparezca en "Chats en curso" aunque el usuario
-    // cierre la pestaña o navegue antes de que la IA responda.
     await autoSave([], null);
 
     const MAX_RETRIES = 3;
@@ -882,9 +1136,87 @@ export default function InitiativeForm() {
       if (!res.ok) throw new Error();
       const data = await res.json();
       setSummary(data);
-      autoSave(chatHistory, data);
-    } catch { alert("Error al generar resumen."); setStep(2); }
+      const mergedFormData = { ...formData };
+      Object.entries(data || {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") {
+          mergedFormData[k] = v;
+        }
+      });
+      setFormData(mergedFormData);
+      autoSave(fullHistory, data, mergedFormData);
+    } catch { showToast("Error al generar resumen.", "error"); setStep(2); }
     finally { setIsAiTyping(false); }
+  };
+
+  const validateAllFields = () => {
+    const errors: string[] = [];
+    
+    // Check fixed required fields
+    if (!formData.vicepresidencia) {
+      errors.push("El campo Vicepresidencia es obligatorio.");
+    }
+    if (!formData.direccion) {
+      errors.push("El campo Dirección es obligatorio.");
+    }
+    
+    // Check dynamic required fields (both fixed form fields and AI fields)
+    const allVisibleFields = (selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3)) ? [...fields, ...aiFields] : fields;
+    allVisibleFields.forEach(field => {
+      // Omit fixed fields handled manually
+      if (["registrador", "solicitante", "vicepresidencia", "direccion"].includes(field.key.toLowerCase())) return;
+      
+      const val = formData[field.key];
+      const isEmpty = val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0);
+      if (field.is_required && isEmpty) {
+        errors.push(`El campo "${field.label}" es obligatorio.`);
+      }
+      if (field.requires_confirmation && !isEmpty && !confirmedFields[field.key]) {
+        errors.push(`Debes confirmar que la información mostrada para el campo "${field.label}" es correcta.`);
+      }
+    });
+
+    // Check if there are any active warnings shown
+    const activeWarnings = Object.keys(aiWarnings).filter(k => 
+      allVisibleFields.some(f => f.key === k) && aiWarnings[k]
+    );
+    if (activeWarnings.length > 0) {
+      errors.push("Por favor resuelve todas las alertas de información faltante antes de continuar.");
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  };
+
+  const handleSaveWithValidation = (status: "Borrador" | "Pendiente de aprobación") => {
+    const { isValid, errors } = validateAllFields();
+    if (!isValid) {
+      setFormErrors(errors);
+      return;
+    }
+    setFormErrors([]);
+    
+    if (status === "Pendiente de aprobación") {
+      if (!disclaimerAccepted) {
+        showToast("Debes aceptar la declaración de responsabilidad indicando que tu Director tiene conocimiento antes de enviar a aprobación.", "warning");
+        return;
+      }
+      setShowConsentModal(true);
+    } else {
+      handleSave(status);
+    }
+  };
+
+  const handleStartChatWithValidation = (e: React.FormEvent) => {
+    e.preventDefault();
+    const { isValid, errors } = validateAllFields();
+    if (!isValid) {
+      setFormErrors(errors);
+      return;
+    }
+    setFormErrors([]);
+    handleStartChat(e);
   };
 
   const handleSave = async (status: "Borrador" | "Pendiente de aprobación") => {
@@ -893,7 +1225,18 @@ export default function InitiativeForm() {
     try {
       const res = await fetch("/api/initiatives/draft", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: draftIdRef.current, form_data: formData, chat_history: chatHistory, summary, status }),
+        body: JSON.stringify({ 
+          id: draftIdRef.current, 
+          form_data: { 
+            ...formData, 
+            _director_declaration_accepted: disclaimerAccepted 
+          }, 
+          chat_history: chatHistory, 
+          summary, 
+          status, 
+          confirmed_fields: confirmedFields, 
+          unstructured_text: unstructuredText 
+        }),
       });
       if (res.ok) {
         // Clear the local backup now that it's safely on the server
@@ -901,11 +1244,11 @@ export default function InitiativeForm() {
         navigate("/bandeja");
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(`Error al guardar: ${err.error || res.statusText || 'Error desconocido'}`);
+        showToast(`Error al guardar: ${err.error || res.statusText || 'Error desconocido'}`, 'error');
       }
     } catch (e: any) {
       console.error(e);
-      alert('Error de red al guardar. El servidor puede estar despertando, por favor intenta de nuevo en unos segundos.');
+      showToast('Error de red al guardar. El servidor puede estar despertando, por favor intenta de nuevo en unos segundos.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -913,25 +1256,259 @@ export default function InitiativeForm() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <Stepper current={step} />
+      {/* Hidden file input for general attachments */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={[
+          fileTypes.pdf.enabled && '.pdf',
+          fileTypes.docx.enabled && '.docx',
+          fileTypes.txt.enabled && '.txt',
+          fileTypes.image.enabled && '.jpg,.jpeg,.png,.webp'
+        ].filter(Boolean).join(',')}
+        className="hidden"
+        onChange={handleFileAttach}
+      />
+      {selectedPath !== 'select' && <Stepper current={step} path={selectedPath} />}
 
       {/* ── Step 1: Formulario inicial ──────────────────────────────────── */}
-      {step === 1 && (
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden">
+      {/* ── Step 1: Formulario inicial o Selección de Flujo ────────────────── */}
+      {step === 1 && selectedPath === 'select' && (
+        <div className="space-y-6">
+          <div className="text-center max-w-xl mx-auto py-4 animate-in fade-in slide-in-from-top-4 duration-300">
+            <h2 className="text-2xl font-bold text-[#1E293B] mb-2">¿Cómo deseas registrar tu necesidad?</h2>
+            <p className="text-sm text-[#64748B]">Elige el método que mejor se adapte a tu situación actual.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in zoom-in-95 duration-300 delay-100">
+            {/* Opción A */}
+            <button
+              onClick={() => {
+                setSelectedPath('unstructured');
+                setFormData(prev => ({ ...prev, selectedPath: 'unstructured' }));
+              }}
+              className="group bg-white p-8 rounded-2xl border border-[#E2E8F0] hover:border-[#4F5AF5] hover:shadow-xl hover:shadow-[#4F5AF5]/5 transition-all text-left flex flex-col justify-between min-h-[240px] shadow-sm relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#4F5AF5]/5 to-transparent rounded-bl-full" />
+              <div>
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#EEF2FF] to-[#E0E7FF] text-[#4F5AF5] flex items-center justify-center mb-5 group-hover:scale-110 transition-transform shadow-sm relative z-10">
+                  <BrainCircuit className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-[#1E293B] group-hover:text-[#4F5AF5] transition-colors mb-2">Yo tengo todo claro</h3>
+                <p className="text-xs text-[#64748B] leading-relaxed font-normal">
+                  Redacta tu requerimiento en texto libre. La Inteligencia Artificial interpretará tus palabras para completar el formulario y te alertará si falta algún dato esencial.
+                </p>
+              </div>
+              <div className="mt-4 flex items-center text-xs font-bold text-[#4F5AF5] gap-1 group-hover:gap-2 transition-all">
+                Comenzar con texto libre <ChevronRight className="w-4 h-4" />
+              </div>
+            </button>
+
+            {/* Opción B */}
+            <button
+              onClick={() => {
+                setSelectedPath('direct');
+                setFormData(prev => ({ ...prev, selectedPath: 'direct' }));
+                setAiWarnings({});
+              }}
+              className="group bg-white p-8 rounded-2xl border border-[#E2E8F0] hover:border-[#4F5AF5] hover:shadow-xl hover:shadow-[#4F5AF5]/5 transition-all text-left flex flex-col justify-between min-h-[240px] shadow-sm relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#EB5F46]/5 to-transparent rounded-bl-full" />
+              <div>
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#FFF0ED] to-[#FFE2DD] text-[#EB5F46] flex items-center justify-center mb-5 group-hover:scale-110 transition-transform shadow-sm relative z-10">
+                  <PlusCircle className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-[#1E293B] group-hover:text-[#EB5F46] transition-colors mb-2">Necesito acompañamiento</h3>
+                <p className="text-xs text-[#64748B] leading-relaxed font-normal">
+                  Rellena el formulario paso a paso manualmente. Ideal si necesitas ayuda estructurando tu idea desde cero con la guía interactiva del asistente.
+                </p>
+              </div>
+              <div className="mt-4 flex items-center text-xs font-bold text-[#EB5F46] gap-1 group-hover:gap-2 transition-all">
+                Rellenar formulario paso a paso <ChevronRight className="w-4 h-4" />
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 1 && selectedPath === 'unstructured' && !isAnalyzing && (
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
           {/* Header */}
           <div className="px-8 pt-8 pb-6 border-b border-[#F1F5F9]">
-            <div className="flex items-center gap-3 mb-1">
-              <div className="w-8 h-8 rounded-lg bg-[#EEF2FF] flex items-center justify-center">
-                <span className="text-[#4F5AF5] text-sm">📋</span>
+            <button
+              onClick={() => setSelectedPath('select')}
+              className="flex items-center gap-1 text-[#64748B] hover:text-[#1E293B] text-xs font-semibold mb-3.5 transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Volver a opciones
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#EEF2FF] flex items-center justify-center text-[#4F5AF5]">
+                <BrainCircuit className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-[#1E293B]">1. Formulario inicial</h2>
-                <p className="text-xs text-[#94A3B8]">Completa la información base antes de conversar con la IA.</p>
+                <h2 className="text-lg font-bold text-[#1E293B]">Describe tu necesidad en texto libre</h2>
+                <p className="text-xs text-[#94A3B8]">La IA analizará lo que escribas para rellenar los campos de la iniciativa.</p>
               </div>
             </div>
           </div>
 
-          <form onSubmit={handleStartChat}>
+          <div className="p-8 space-y-6">
+            <div>
+              <label className={labelCls}>Detalla tu propuesta de requerimiento o idea</label>
+              <textarea
+                value={unstructuredText}
+                onChange={e => setUnstructuredText(e.target.value)}
+                placeholder="Ej: Necesitamos una aplicación web para el área de Operaciones que automatice la carga de facturas en PDF, extraiga el total y lo envíe por correo al BP. Esto nos ahorrará 10 horas semanales. Lo requerimos a más tardar el 15 de agosto. La VP de Operaciones ya dio su visto bueno..."
+                className="w-full min-h-[220px] border border-[#E2E8F0] bg-white rounded-xl p-4 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] focus:border-[#4F5AF5] transition-colors resize-y leading-relaxed"
+                disabled={isAnalyzing}
+              />
+            </div>
+
+            {/* ATTACHMENT STRIP FOR STEP 1 */}
+            {useAttachments && Object.values(fileTypes).some(t => t.enabled) && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#64748B]">Documentos o archivos de soporte (opcional):</span>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isAnalyzing || isProcessingFile}
+                    className="flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold transition-colors"
+                  >
+                    <Paperclip className="w-3.5 h-3.5" /> Adjuntar archivo
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {(formData.attachments || []).map((file: any, fileIdx: number) => (
+                    <div key={fileIdx} className="flex items-center gap-2 bg-[#EEF2FF] border border-[#C7D2FE] rounded-xl px-3 py-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                      {file.type?.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" /> : <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />}
+                      <span className="text-xs font-semibold text-[#4F5AF5] flex-1 truncate">{file.name}</span>
+                      <span className="text-[10px] text-[#64748B] shrink-0">{file.size ? (file.size / 1024).toFixed(0) + ' KB' : ''}</span>
+                      <span className="text-[10px] text-emerald-600 font-semibold shrink-0">✓ Listo</span>
+                      <button onClick={() => removeAttachment(file.name)} className="text-[#94A3B8] hover:text-red-500 transition-colors ml-1">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {isProcessingFile && uploadingFile && (
+                    <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#CBD5E1] rounded-xl px-3 py-2 animate-pulse">
+                      {uploadingFile.type?.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-[#64748B] shrink-0" /> : <FileText className="w-4 h-4 text-[#64748B] shrink-0" />}
+                      <span className="text-xs font-semibold text-[#64748B] flex-1 truncate">{uploadingFile.name}</span>
+                      <span className="text-[10px] text-[#64748B] shrink-0">{uploadingFile.size ? (uploadingFile.size / 1024).toFixed(0) + ' KB' : ''}</span>
+                      <span className="flex items-center gap-1.5 text-[10px] text-[#4F5AF5] font-semibold shrink-0">
+                        <div className="w-3.5 h-3.5 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
+                        Cargando...
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {attachError && (
+                  <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5 animate-in fade-in duration-200">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{attachError}</span>
+                    <button onClick={() => setAttachError(null)} className="ml-auto text-red-400 hover:text-red-600">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="bg-red-50 border border-red-100 text-red-700 text-xs px-4 py-3 rounded-lg flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-end gap-3">
+            <button
+              onClick={() => setSelectedPath('select')}
+              disabled={isAnalyzing}
+              className="py-2.5 px-5 rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC] text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleAnalyzeText}
+              disabled={isAnalyzing || !unstructuredText.trim() || isProcessingFile}
+              className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+            >
+              {isAnalyzing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  La IA está procesando la información ingresada...
+                </>
+              ) : (
+                <>
+                  Analizar Propuesta <ChevronRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 1 && selectedPath === 'unstructured' && isAnalyzing && (
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-16 flex flex-col items-center text-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-[#EEF2FF] flex items-center justify-center overflow-hidden shrink-0">
+            {aiAvatar ? (
+              <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover animate-bounce" />
+            ) : (
+              <Bot className="w-7 h-7 text-[#4F5AF5] animate-bounce" />
+            )}
+          </div>
+          <h3 className="text-lg font-bold text-[#1E293B]">Analizando Propuesta</h3>
+          <p className="text-sm text-[#64748B]">{aiName} está procesando la información ingresada...</p>
+          <div className="flex gap-1.5 mt-2">
+            {[0, 1, 2, 3, 4].map(i => (
+              <div key={i} className="w-1.5 h-6 rounded-full bg-[#4F5AF5]/20 animate-pulse" style={{ animationDelay: `${i * 100}ms` }} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {((step === 1 && selectedPath === 'direct') || (step === 2 && selectedPath === 'unstructured') || (step === 3 && selectedPath === 'direct')) && (
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden animate-in fade-in duration-200">
+          {/* Header */}
+          <div className="px-8 pt-8 pb-6 border-b border-[#F1F5F9] flex justify-between items-start gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#EEF2FF] flex items-center justify-center">
+                <span className="text-[#4F5AF5] text-sm">📋</span>
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-[#1E293B]">
+                  {selectedPath === 'unstructured' 
+                    ? '2. Revisión con IA' 
+                    : step === 3 
+                      ? '3. Revisión con IA' 
+                      : '1. Formulario inicial'}
+                </h2>
+                <p className="text-xs text-[#94A3B8]">
+                  {selectedPath === 'unstructured' || step === 3
+                    ? 'Revisa y completa la información de la iniciativa validada por la IA.' 
+                    : 'Completa la información base antes de conversar con la IA.'}
+                </p>
+              </div>
+            </div>
+            {!id && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPath('select');
+                  setAiWarnings({});
+                }}
+                className="text-xs font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors border border-[#E2E8F0] hover:border-[#4F5AF5] px-3 py-1.5 rounded-lg flex items-center gap-1"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Volver a opciones
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={handleStartChatWithValidation}>
             <div className="px-8 py-6">
               {loadingFields ? (
                 <div className="flex items-center justify-center py-10 text-[#94A3B8] gap-3">
@@ -943,37 +1520,105 @@ export default function InitiativeForm() {
                   No hay campos configurados. Ve a <strong className="text-[#1E293B]">Administración</strong> para agregar campos.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <>
+                  {((selectedPath === 'unstructured' && step === 2) || (selectedPath === 'direct' && step === 3)) && (
+                    <div className="mb-6 p-4 bg-slate-50 border border-slate-200/80 rounded-xl flex items-start gap-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-xs font-bold text-[#1E293B] mb-0.5">Validación de Información sugerida por la IA</h4>
+                        <p className="text-[11px] text-[#64748B] leading-relaxed">
+                          Este resumen y los campos asociados han sido completados de forma automática por el asistente de Inteligencia Artificial. Recuerde que la IA puede cometer errores o interpretar incorrectamente algunos datos, por lo que <span className="font-semibold text-amber-700">se requiere siempre una revisión y validación humana</span> de toda la información antes de guardar la iniciativa o enviarla a aprobación.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {/* Campos Fijos Obligatorios */}
                   <div>
-                    <label className={labelCls}>Registrador <span className="text-red-500 ml-1">*</span></label>
+                    <label className={labelCls}>Key user <span className="text-red-500 ml-1">*</span></label>
                     <input type="text" value={formData.registrador || ""} disabled className={inputCls} />
                   </div>
                   <div>
                     <label className={labelCls}>Vicepresidencia <span className="text-red-500 ml-1">*</span></label>
-                    <select value={formData.vicepresidencia || ""} onChange={e => setFormData({ ...formData, vicepresidencia: e.target.value, direccion: "" })} disabled={vpOptions.length <= 1} className={inputCls} required>
+                    <select
+                      value={formData.vicepresidencia || ""}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setFormData({ ...formData, vicepresidencia: val, direccion: "" });
+                        setAiWarnings(prev => {
+                          const next = { ...prev };
+                          delete next.vicepresidencia;
+                          return next;
+                        });
+                        validateField("vicepresidencia", val, "Vicepresidencia");
+                      }}
+                      onBlur={() => validateField("vicepresidencia", formData.vicepresidencia || "", "Vicepresidencia")}
+                      disabled={vpOptions.length <= 1}
+                      className={inputCls}
+                      required
+                    >
                       <option value="" disabled>Selecciona...</option>
                       {vpOptions.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
+                    {aiWarnings.vicepresidencia && (
+                      <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded-lg flex items-start gap-1.5 font-medium leading-relaxed">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                        <span>{aiWarnings.vicepresidencia}</span>
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className={labelCls}>Dirección <span className="text-red-500 ml-1">*</span></label>
-                    <select value={formData.direccion || ""} onChange={e => setFormData({ ...formData, direccion: e.target.value })} disabled={dirOptions.length <= 1 || !formData.vicepresidencia} className={inputCls} required>
+                    <select
+                      value={formData.direccion || ""}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setFormData({ ...formData, direccion: val });
+                        setAiWarnings(prev => {
+                          const next = { ...prev };
+                          delete next.direccion;
+                          return next;
+                        });
+                        validateField("direccion", val, "Dirección");
+                      }}
+                      onBlur={() => validateField("direccion", formData.direccion || "", "Dirección")}
+                      disabled={dirOptions.length <= 1 || !formData.vicepresidencia}
+                      className={inputCls}
+                      required
+                    >
                       <option value="" disabled>Selecciona...</option>
                       {dirOptions.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
+                    {aiWarnings.direccion && (
+                      <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded-lg flex items-start gap-1.5 font-medium leading-relaxed">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                        <span>{aiWarnings.direccion}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Campos Dinámicos */}
-                  {fields.map(field => {
+                  {((selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3)) ? [...fields, ...aiFields] : fields).map(field => {
                     // Omitir si existen en la configuración para evitar duplicados
                     if (["registrador", "solicitante", "vicepresidencia", "direccion"].includes(field.key.toLowerCase())) return null;
 
                     return (
                       <div key={field.key}>
                         <label className={labelCls}>
-                          {field.label}
-                          {field.is_required && <span className="text-red-500 ml-1">*</span>}
+                          <span className="align-middle">{field.label}</span>
+                          {field.is_required && <span className="text-red-500 ml-1 align-middle">*</span>}
+                          {field.help_text && (
+                            <span className="relative group inline-block ml-1.5 align-middle cursor-help">
+                              <HelpCircle className="w-3.5 h-3.5 text-[#94A3B8] hover:text-[#64748B] transition-colors" />
+                              <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block w-48 p-2.5 bg-[#1E293B] text-white text-[10px] font-normal normal-case leading-normal rounded-lg shadow-lg z-[999] text-center">
+                                {field.help_text}
+                                <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1E293B]" />
+                              </span>
+                            </span>
+                          )}
                         </label>
                         <DynamicField 
                           field={field} 
@@ -994,39 +1639,229 @@ export default function InitiativeForm() {
                               });
                               return newForm;
                             });
+                            setConfirmedFields(prev => {
+                              const next = { ...prev };
+                              delete next[field.key];
+                              return next;
+                            });
+                            setAiWarnings(prev => {
+                              const next = { ...prev };
+                              delete next[field.key];
+                              return next;
+                            });
                           }} 
+                          onBlur={(val) => validateField(field.key, typeof val === 'string' ? val : (formData[field.key] ?? ""), field.label)}
+                          onPreview={setPreviewFile}
                         />
+                        {field.requires_confirmation && (formData[field.key] !== undefined && formData[field.key] !== "") && (
+                          <div className={`mt-2 flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all ${confirmedFields[field.key] ? 'bg-emerald-50/50 border-emerald-200 text-emerald-800 shadow-sm shadow-emerald-100/50' : 'bg-amber-50/30 border-amber-200/60 text-[#64748B]'}`}>
+                            <input 
+                              type="checkbox"
+                              id={`confirm-${field.key}`}
+                              checked={confirmedFields[field.key] || false}
+                              onChange={e => setConfirmedFields(prev => ({ ...prev, [field.key]: e.target.checked }))}
+                              className="rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-[#4F5AF5] w-4 h-4 cursor-pointer"
+                            />
+                            <label htmlFor={`confirm-${field.key}`} className="text-xs font-semibold cursor-pointer select-none">
+                              He validado y confirmo esta información.
+                            </label>
+                          </div>
+                        )}
+                        {aiWarnings[field.key] && (
+                          <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded-lg flex items-start gap-1.5 font-medium leading-relaxed">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                            <span>{aiWarnings[field.key]}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-              )}
+              </>
+            )}
             </div>
 
-            <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-end">
-              <button
-                type="submit"
-                disabled={loadingFields || fields.length === 0 || isAnyFileUploading}
-                className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
-              >
-                Continuar con asistente IA
-                <ChevronRight className="w-4 h-4" />
-              </button>
+            {/* Archivos de soporte (opcional) */}
+            {useAttachments && Object.values(fileTypes).some(t => t.enabled) && (
+              <div className="px-8 pb-8 pt-6 border-t border-[#F1F5F9] space-y-4 bg-slate-50/20">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-[#1E293B]">Archivos de soporte cargados</h4>
+                    <p className="text-[11px] text-[#94A3B8] mt-0.5">Estos archivos de soporte sustentan la propuesta analizada por la IA.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isProcessingFile}
+                    className="flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-bold transition-colors border border-[#4F5AF5]/20 hover:border-[#4F5AF5] px-3 py-1.5 rounded-lg bg-[#EEF2FF]/30"
+                  >
+                    <Paperclip className="w-3.5 h-3.5" /> Adjuntar archivo
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(!formData.attachments || formData.attachments.length === 0) && !uploadingFile ? (
+                    <div className="col-span-2 text-center py-6 text-xs text-[#94A3B8] border border-dashed border-[#CBD5E1] rounded-xl bg-white">
+                      No hay archivos cargados.
+                    </div>
+                  ) : (
+                    <>
+                      {(formData.attachments || []).map((file: any, fileIdx: number) => (
+                        <div key={fileIdx} className="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded-xl p-3 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200">
+                          {file.type?.startsWith('image/') ? (
+                            <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-[#1E293B] truncate" title={file.name}>
+                              {file.name}
+                            </p>
+                            <p className="text-[10px] text-[#64748B]">
+                              {file.size ? (file.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
+                            </p>
+                          </div>
+                          {file.url && (
+                            <button 
+                              type="button" 
+                              onClick={() => setPreviewFile({ url: file.url || '', name: file.name, type: file.type })}
+                              className="text-[#4F5AF5] hover:text-[#3F49E0] transition-colors p-1"
+                              title="Ver vista previa"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(file.name)}
+                            className="text-[#94A3B8] hover:text-red-500 transition-colors p-1"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {isProcessingFile && uploadingFile && (
+                        <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#CBD5E1] rounded-xl p-3 shadow-sm animate-pulse">
+                          {uploadingFile.type?.startsWith('image/') ? (
+                            <ImageIcon className="w-4 h-4 text-[#64748B] shrink-0" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-[#64748B] shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-[#64748B] truncate" title={uploadingFile.name}>
+                              {uploadingFile.name}
+                            </p>
+                            <p className="text-[10px] text-[#64748B]">
+                              {uploadingFile.size ? (uploadingFile.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
+                            </p>
+                          </div>
+                          <span className="flex items-center gap-1.5 text-[10px] text-[#4F5AF5] font-semibold shrink-0">
+                            <div className="w-3 h-3 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
+                            Cargando...
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Disclaimer and Checkbox */}
+            {(selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3) || step === 3) && (
+              <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#FFFBEB]/30">
+                <div className="flex items-start gap-3 p-4 bg-amber-50/60 rounded-xl border border-amber-100/70">
+                  <input
+                    type="checkbox"
+                    id="disclaimer-checkbox"
+                    checked={disclaimerAccepted}
+                    onChange={(e) => setDisclaimerAccepted(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded border-[#E2E8F0] text-[#4F5AF5] focus:ring-[#4F5AF5] transition-colors cursor-pointer"
+                  />
+                  <label htmlFor="disclaimer-checkbox" className="text-xs text-amber-900 leading-relaxed select-none cursor-pointer">
+                    <span className="font-bold">Declaración de Responsabilidad:</span> Confirmo que toda la información ingresada y analizada es correcta, y declaro bajo mi responsabilidad que la solicitud cuenta con el conocimiento y aprobación de, como mínimo, mi <span className="font-semibold">Director</span>.
+                  </label>
+                </div>
+              </div>
+            )}
+
+            <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex flex-wrap justify-between items-center gap-3">
+              {/* Left side actions */}
+              <div>
+                {(selectedPath === 'unstructured' || step === 3) && chatHistory.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowChatModal(true)}
+                    className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                    title="Ver el historial de chat con la IA"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    Ver conversación
+                  </button>
+                )}
+              </div>
+
+              {/* Right side actions */}
+              <div className="flex flex-wrap gap-3">
+                {selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3) ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveWithValidation("Borrador")}
+                      disabled={isSaving || isProcessingFile}
+                      className="flex items-center justify-center gap-2 border border-[#4F5AF5] text-[#4F5AF5] hover:bg-[#EEF2FF] disabled:opacity-50 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                    >
+                      {isSaving ? (
+                        <div className="w-4 h-4 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4" />
+                      )}
+                      Guardar en borrador
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveWithValidation("Pendiente de aprobación")}
+                      disabled={isSaving || isProcessingFile}
+                      className="flex items-center justify-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+                    >
+                      {isSaving ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                      Enviar a aprobación de BP
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={loadingFields || fields.length === 0 || isAnyFileUploading || isProcessingFile}
+                    className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+                  >
+                    {unstructuredText.trim() !== "" ? "Revisar Resumen" : "Continuar con asistente IA"}
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
           </form>
         </div>
       )}
 
       {/* ── Step 2: Asistente IA ────────────────────────────────────────── */}
-      {step === 2 && (
+      {step === 2 && selectedPath === 'direct' && (
         <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden flex flex-col" style={{ height: 620 }}>
           {/* Chat header */}
           <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center gap-3 bg-[#4F5AF5]">
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-              <Bot className="w-4 h-4 text-white" />
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center overflow-hidden shrink-0">
+              {aiAvatar ? (
+                <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover" />
+              ) : (
+                <Bot className="w-4 h-4 text-white" />
+              )}
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">2. Asistente IA</p>
+              <p className="text-sm font-semibold text-white">{aiName}</p>
               <p className="text-[10px] text-blue-200 uppercase tracking-widest">Analista de Negocio Senior</p>
             </div>
             <div className="ml-auto flex items-center gap-1.5">
@@ -1043,8 +1878,12 @@ export default function InitiativeForm() {
                 <div key={i} className={`flex gap-3 max-w-[88%] ${msg.role === "user" ? "self-end flex-row-reverse" : "self-start"}`}>
                   {/* Avatar */}
                   {msg.role === "model" ? (
-                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shrink-0 border border-[#E2E8F0] shadow-sm mt-1">
-                      <Bot className="w-4 h-4 text-[#4F5AF5]" />
+                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shrink-0 border border-[#E2E8F0] shadow-sm mt-1 overflow-hidden">
+                      {aiAvatar ? (
+                        <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover" />
+                      ) : (
+                        <Bot className="w-4 h-4 text-[#4F5AF5]" />
+                      )}
                     </div>
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-[#4F5AF5] flex items-center justify-center shrink-0 mt-1 shadow-sm">
@@ -1080,7 +1919,7 @@ export default function InitiativeForm() {
                         msg.text
                       )}
                       <p className={`text-[10px] mt-1.5 font-medium ${msg.role === "user" ? "text-blue-200 text-right" : "text-[#94A3B8]"}`}>
-                        {msg.role === "user" ? "Tú" : "IA Analista"}
+                        {msg.role === "user" ? "Tú" : aiName}
                       </p>
                     </div>
 
@@ -1158,7 +1997,7 @@ export default function InitiativeForm() {
                 ) : (
                   <span className="text-[10px] text-emerald-600 font-semibold shrink-0">✓ Listo</span>
                 )}
-                <button onClick={removeAttachment} className="text-[#94A3B8] hover:text-red-500 transition-colors ml-1">
+                <button onClick={() => removeAttachment()} className="text-[#94A3B8] hover:text-red-500 transition-colors ml-1">
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -1211,20 +2050,6 @@ export default function InitiativeForm() {
 
             {/* Input row */}
             <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-
-              {/* Hidden file input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={[
-                  fileTypes.pdf.enabled && '.pdf',
-                  fileTypes.docx.enabled && '.docx',
-                  fileTypes.txt.enabled && '.txt',
-                  fileTypes.image.enabled && '.jpg,.jpeg,.png,.webp'
-                ].filter(Boolean).join(',')}
-                className="hidden"
-                onChange={handleFileAttach}
-              />
 
               {/* Attach button */}
               {useAttachments && Object.values(fileTypes).some(t => t.enabled) && (
@@ -1344,11 +2169,15 @@ export default function InitiativeForm() {
       {/* ── Step 3: Generando ───────────────────────────────────────────── */}
       {step === 3 && isAiTyping && (
         <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-16 flex flex-col items-center text-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-[#EEF2FF] flex items-center justify-center">
-            <Bot className="w-7 h-7 text-[#4F5AF5] animate-bounce" />
+          <div className="w-14 h-14 rounded-full bg-[#EEF2FF] flex items-center justify-center overflow-hidden shrink-0">
+            {aiAvatar ? (
+              <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover animate-bounce" />
+            ) : (
+              <Bot className="w-7 h-7 text-[#4F5AF5] animate-bounce" />
+            )}
           </div>
           <h3 className="text-lg font-bold text-[#1E293B]">Generando Resumen del Requerimiento</h3>
-          <p className="text-sm text-[#64748B]">La IA está estructurando toda la información recopilada...</p>
+          <p className="text-sm text-[#64748B]">{aiName} está estructurando toda la información recopilada...</p>
           <div className="flex gap-1.5 mt-2">
             {[0,1,2,3,4].map(i => (
               <div key={i} className="w-1.5 h-6 rounded-full bg-[#4F5AF5]/20 animate-pulse" style={{ animationDelay: `${i * 100}ms` }} />
@@ -1357,125 +2186,7 @@ export default function InitiativeForm() {
         </div>
       )}
 
-      {/* ── Step 3: Resumen del requerimiento ──────────────────────────── */}
-      {step === 3 && !isAiTyping && summary && (
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden">
-          {/* Header */}
-          <div className="px-8 py-5 border-b border-[#F1F5F9] flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-[#1E293B]">3. Resumen del requerimiento</h2>
-                <p className="text-xs text-[#94A3B8]">Revisa y confirma antes de enviarlo a revisión BP.</p>
-              </div>
-            </div>
-            <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-xs font-semibold px-3 py-1.5 rounded-full border border-emerald-100">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Listo para enviar al BP
-            </span>
-          </div>
 
-          {/* Summary fields */}
-          <div className="px-8 py-4">
-            {aiFields.length > 0 ? (
-              aiFields.map(f => {
-                const val = summary[f.key];
-                const displayVal = Array.isArray(val) ? (
-                  <ul className="space-y-1 mt-1">
-                    {val.map((item: string, i: number) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="text-[#4F5AF5] mt-0.5">•</span>
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                ) : val;
-
-                return <SummaryRow key={f.key} icon="🔸" label={f.label} value={displayVal ?? <span className="text-slate-400">—</span>} />;
-              })
-            ) : (
-              <>
-                <SummaryRow icon="📌" label="Título" value={<strong>{summary.titulo}</strong>} />
-                <SummaryRow icon="🎯" label="Objetivo" value={summary.objetivo} />
-              </>
-            )}
-
-            {/* Meta badges */}
-            <div className="flex flex-wrap gap-3 pt-4 mt-2 border-t border-[#F1F5F9]">
-              {[
-                { label: "Complejidad", value: summary.complejidad, color: summary.complejidad === "Alta" ? "bg-red-50 text-red-700 border border-red-100" : summary.complejidad === "Media" ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100" },
-                { label: "Riesgo", value: summary.riesgo, color: summary.riesgo === "Alto" ? "bg-red-50 text-red-700 border border-red-100" : summary.riesgo === "Medio" ? "bg-amber-50 text-amber-700 border border-amber-100" : "bg-emerald-50 text-emerald-700 border border-emerald-100" },
-                { label: "Prioridad", value: summary.prioridadRecomendada, color: "bg-[#EEF2FF] text-[#4F5AF5] border border-[#C7D2FE]" },
-              ].map(b => (
-                <span key={b.label} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${b.color}`}>
-                  <span className="text-xs font-normal opacity-60">{b.label}:</span>
-                  {b.value}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex flex-col sm:flex-row gap-4 justify-between items-stretch sm:items-center">
-            <div className="flex flex-wrap gap-2.5">
-              <button
-                onClick={() => { setStep(2); setSummary(null); }}
-                disabled={isSaving}
-                className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] disabled:opacity-50 text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-                title="Editar los campos del formulario inicial"
-              >
-                <Pencil className="w-4 h-4" />
-                Editar formulario
-              </button>
-              <button
-                onClick={() => { setStep(2); }}
-                disabled={isSaving}
-                className="flex items-center gap-2 border border-[#4F5AF5]/20 text-[#4F5AF5] bg-[#EEF2FF] hover:bg-[#E0E7FF] disabled:opacity-50 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-                title="Regresar al chat para dar más detalles a la IA"
-              >
-                <BrainCircuit className="w-4 h-4" />
-                Seguir chateando con la IA
-              </button>
-              <button
-                onClick={() => setShowChatModal(true)}
-                className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-                title="Ver el historial de chat con la IA"
-              >
-                <MessageSquare className="w-4 h-4" />
-                Ver conversación
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => handleSave("Borrador")}
-                disabled={isSaving}
-                className="flex items-center gap-2 border border-[#4F5AF5] text-[#4F5AF5] hover:bg-[#EEF2FF] disabled:opacity-50 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-              >
-                {isSaving ? (
-                  <div className="w-4 h-4 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                Guardar borrador
-              </button>
-              <button
-                onClick={() => handleSave("Pendiente de aprobación")}
-                disabled={isSaving}
-                className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
-              >
-                {isSaving ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                {isSaving ? 'Enviando...' : 'Enviar a revisión BP'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Read-only Chat History Modal ────────────────────────────────────── */}
       {showChatModal && (
@@ -1516,7 +2227,7 @@ export default function InitiativeForm() {
                     }`}
                   >
                     <span className="text-[10px] font-semibold text-[#94A3B8] mb-1 px-1">
-                      {msg.role === 'user' ? 'Tú (Registrador)' : 'Asistente IA'}
+                      {msg.role === 'user' ? 'Tú (Key user)' : aiName}
                     </span>
                     <div 
                       className={`p-3.5 rounded-2xl shadow-sm text-xs leading-relaxed ${
@@ -1552,6 +2263,132 @@ export default function InitiativeForm() {
                 Cerrar vista
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Consent Dialog Modal */}
+      {showConsentModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-100 max-w-md w-full shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5 text-amber-500" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-base font-bold text-slate-900">Declaración de Responsabilidad</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Por la presente declaras que toda la información y documentación cargada para este requerimiento está bajo tu responsabilidad, conformidad y consentimiento. ¿Confirmas el envío a aprobación de BP?
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowConsentModal(false)}
+                className="flex-grow px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConsentModal(false);
+                  handleSave("Pendiente de aprobación");
+                }}
+                className="flex-grow flex items-center justify-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-2 text-xs font-semibold rounded-lg transition-colors shadow-md shadow-[#4F5AF5]/10"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Aceptar y Enviar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Preview File Modal */}
+      {previewFile && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden border border-[#E2E8F0] animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center justify-between bg-[#F8FAFC]">
+              <div className="flex items-center gap-2 min-w-0">
+                {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+                  <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                ) : (
+                  <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                )}
+                <span className="font-semibold text-sm text-[#1E293B] truncate" title={previewFile.name}>
+                  {previewFile.name}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewFile.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold border border-[#4F5AF5]/20 hover:border-[#4F5AF5] px-3 py-1.5 rounded-lg bg-white transition-colors"
+                >
+                  Abrir en nueva pestaña
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewFile(null)}
+                  className="text-[#64748B] hover:text-[#1E293B] bg-slate-100 hover:bg-slate-200 p-1.5 rounded-lg transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            {/* Content */}
+            <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-50 min-h-[300px]">
+              {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+                <img
+                  src={previewFile.url}
+                  alt={previewFile.name}
+                  className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-sm"
+                />
+              ) : (
+                <div className="text-center p-8 max-w-md">
+                  <div className="w-16 h-16 bg-[#EEF2FF] text-[#4F5AF5] rounded-full flex items-center justify-center mx-auto mb-4">
+                    <FileText className="w-8 h-8" />
+                  </div>
+                  <h4 className="font-bold text-[#1E293B] mb-2">Vista previa no disponible</h4>
+                  <p className="text-xs text-[#64748B] mb-4">Este tipo de archivo no puede previsualizarse directamente aquí. Por favor ábrelo en una nueva pestaña para verlo o descargarlo.</p>
+                  <a
+                    href={previewFile.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Abrir archivo
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-[9999] animate-in fade-in slide-in-from-bottom-5 duration-300">
+          <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md text-white ${
+            toast.type === 'success' 
+              ? 'bg-emerald-600 border-emerald-500 shadow-emerald-500/10' 
+              : toast.type === 'warning'
+                ? 'bg-amber-600 border-amber-500 shadow-amber-500/10'
+                : 'bg-red-600 border-red-500 shadow-red-500/10'
+          }`}>
+            {toast.type === 'success' && <CheckCircle2 className="w-5 h-5 shrink-0 text-white" />}
+            {toast.type === 'warning' && <AlertCircle className="w-5 h-5 shrink-0 text-white" />}
+            {toast.type === 'error' && <AlertCircle className="w-5 h-5 shrink-0 text-white" />}
+            <span className="text-xs font-semibold">{toast.message}</span>
+            <button 
+              onClick={() => setToast(null)}
+              className="ml-2 p-1 hover:bg-white/10 rounded-lg transition-colors text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}

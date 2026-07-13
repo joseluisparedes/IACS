@@ -138,7 +138,7 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
               {[
                 { label: "Vicepresidencia", value: fd.vicepresidencia },
                 { label: "Dirección", value: fd.direccion },
-                { label: "Registrador", value: fd.registrador },
+                { label: "Key user", value: fd.registrador },
                 { label: "Fecha", value: formatDate(initiative.created_at) },
                 { label: "Institución", value: fd.institucion },
                 { label: "Fecha Requerida", value: fd.fecha_requerida },

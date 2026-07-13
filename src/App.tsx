@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
@@ -22,7 +22,11 @@ const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estr
 
 function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { profile } = useAuth();
+  const [showNavConfirmModal, setShowNavConfirmModal] = useState(false);
+  const [pendingNavPath, setPendingNavPath] = useState<string | null>(null);
+  const [draftToDelete, setDraftToDelete] = useState<string | null>(null);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return window.location.pathname === '/bandeja';
@@ -66,12 +70,43 @@ function Layout({ children }: { children: React.ReactNode }) {
       fetchDrafts();
 
       const channel = supabase.channel('drafts_channel')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'initiatives', filter: `status=eq.Borrador` }, fetchDrafts)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'initiatives' }, fetchDrafts)
         .subscribe();
 
       return () => { supabase.removeChannel(channel); };
     }
-  }, [profile?.id, profile?.name]);
+  }, [profile?.id, profile?.name, location.pathname]);
+
+  const handleDeleteDraft = async (e: React.MouseEvent, draftId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDraftToDelete(draftId);
+  };
+
+  const confirmDeleteDraft = async () => {
+    if (!draftToDelete) return;
+    const draftId = draftToDelete;
+    try {
+      const { error } = await supabase
+        .from('initiatives')
+        .delete()
+        .eq('id', draftId);
+        
+      if (error) {
+        alert("Error al eliminar borrador: " + error.message);
+      } else {
+        setDrafts(prev => prev.filter(d => d.id !== draftId));
+        if (location.pathname === `/nueva/${draftId}`) {
+          navigate('/dashboard');
+        }
+      }
+    } catch (err: any) {
+      console.error("Delete draft error:", err);
+      alert("Error de red al eliminar el borrador.");
+    } finally {
+      setDraftToDelete(null);
+    }
+  };
 
   useEffect(() => {
     if (profile?.id) {
@@ -121,8 +156,8 @@ function Layout({ children }: { children: React.ReactNode }) {
   const isRegistrador = profile?.profile_roles?.some((r: any) => r.role === 'registrador');
 
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    ...(isAdmin || isRegistrador ? [{ name: 'Nueva Iniciativa', path: '/nueva', icon: PlusCircle }] : []),
+    { name: 'Nueva necesidad', path: '/', icon: PlusCircle },
+    { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Bandeja de Aprobación', path: '/bandeja', icon: Inbox },
   ];
 
@@ -187,7 +222,7 @@ function Layout({ children }: { children: React.ReactNode }) {
 
   const userName = profile?.name || 'Usuario';
   const roleNamesMap: Record<string, string> = {
-    'registrador': 'Registrador',
+    'registrador': 'Key user',
     'bp_ti': 'Business Partner TI',
     'admin': 'Admin'
   };
@@ -330,19 +365,31 @@ function Layout({ children }: { children: React.ReactNode }) {
                           <p className="text-xs text-[#9ca3af] text-center py-4">No hay chats pendientes.</p>
                         ) : (
                           drafts.map(d => (
-                            <Link
+                            <div
                               key={d.id}
-                              to={`/nueva/${d.id}`}
-                              onClick={() => setDraftsOpen(false)}
-                              className="block p-3 rounded-lg hover:bg-[#f7f8fc] transition-colors border border-transparent hover:border-[#e4e6ea] mb-1"
+                              className="group flex items-center justify-between p-2 rounded-lg hover:bg-[#f7f8fc] transition-colors border border-transparent hover:border-[#e4e6ea] mb-1"
                             >
-                              <p className="text-sm font-semibold text-[#1a1a2e] truncate">
-                                {d.form_data?.titulo || "Sin título"}
-                              </p>
-                              <p className="text-[10px] text-[#9ca3af] mt-1">
-                                Actualizado: {new Date(d.updated_at || d.created_at).toLocaleDateString()} {new Date(d.updated_at || d.created_at).toLocaleTimeString()}
-                              </p>
-                            </Link>
+                              <Link
+                                to={d.form_data?.selectedPath === 'unstructured' ? `/iniciativa/${d.id}` : `/nueva/${d.id}`}
+                                onClick={() => setDraftsOpen(false)}
+                                className="flex-1 min-w-0 pr-2"
+                              >
+                                <p className="text-sm font-semibold text-[#1a1a2e] truncate" title={d.form_data?.titulo || "Sin título"}>
+                                  {d.form_data?.titulo || "Sin título"}
+                                </p>
+                                <p className="text-[10px] text-[#9ca3af] mt-0.5">
+                                  {new Date(d.updated_at || d.created_at).toLocaleDateString()} {new Date(d.updated_at || d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteDraft(e, d.id)}
+                                className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors shrink-0"
+                                title="Eliminar borrador"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           ))
                         )}
                       </div>
@@ -399,15 +446,20 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </>
               )}
             </div>
-            {(isAdmin || isRegistrador) && (
-              <Link
-                to="/nueva"
-                className="bg-white hover:bg-white/90 text-[#EB5F46] px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm hidden sm:flex items-center gap-2"
-              >
-                <PlusCircle className="w-4 h-4" />
-                Nueva Solicitud
-              </Link>
-            )}
+             <Link
+              to="/nueva"
+              onClick={(e) => {
+                if ((window as any).isInitiativeProcessInProgress) {
+                  e.preventDefault();
+                  setPendingNavPath("/nueva");
+                  setShowNavConfirmModal(true);
+                }
+              }}
+              className="bg-white hover:bg-white/90 text-[#EB5F46] px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm hidden sm:flex items-center gap-2"
+            >
+              <PlusCircle className="w-4 h-4" />
+              Nueva necesidad
+            </Link>
           </div>
         </div>
         {/* Color Line Divider */}
@@ -431,6 +483,13 @@ function Layout({ children }: { children: React.ReactNode }) {
                 <Link
                   key={item.path}
                   to={item.path}
+                  onClick={(e) => {
+                    if ((item.path === '/' || item.path === '/nueva') && (window as any).isInitiativeProcessInProgress) {
+                      e.preventDefault();
+                      setPendingNavPath(item.path);
+                      setShowNavConfirmModal(true);
+                    }
+                  }}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all ${
                     active
                       ? 'bg-[#fff0ed] text-[#EB5F46] shadow-sm'
@@ -551,6 +610,87 @@ function Layout({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
+      {/* Custom Navigation Guard Modal */}
+      {showNavConfirmModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-100 max-w-sm w-full shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-base font-bold text-slate-900">¿Iniciar nueva necesidad?</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  ¿Estás seguro de que deseas iniciar una nueva necesidad? Se perderán todos los cambios no guardados en el proceso actual.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNavConfirmModal(false);
+                  setPendingNavPath(null);
+                }}
+                className="flex-grow px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNavConfirmModal(false);
+                  (window as any).isInitiativeProcessInProgress = false;
+                  if (pendingNavPath) {
+                    window.location.href = pendingNavPath;
+                  }
+                }}
+                className="flex-grow flex items-center justify-center gap-2 bg-[#EB5F46] hover:bg-[#c94a32] text-white px-4 py-2 text-xs font-semibold rounded-lg transition-colors shadow-md shadow-[#EB5F46]/10"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Delete Draft Confirmation Modal */}
+      {draftToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-100 max-w-sm w-full shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-base font-bold text-slate-900">¿Eliminar borrador?</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  ¿Estás seguro de que deseas eliminar este borrador de forma permanente? Esta acción no se puede deshacer.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setDraftToDelete(null)}
+                className="flex-grow px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteDraft}
+                className="flex-grow flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-xs font-semibold rounded-lg transition-colors shadow-md shadow-red-600/10"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer at the bottom (100% width) */}
       <footer className="bg-[#22223C] text-slate-400 text-center py-4 px-8 text-xs font-semibold tracking-wider border-t border-slate-800 shrink-0 relative z-50">
         © {new Date().getFullYear()} <strong>Laureate Perú</strong>. Todos los derechos reservados.
@@ -585,7 +725,8 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/" element={<ProtectedRoute><InitiativeForm /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/nueva" element={<ProtectedRoute><InitiativeForm /></ProtectedRoute>} />
           <Route path="/nueva/:id" element={<ProtectedRoute><InitiativeForm /></ProtectedRoute>} />
           <Route path="/bandeja" element={<ProtectedRoute><ApprovalBoard /></ProtectedRoute>} />

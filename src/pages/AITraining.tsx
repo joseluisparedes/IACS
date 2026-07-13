@@ -57,6 +57,7 @@ interface ChatMsg {
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 const TABS = [
   { id: 'identity',      label: 'Identidad',        icon: User },
+  { id: 'appearance',    label: 'Apariencia',       icon: Bot },
   { id: 'context',       label: 'Contexto',          icon: BookOpen },
   { id: 'examples',      label: 'Ejemplos',          icon: MessageSquare },
   { id: 'guardrails',    label: 'Guardarraíles',     icon: ShieldAlert },
@@ -116,6 +117,11 @@ export default function AITraining() {
   const useAttachmentsSetting = entries.find(e => e.layer === 'settings' && e.title === 'use_attachments');
   const useMic = useMicSetting ? useMicSetting.content !== 'false' : true;
   const useAttachments = useAttachmentsSetting ? useAttachmentsSetting.content !== 'false' : true;
+
+  const aiNameSetting = entries.find(e => e.layer === 'settings' && e.title === 'ai_name');
+  const aiAvatarSetting = entries.find(e => e.layer === 'settings' && e.title === 'ai_avatar');
+  const aiName = aiNameSetting?.content || "Asistente IA";
+  const aiAvatar = aiAvatarSetting?.content || "";
 
   const enablePdfSetting = entries.find(e => e.layer === 'settings' && e.title === 'enable_pdf');
   const enableDocxSetting = entries.find(e => e.layer === 'settings' && e.title === 'enable_docx');
@@ -414,6 +420,9 @@ export default function AITraining() {
             {activeTab === 'identity' && (
               <IdentityTab entries={byLayer('identity')} onCreate={createEntry} onUpdate={updateEntry} />
             )}
+            {activeTab === 'appearance' && (
+              <AppearanceTab entries={entries} onCreate={createEntry} onUpdate={updateEntry} />
+            )}
             {activeTab === 'context' && (
               <ContextTab entries={byLayer('context')} onCreate={createEntry} onUpdate={updateEntry} onDelete={deleteEntry} onToggle={toggleEntry} />
             )}
@@ -447,9 +456,15 @@ export default function AITraining() {
       {/* ── Preview Chat ─────────────────────────────────────────────────────── */}
       <div className="w-80 shrink-0 flex flex-col bg-white rounded-2xl shadow-sm border border-[#E2E8F0] overflow-hidden">
         <div className="px-4 py-3 border-b border-[#E2E8F0] bg-gradient-to-r from-violet-600 to-[#4F5AF5] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bot className="w-4 h-4 text-white" />
-            <span className="text-sm font-semibold text-white">Chat de Prueba</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center overflow-hidden shrink-0">
+              {aiAvatar ? (
+                <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover" />
+              ) : (
+                <Bot className="w-3.5 h-3.5 text-white" />
+              )}
+            </div>
+            <span className="text-xs font-semibold text-white truncate">{aiName} (Prueba)</span>
           </div>
           <button onClick={resetChat} title="Reiniciar chat" className="text-white/70 hover:text-white transition-colors">
             <RefreshCw className="w-3.5 h-3.5" />
@@ -462,14 +477,28 @@ export default function AITraining() {
         <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-[#F8FAFC]">
           {chatMsgs.length === 0 && (
             <div className="text-center py-8 text-slate-400">
-              <Bot className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+              <div className="w-10 h-10 rounded-full border border-slate-200 bg-white flex items-center justify-center mx-auto mb-2 overflow-hidden shrink-0 shadow-sm">
+                {aiAvatar ? (
+                  <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover" />
+                ) : (
+                  <Bot className="w-5 h-5 text-slate-300" />
+                )}
+              </div>
               <p className="text-xs">Escribe algo para probar el agente con la configuración actual</p>
             </div>
           )}
           {chatMsgs.map((msg, i) => (
             <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-1 ${msg.role === 'model' ? 'bg-white border border-[#E2E8F0]' : 'bg-[#4F5AF5]'}`}>
-                {msg.role === 'model' ? <Bot className="w-3 h-3 text-[#4F5AF5]" /> : <span className="text-white text-[8px] font-bold">TU</span>}
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-1 overflow-hidden ${msg.role === 'model' ? 'bg-white border border-[#E2E8F0] shadow-sm' : 'bg-[#4F5AF5]'}`}>
+                {msg.role === 'model' ? (
+                  aiAvatar ? (
+                    <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover" />
+                  ) : (
+                    <Bot className="w-3 h-3 text-[#4F5AF5]" />
+                  )
+                ) : (
+                  <span className="text-white text-[8px] font-bold">TU</span>
+                )}
               </div>
               <div className={`px-3 py-2 rounded-xl text-xs leading-relaxed max-w-[calc(100%-2.5rem)] shadow-sm ${
                 msg.role === 'user' ? 'bg-[#4F5AF5] text-white rounded-tr-sm' : 'bg-white border border-[#E2E8F0] text-[#1E293B] rounded-tl-sm'
@@ -480,8 +509,12 @@ export default function AITraining() {
           ))}
           {chatLoading && (
             <div className="flex gap-2">
-              <div className="w-6 h-6 rounded-full bg-white border border-[#E2E8F0] flex items-center justify-center shrink-0">
-                <Bot className="w-3 h-3 text-[#4F5AF5]" />
+              <div className="w-6 h-6 rounded-full bg-white border border-[#E2E8F0] flex items-center justify-center shrink-0 overflow-hidden shadow-sm">
+                {aiAvatar ? (
+                  <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover" />
+                ) : (
+                  <Bot className="w-3 h-3 text-[#4F5AF5]" />
+                )}
               </div>
               <div className="bg-white border border-[#E2E8F0] px-3 py-2 rounded-xl rounded-tl-sm flex gap-1">
                 {[0,150,300].map(d => <span key={d} className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />)}
@@ -1376,6 +1409,270 @@ function SettingsTab({ entries, onCreate, onUpdate }: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Tab: Apariencia (Personalización de Nombre e Icono) ─────────────────────
+function AppearanceTab({ entries, onCreate, onUpdate }: {
+  entries: TrainingEntry[];
+  onCreate: (p: Partial<TrainingEntry>) => Promise<TrainingEntry>;
+  onUpdate: (id: string, p: Partial<TrainingEntry>) => void;
+}) {
+  const aiNameSetting = entries.find(e => e.layer === 'settings' && e.title === 'ai_name');
+  const aiAvatarSetting = entries.find(e => e.layer === 'settings' && e.title === 'ai_avatar');
+
+  const [aiName, setAiName] = useState(aiNameSetting?.content || 'Asistente IA');
+  const [aiAvatar, setAiAvatar] = useState(aiAvatarSetting?.content || '');
+  const [isUploading, setIsUploading] = useState(false);
+  const [saved, setSaved] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (aiNameSetting) setAiName(aiNameSetting.content);
+  }, [aiNameSetting]);
+
+  useEffect(() => {
+    if (aiAvatarSetting) setAiAvatar(aiAvatarSetting.content);
+  }, [aiAvatarSetting]);
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setAiName(e.target.value);
+    setSaved(false);
+  };
+
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Limit size to 1.5MB for Base64 storage
+    if (file.size > 1.5 * 1024 * 1024) {
+      setErrorMsg('La imagen supera el límite de 1.5 MB para el avatar.');
+      return;
+    }
+
+    setIsUploading(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Url = event.target?.result as string;
+      if (base64Url) {
+        setAiAvatar(base64Url);
+        setSaved(false);
+        setSuccessMsg('Imagen cargada correctamente en la vista previa.');
+      } else {
+        setErrorMsg('No se pudo procesar el formato de la imagen.');
+      }
+      setIsUploading(false);
+    };
+    reader.onerror = () => {
+      setErrorMsg('Error al leer el archivo de imagen.');
+      setIsUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSave = async () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      if (aiNameSetting) {
+        onUpdate(aiNameSetting.id, { content: aiName });
+      } else {
+        await onCreate({ layer: 'settings', title: 'ai_name', content: aiName, is_active: true, sort_order: 0, source: 'manual' });
+      }
+
+      if (aiAvatarSetting) {
+        onUpdate(aiAvatarSetting.id, { content: aiAvatar });
+      } else {
+        await onCreate({ layer: 'settings', title: 'ai_avatar', content: aiAvatar, is_active: true, sort_order: 0, source: 'manual' });
+      }
+
+      setSaved(true);
+      setSuccessMsg('¡Configuración de la IA guardada correctamente!');
+      setTimeout(() => setSuccessMsg(null), 5000);
+    } catch (err: any) {
+      setErrorMsg('Error al guardar en el servidor: ' + (err.message || err));
+    }
+  };
+
+  const removeAvatar = () => {
+    setAiAvatar('');
+    setSaved(false);
+    setErrorMsg(null);
+    setSuccessMsg('Avatar removido. Se utilizará el icono por defecto.');
+  };
+
+  // Modern preset avatars
+  const presets = [
+    { name: 'Bot Azul', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100&auto=format&fit=crop&q=60' }, 
+    { name: 'Bot Morado', url: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=100&auto=format&fit=crop&q=60' }, 
+    { name: 'Bot Moderno', url: 'https://images.unsplash.com/photo-1614741118887-7a4ee193a5fa?w=100&auto=format&fit=crop&q=60' }, 
+  ];
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Configuration Form */}
+      <div className="bg-white rounded-2xl shadow-sm border border-[#E2E8F0] p-6 space-y-6">
+        <div>
+          <h2 className="font-bold text-[#1E293B]">Personalización del Asistente</h2>
+          <p className="text-xs text-[#64748B] mt-0.5">Configura el nombre y la foto de perfil que tus colaboradores verán en los chats y pantallas de carga.</p>
+        </div>
+
+        {/* Feedback Banners */}
+        {errorMsg && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-top-2 duration-200">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+            <span className="flex-1">{errorMsg}</span>
+            <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-red-600 p-0.5 rounded-lg"><X className="w-3.5 h-3.5" /></button>
+          </div>
+        )}
+        {successMsg && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-xl flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-top-2 duration-200">
+            <CheckCircle className="w-4 h-4 shrink-0 text-emerald-500" />
+            <span className="flex-1">{successMsg}</span>
+            <button onClick={() => setSuccessMsg(null)} className="text-emerald-400 hover:text-emerald-600 p-0.5 rounded-lg"><X className="w-3.5 h-3.5" /></button>
+          </div>
+        )}
+
+        {/* AI Name Input */}
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-[#475569]">Nombre del Asistente</label>
+          <input
+            type="text"
+            value={aiName}
+            onChange={handleNameChange}
+            placeholder="Ej. Asistente IA, Analista de TI..."
+            className="w-full border border-[#E2E8F0] rounded-lg px-3 py-2 text-sm text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] focus:border-[#4F5AF5] transition-colors"
+          />
+        </div>
+
+        {/* AI Avatar Picker */}
+        <div className="space-y-3">
+          <label className="text-xs font-bold text-[#475569] block">Foto de Perfil (Avatar)</label>
+          
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full border border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-center overflow-hidden shrink-0 shadow-sm relative group">
+              {aiAvatar ? (
+                <>
+                  <img src={aiAvatar} alt="Vista previa" className="w-full h-full object-cover" />
+                  <button
+                    onClick={removeAvatar}
+                    className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold"
+                  >
+                    Eliminar
+                  </button>
+                </>
+              ) : (
+                <Bot className="w-8 h-8 text-[#94A3B8]" />
+              )}
+            </div>
+
+            <div className="space-y-1.5 flex-1">
+              <label className="inline-flex items-center gap-1.5 bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] px-3.5 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer border border-[#E2E8F0]">
+                <Upload className="w-3.5 h-3.5" />
+                {isUploading ? 'Procesando...' : 'Subir imagen'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarSelect}
+                  className="hidden"
+                  disabled={isUploading}
+                />
+              </label>
+              <p className="text-[10px] text-[#94A3B8]">Formatos recomendados: PNG, JPG o SVG. Máx 1.5MB.</p>
+            </div>
+          </div>
+
+          {/* Preset options */}
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-bold text-[#64748B] block uppercase tracking-wider">O preseleccionar de la galería</span>
+            <div className="flex gap-2">
+              {presets.map((preset, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => { setAiAvatar(preset.url); setSaved(false); setErrorMsg(null); setSuccessMsg(null); }}
+                  className={`w-10 h-10 rounded-full border overflow-hidden transition-all ${
+                    aiAvatar === preset.url ? 'ring-2 ring-[#4F5AF5] border-transparent scale-105' : 'border-[#E2E8F0] hover:scale-105'
+                  }`}
+                  title={preset.name}
+                >
+                  <img src={preset.url} alt={preset.name} className="w-full h-full object-cover" />
+                </button>
+              ))}
+              <button
+                onClick={() => { setAiAvatar(''); setSaved(false); setErrorMsg(null); setSuccessMsg(null); }}
+                className={`w-10 h-10 rounded-full border border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-center text-xs font-bold text-[#64748B] hover:scale-105 transition-all ${
+                  !aiAvatar ? 'ring-2 ring-[#4F5AF5] border-transparent scale-105' : ''
+                }`}
+                title="Avatar por defecto (Bot)"
+              >
+                <Bot className="w-4 h-4 text-[#94A3B8]" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Save button */}
+        <div className="flex justify-end pt-2">
+          <button
+            onClick={handleSave}
+            disabled={saved || isUploading}
+            className="flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:bg-[#E2E8F0] disabled:text-[#94A3B8] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+          >
+            <Save className="w-4 h-4" />
+            Guardar Cambios
+          </button>
+        </div>
+      </div>
+
+      {/* Visual Preview Card */}
+      <div className="bg-[#F8FAFC] rounded-2xl border border-[#E2E8F0] p-6 flex flex-col justify-between h-full min-h-[350px]">
+        <div className="mb-4">
+          <h3 className="text-sm font-bold text-[#1E293B]">Vista previa en tiempo real</h3>
+          <p className="text-[10px] text-[#64748B]">Así se verá la IA en la interfaz de chat de tus usuarios.</p>
+        </div>
+
+        <div className="flex-grow flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-[#E2E8F0] shadow-sm flex flex-col overflow-hidden max-w-sm w-full">
+            {/* Mock Header */}
+            <div className="px-4 py-3 border-b border-[#F1F5F9] flex items-center gap-2.5 bg-[#4F5AF5]">
+              <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center overflow-hidden shrink-0">
+                {aiAvatar ? (
+                  <img src={aiAvatar} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <Bot className="w-3.5 h-3.5 text-white" />
+                )}
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-white">{aiName}</p>
+                <p className="text-[9px] text-blue-200">En línea</p>
+              </div>
+            </div>
+
+            {/* Mock Message Area */}
+            <div className="p-4 space-y-3 bg-[#F8FAFC] h-32 flex flex-col justify-end">
+              <div className="flex gap-2">
+                <div className="w-6 h-6 rounded-full bg-white border border-[#E2E8F0] flex items-center justify-center shrink-0 mt-0.5 overflow-hidden">
+                  {aiAvatar ? (
+                    <img src={aiAvatar} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <Bot className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                  )}
+                </div>
+                <div className="p-3 bg-white border border-[#E2E8F0] rounded-xl rounded-tl-none shadow-sm text-[11px] text-[#334155] leading-relaxed max-w-[80%]">
+                  Hola. Cuéntame sobre tu iniciativa de negocio.
+                  <p className="text-[9px] text-[#94A3B8] mt-1 font-semibold">{aiName}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -168,16 +168,16 @@ export default function BulkUpload() {
             <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white text-[10px] font-mono text-slate-700 divide-y divide-slate-100">
               <div className="p-2 bg-slate-50 font-bold grid grid-cols-2"><span>Columna Excel</span> <span>Asociación</span></div>
               <div className="p-2 grid grid-cols-2"><span>Vice Presidencia</span> <span>Nombre de la VP (ej. Comercial)</span></div>
-              <div className="p-2 grid grid-cols-2"><span>Vicepresidente</span> <span>Nombre del VP (Rol Registrador)</span></div>
+              <div className="p-2 grid grid-cols-2"><span>Vicepresidente</span> <span>Nombre del VP (Rol Key user)</span></div>
               <div className="p-2 grid grid-cols-2"><span>Correo de VP</span> <span>Email del VP</span></div>
               <div className="p-2 grid grid-cols-2"><span>Dirección</span> <span>Nombre de la Dirección</span></div>
-              <div className="p-2 grid grid-cols-2"><span>Director</span> <span>Nombre del Director (Rol Registrador)</span></div>
+              <div className="p-2 grid grid-cols-2"><span>Director</span> <span>Nombre del Director (Rol Key user)</span></div>
               <div className="p-2 grid grid-cols-2"><span>Correo del director</span> <span>Email del Director</span></div>
-              <div className="p-2 grid grid-cols-2"><span>Key Users</span> <span>Nombre del Key User (Rol Registrador)</span></div>
+              <div className="p-2 grid grid-cols-2"><span>Key Users</span> <span>Nombre del Key User (Rol Key user)</span></div>
               <div className="p-2 grid grid-cols-2"><span>Correo electrónico</span> <span>Email del Key User</span></div>
-              <div className="p-2 grid grid-cols-2"><span>Business Partner 1</span> <span>Nombre BP 1 (Rol Registrador y Aprobador)</span></div>
+              <div className="p-2 grid grid-cols-2"><span>Business Partner 1</span> <span>Nombre BP 1 (Rol Key user y Aprobador)</span></div>
               <div className="p-2 grid grid-cols-2"><span>Correo BP 1</span> <span>Email BP 1</span></div>
-              <div className="p-2 grid grid-cols-2"><span>Business Partner 2</span> <span>Nombre BP 2 (Rol Registrador y Aprobador)</span></div>
+              <div className="p-2 grid grid-cols-2"><span>Business Partner 2</span> <span>Nombre BP 2 (Rol Key user y Aprobador)</span></div>
               <div className="p-2 grid grid-cols-2"><span>Correo BP 2</span> <span>Email BP 2</span></div>
             </div>
           </div>

@@ -51,11 +51,11 @@ export default function StateFlow() {
       bg: 'bg-[#F8FAFC]',
       border: 'border-slate-350',
       accentBg: 'bg-slate-100 text-slate-705',
-      responsibleRoles: ['Registrador (Solicitante)', 'BP TI (soporte de edición)'],
+      responsibleRoles: ['Key user (Solicitante)', 'BP TI (soporte de edición)'],
       activities: [
         {
           name: '1. Creación de Borrador',
-          responsible: 'Registrador (Solicitante)',
+          responsible: 'Key user (Solicitante)',
           description: 'El solicitante ingresa la información básica, pilar estratégico, justificación técnica y carga el archivo de Visto Bueno (VoBo VP) si ya lo posee.',
           inputs: ['Formulario de Iniciativa (Descripción, Pilar, Institución, etc.)', 'Adjunto de VoBo VP (Opcional en esta etapa)'],
           outputs: ['Registro en base de datos con estado "Borrador"', 'Visibilidad exclusiva para el creador y administradores'],
@@ -66,12 +66,12 @@ export default function StateFlow() {
         },
         {
           name: '2. Subsanación de Observaciones',
-          responsible: 'Registrador / BP TI (en caso de ausencia)',
-          description: 'Si la iniciativa es observada, el registrador visualiza los campos sugeridos destacados y procede a corregirlos o aceptar sugerencias del BP.',
+          responsible: 'Key user / BP TI (en caso de ausencia)',
+          description: 'Si la iniciativa es observada, el key user visualiza los campos sugeridos destacados y procede a corregirlos o aceptar sugerencias del BP.',
           inputs: ['Campos observados', 'Objeto de cambios sugeridos (_suggested_changes)', 'Historial de observaciones'],
           outputs: ['Campos corregidos', 'Cambios sugeridos vaciados tras el reenvío'],
           rules: [
-            'Si solo tiene rol de Registrador, solo el creador original (isMine) puede editar u operar transiciones.',
+            'Si solo tiene rol de Key user, solo el creador original (isMine) puede editar u operar transiciones.',
             'Si está fuera de oficina, el rol de BP TI asignado a sus direcciones puede editar y regresar la iniciativa al flujo.'
           ]
         }
@@ -123,7 +123,7 @@ export default function StateFlow() {
           outputs: ['Estado de VoBo actualizado en el registro (_vobo_status)'],
           rules: [
             'Si existe un VoBo cargado, no se habilitará la aprobación definitiva hasta que el estado del VoBo sea validado como "Correcto".',
-            'Si se marca como "Incorrecto" con observaciones, la iniciativa se mueve automáticamente a "Observada" alertando al registrador.'
+            'Si se marca como "Incorrecto" con observaciones, la iniciativa se mueve automáticamente a "Observada" alertando al key user.'
           ]
         },
         {
@@ -210,7 +210,7 @@ export default function StateFlow() {
         {
           name: '2. Reactivación Extraordinaria',
           responsible: 'Administrador / BP TI asignado',
-          description: 'Permite revivir una iniciativa archivada sin necesidad de que el Registrador tenga que registrarla de nuevo.',
+          description: 'Permite revivir una iniciativa archivada sin necesidad de que el Key user tenga que registrarla de nuevo.',
           inputs: ['Acción manual del evaluador'],
           outputs: ['Transición a "Pendiente de aprobación" (Mover a nueva) o "En demanda" (Mover a demanda)'],
           rules: [
@@ -485,7 +485,7 @@ export default function StateFlow() {
                 <td className="p-3 font-bold text-slate-800">Borrador</td>
                 <td className="p-3 font-semibold text-[#4F5AF5]">Enviar a aprobación</td>
                 <td className="p-3 font-bold text-[#4F5AF5]">Pendiente de aprobación</td>
-                <td className="p-3">Registrador</td>
+                <td className="p-3">Key user</td>
                 <td className="p-3">Valida que se ingresen campos mínimos obligatorios. Modifica campo `status` a "Pendiente de aprobación".</td>
               </tr>
               <tr className="hover:bg-slate-50/50">
@@ -513,7 +513,7 @@ export default function StateFlow() {
                 <td className="p-3 font-bold text-slate-800">Observada</td>
                 <td className="p-3 font-semibold text-[#4F5AF5]">Reenviar a aprobación</td>
                 <td className="p-3 font-bold text-[#4F5AF5]">Pendiente de aprobación</td>
-                <td className="p-3">Registrador</td>
+                <td className="p-3">Key user</td>
                 <td className="p-3">Aplica correcciones, limpia `_suggested_changes` y añade snapshot del estado del formulario en `_observation_history`.</td>
               </tr>
               <tr className="hover:bg-slate-50/50">
