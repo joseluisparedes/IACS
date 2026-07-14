@@ -156,7 +156,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const isRegistrador = profile?.profile_roles?.some((r: any) => r.role === 'registrador');
 
   const navItems = [
-    { name: 'Nueva necesidad', path: '/', icon: PlusCircle },
+    ...(isRegistrador || isAdmin ? [{ name: 'Nueva necesidad', path: '/', icon: PlusCircle }] : []),
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Bandeja de Aprobación', path: '/bandeja', icon: Inbox },
   ];
@@ -446,20 +446,22 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </>
               )}
             </div>
-             <Link
-              to="/nueva"
-              onClick={(e) => {
-                if ((window as any).isInitiativeProcessInProgress) {
-                  e.preventDefault();
-                  setPendingNavPath("/nueva");
-                  setShowNavConfirmModal(true);
-                }
-              }}
-              className="bg-white hover:bg-white/90 text-[#EB5F46] px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm hidden sm:flex items-center gap-2"
-            >
-              <PlusCircle className="w-4 h-4" />
-              Nueva necesidad
-            </Link>
+             {(isRegistrador || isAdmin) && (
+              <Link
+                to="/nueva"
+                onClick={(e) => {
+                  if ((window as any).isInitiativeProcessInProgress) {
+                    e.preventDefault();
+                    setPendingNavPath("/nueva");
+                    setShowNavConfirmModal(true);
+                  }
+                }}
+                className="bg-white hover:bg-white/90 text-[#EB5F46] px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm hidden sm:flex items-center gap-2"
+              >
+                <PlusCircle className="w-4 h-4" />
+                Nueva necesidad
+              </Link>
+             )}
           </div>
         </div>
         {/* Color Line Divider */}
@@ -717,6 +719,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <Layout>{children}</Layout>;
 }
 
+function RegistradorRoute({ children }: { children: React.ReactNode }) {
+  const { profile, loading } = useAuth();
+  if (loading) return null;
+  const isRegistrador = profile?.profile_roles?.some((r: any) => r.role === 'registrador');
+  const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
+  if (!isRegistrador && !isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   const basename = (import.meta as any).env.BASE_URL || '/';
   return (
@@ -725,10 +738,10 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           
-          <Route path="/" element={<ProtectedRoute><InitiativeForm /></ProtectedRoute>} />
+          <Route path="/" element={<ProtectedRoute><RegistradorRoute><InitiativeForm /></RegistradorRoute></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/nueva" element={<ProtectedRoute><InitiativeForm /></ProtectedRoute>} />
-          <Route path="/nueva/:id" element={<ProtectedRoute><InitiativeForm /></ProtectedRoute>} />
+          <Route path="/nueva" element={<ProtectedRoute><RegistradorRoute><InitiativeForm /></RegistradorRoute></ProtectedRoute>} />
+          <Route path="/nueva/:id" element={<ProtectedRoute><RegistradorRoute><InitiativeForm /></RegistradorRoute></ProtectedRoute>} />
           <Route path="/bandeja" element={<ProtectedRoute><ApprovalBoard /></ProtectedRoute>} />
           <Route path="/iniciativa/:id" element={<ProtectedRoute><InitiativeDetail /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AdminFields /></ProtectedRoute>} />
