@@ -1259,6 +1259,7 @@ export default function InitiativeDetail() {
   const statusStyle = STATUS_STYLE[initiative.status] ?? "bg-[#F1F5F9] text-[#64748B]";
   const isPending = initiative.status === "Pendiente de aprobación";
   const isObserved = initiative.status === "Observada";
+  const isBorrador = initiative.status === "Borrador";
   let voboFileObj: { name: string; content?: string; url?: string; type?: string } | null = null;
   if (typeof fd.aprobacin_de_director === "string" && fd.aprobacin_de_director.startsWith('{"name":')) {
     try {
@@ -1270,7 +1271,7 @@ export default function InitiativeDetail() {
   const hasSuggestedChanges = Object.keys(suggestedChanges.form_data).length > 0 || Object.keys(suggestedChanges.summary).length > 0;
 
   const validationErrors: string[] = [];
-  if (isPending || isObserved) {
+  if (isPending || isObserved || (isBorrador && isAdmin)) {
     const currentFd = isEditMode ? editedFormData : fd;
     const currentSummary = isEditMode ? editedSummary : s;
 
@@ -1390,6 +1391,41 @@ export default function InitiativeDetail() {
 
           {/* Action buttons */}
           <div className="flex gap-3">
+            {isBorrador && isAdmin && !isEditMode && (
+              <>
+                <button
+                  onClick={startEditMode}
+                  className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Pencil className="w-4 h-4" />
+                  Editar Borrador
+                </button>
+                <button
+                  onClick={openDesestimarModal}
+                  className="flex items-center gap-2 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Ban className="w-4 h-4" />
+                  Desestimar
+                </button>
+                <button
+                  onClick={handleEnviarAprobacion}
+                  className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+                >
+                  <Send className="w-4 h-4" />
+                  Enviar a BP
+                </button>
+                <button
+                  onClick={handleApprove}
+                  disabled={validationErrors.length > 0}
+                  title={validationErrors.length > 0 ? `Requisitos pendientes:\n${validationErrors.join('\n')}` : "Aprobar iniciativa"}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Aprobar
+                </button>
+              </>
+            )}
+
             {isPending && (isAdmin || isBPAllowed) && !isEditMode && (
               <>
                 <button
@@ -1590,7 +1626,7 @@ export default function InitiativeDetail() {
               </>
             )}
 
-            {isRegistrador && isMine && initiative.status === "Borrador" && !isEditMode && (
+            {isRegistrador && isMine && !isAdmin && initiative.status === "Borrador" && !isEditMode && (
               <>
                 <button
                   onClick={startEditMode}
@@ -1612,7 +1648,7 @@ export default function InitiativeDetail() {
         </div>
       </div>
 
-      {(isPending || isObserved) && (isBPAllowed || isAdmin) && validationErrors.length > 0 && (
+      {(isPending || isObserved || (isBorrador && isAdmin)) && (isBPAllowed || isAdmin) && validationErrors.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 shadow-sm flex gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
           <div className="space-y-1">
@@ -1632,7 +1668,7 @@ export default function InitiativeDetail() {
       <div className="grid md:grid-cols-3 gap-6">
         {/* Main content */}
         <div className="md:col-span-2 space-y-5">
-          {isPending && (isBP || isAdmin) && voboFileObj && (
+          {(isPending || (isBorrador && isAdmin)) && (isBP || isAdmin) && voboFileObj && (
             <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-[#F1F5F9] bg-[#F8FAFC] flex items-center justify-between">
                 <h3 className="text-sm font-bold text-[#1E293B] flex items-center gap-2">
