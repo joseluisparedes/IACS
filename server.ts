@@ -58,7 +58,7 @@ async function callAIForJSON(prompt: string): Promise<string> {
 
     console.log("[AI Fallback] Gemini quota/unavailable, switching to Groq...");
     const completion = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: "llama-3.3-70b-versatile",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.2,
@@ -66,6 +66,19 @@ async function callAIForJSON(prompt: string): Promise<string> {
     return completion.choices[0]?.message?.content ?? "{}";
   }
 }
+
+// ─── Robust AI JSON Parser ───────────────────────────────────────────────────
+// Strips markdown code fences (```json ... ```) that some models add before
+// calling JSON.parse, preventing spurious parse errors and mock fallbacks.
+function parseAIJSON(raw: string): any {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+  return JSON.parse(cleaned);
+}
+
 
 
 const startAgentTask = async (role: string, title: string) => {
@@ -157,8 +170,10 @@ function isApiKeyConfigured(): boolean {
 }
 
 // ─── Mock fallbacks ───────────────────────────────────────────────────────────
-function getMockChatResponse(history: any[], initialData: any, _message: string): string {
-  const userMessages = history.filter((h) => h.role === "user");
+function getMockChatResponse(history: any[], initialData: any, message: string): string {
+  const hasLast = history.some(h => h.role === "user" && h.text === message);
+  const fullHistory = hasLast ? history : [...history, { role: "user", text: message }];
+  const userMessages = fullHistory.filter((h) => h.role === "user");
   const count = userMessages.length;
   if (count === 0) return `¡Hola! Soy tu asistente de análisis de negocio. Veo que deseas registrar una iniciativa. Para comenzar, ¿podrías describirme cuál es el problema actual que buscas resolver?`;
   if (count === 1) return `Entendido. ¿Cuál es el objetivo principal o resultado esperado?`;
@@ -169,26 +184,35 @@ function getMockChatResponse(history: any[], initialData: any, _message: string)
   return `Excelente, he recopilado toda la información. Procederé a generar el resumen ejecutivo. [INFORMACION_COMPLETA]`;
 }
 
+function getMockOptions(history: any[], message: string): string[] {
+  const hasLast = history.some(h => h.role === "user" && h.text === message);
+  const fullHistory = hasLast ? history : [...history, { role: "user", text: message }];
+  const userMessages = fullHistory.filter((h) => h.role === "user");
+  const count = userMessages.length;
+
+  if (count === 1) return ["Ahorrar tiempo operativo", "Tener trazabilidad y reportes", "Reducir errores de digitación"];
+  if (count === 2) return ["El equipo comercial y TI", "Operaciones y Back Office", "Toda la organización"];
+  if (count === 3) return ["No impacta otros sistemas", "Se conecta con el CRM/ERP", "Usa integraciones por API"];
+  if (count === 4) return ["No identifico riesgos críticos", "Dependencia del área de TI", "Requiere capacitación de usuarios"];
+  if (count === 5) return ["Lo antes posible", "Próximo mes", "Para fin de año"];
+  return ["Generar resumen"];
+}
+
 function getMockSummaryResponse(initialData: any) {
   const area = Object.values(initialData)[0] || "la organización";
   return {
-    titulo: `Mejora del proceso de ${area}`,
+    titulo: `Iniciativa de mejora para ${area}`,
     objetivo: `Implementar una solución digital que optimice el flujo de trabajo del área de ${area}, reduciendo tiempos y errores manuales.`,
-    tipoIniciativa: "Automatización de procesos",
-    descripcionProblema: "El proceso actual es manual, lento y propenso a errores, lo que genera reprocesos y baja visibilidad en tiempo real de los indicadores clave.",
-    situacionDeseada: "Contar con una plataforma integrada que automatice el flujo de trabajo, notifique en tiempo real y genere reportes automáticos para la toma de decisiones.",
-    procesosImpactados: `${area}, Back Office, Reportería, Control de Gestión`,
-    usuariosBeneficiados: "Analistas operativos, supervisores y gerencia del área. Aproximadamente 25 usuarios directos.",
-    beneficiosCuantitativos: "Reducción del 40% en tiempo de procesamiento. Ahorro estimado de 15 horas semanales en validaciones manuales.",
-    beneficiosCualitativos: [
-      "Mayor visibilidad y trazabilidad de los procesos.",
-      "Decisiones más oportunas basadas en datos confiables.",
-      "Reducción de errores y reprocesos en un 60%.",
-      "Mejor experiencia para los usuarios internos.",
-    ],
-    complejidad: "Media" as const,
-    riesgo: "Bajo" as const,
-    prioridadRecomendada: "Alta" as const,
+    tipo_iniciativa: "Automatización de procesos",
+    descripcion_de_la_necesidad: "El proceso actual es manual, lento y propenso a errores, lo que genera reprocesos y baja visibilidad en tiempo real de los indicadores clave.",
+    situacion_deseada: "Contar con una plataforma integrada que automatice el flujo de trabajo, notifique en tiempo real y genere reportes automáticos para la toma de decisiones.",
+    proceso_y_areas_impactadas: `${area}, Back Office, Reportería, Control de Gestión`,
+    usuarios_beneficiados: ["Operaciones", "TI"],
+    beneficio_cuantitativo_anual: "Reducción del 40% en tiempo de procesamiento. Ahorro estimado de 15 horas semanales en validaciones manuales.",
+    beneficio_cualitativo: "Mayor visibilidad y trazabilidad de los procesos. Decisiones más oportunas basadas en datos confiables.",
+    complejidad: "Media",
+    riesgo: "Bajo",
+    pilar_estratgico: "Excelencia operativa",
   };
 }
 
@@ -331,7 +355,7 @@ Responde estrictamente en formato JSON con la siguiente estructura:
       const rawText = await callAIForJSON(prompt);
  
       console.log("[AI Analyze] Raw AI response:", rawText);
-      const parsed = JSON.parse(rawText.trim());
+      const parsed = parseAIJSON(rawText);
       console.log("[AI Analyze] Parsed response:", JSON.stringify(parsed, null, 2));
       
       await updateAgentTask(tOrqId, 100, 'completed');
@@ -374,7 +398,7 @@ Responde estrictamente en formato JSON:
 }`;
 
       const rawText = await callAIForJSON(prompt);
-      const parsed = JSON.parse(rawText.trim());
+      const parsed = parseAIJSON(rawText);
       await updateAgentTask(tQAId, 100, 'completed');
       res.json(parsed);
     } catch (e: any) {
@@ -694,7 +718,7 @@ Responde estrictamente en formato JSON:
     const sanitizedInitialData = sanitizeInitialDataForAI(initialData);
 
     const fieldsListStr = aiFields && aiFields.length > 0
-      ? aiFields.map((f: any) => `- ${f.label}${f.ai_instructions ? ` (Instrucciones: ${f.ai_instructions})` : ''}`).join("\n")
+      ? aiFields.map((f: any) => `- ${f.label}${f.field_type === 'select' && f.options && f.options.length > 0 ? ` (Valores permitidos estrictos, elige 1 de: ${f.options.join(', ')})` : ''}${f.ai_instructions ? ` (Instrucciones: ${f.ai_instructions})` : ''}`).join("\n")
       : `- Usuarios involucrados.\n- Proceso actual.\n- Proceso deseado.\n- Sistemas impactados.\n- Frecuencia de uso.\n- Beneficios esperados.`;
 
     const tOrqId = await startAgentTask("Orquestador", "Procesando mensaje de chat");
@@ -703,7 +727,10 @@ Responde estrictamente en formato JSON:
     if (!isApiKeyConfigured()) {
       await updateAgentTask(tOrqId, 100, 'completed');
       await updateAgentTask(tPoId, 100, 'completed');
-      return res.json({ text: getMockChatResponse(history, sanitizedInitialData, message), options: ["No estoy seguro", "Explícame mejor", "Sí, continuemos"] });
+      return res.json({
+        text: getMockChatResponse(history, sanitizedInitialData, message),
+        options: getMockOptions(history, message)
+      });
     }
 
     try {
@@ -718,28 +745,31 @@ Responde estrictamente en formato JSON:
 Datos iniciales proporcionados por el usuario:
 ${Object.entries(sanitizedInitialData || {}).map(([k, v]) => `${k}: ${v}`).join("\n")}
 
-Asegúrate de recolectar al menos la siguiente información (si no está en los datos iniciales). Es VITAL que no existan campos en blanco ni respuestas vacías. Si falta información para alguno de estos campos, haz preguntas específicas y directas para obtenerla. No termines la conversación ni devuelvas "[INFORMACION_COMPLETA]" en el texto hasta tener respuestas concretas para TODOS los puntos:
+Asegúrate de recolectar al menos la siguiente información (si no está en los datos iniciales). Es VITAL que no existan campos en blanco ni respuestas vacías. Si falta información para alguno de estos campos, haz preguntas específicas y directas para obtenerla. NO repitas una pregunta si el usuario ya la ha respondido (aunque sea de forma breve); acéptala y pasa al siguiente punto. No termines la conversación ni devuelvas "[INFORMACION_COMPLETA]" en el texto hasta tener respuestas concretas para TODOS los puntos:
 ${fieldsListStr}
 
 Historial de conversación:
-${history.map((h: any) => `${h.role}: ${h.text}`).join("\n")}
+${history.map((h: any) => `${h.role === 'user' ? 'Usuario' : 'Asistente'}: ${h.text}`).join("\n")}
 
 Usuario: ${message}
 
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
   "text": "Tu respuesta amigable y concisa (en formato Markdown si deseas enfatizar o listar algo). Si consideras que ya tienes TODA la información, finaliza incluyendo la etiqueta exacta '[INFORMACION_COMPLETA]' en tu texto.",
-  "options": ["Opción sugerida 1", "Opción sugerida 2"]
+  "options": ["Opción sugerida 1", "Opción sugerida 2"] // NUNCA devuelvas "Continuar". Si no tienes sugerencias verdaderamente útiles y contextuales, devuelve un array vacío [].
 }`;
       const rawChat = await callAIForJSON(chatPrompt);
-      const parsed = JSON.parse(rawChat.trim());
+      const parsed = parseAIJSON(rawChat);
       await updateAgentTask(tOrqId, 100, 'completed');
       await updateAgentTask(tPoId, 100, 'completed');
       await updateAgentTask(tRegId, 100, 'completed');
       res.json({ text: parsed.text, options: parsed.options || [] });
     } catch (e: any) {
       console.error("Gemini API error, falling back to mock:", e.message);
-      res.json({ text: getMockChatResponse(history, initialData, message), options: ["Continuar"] });
+      res.json({
+        text: getMockChatResponse(history, initialData, message),
+        options: getMockOptions(history, message)
+      });
     }
   });
 
@@ -859,7 +889,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       const systemPrompt = buildSystemPrompt(training);
       const previewPrompt = `${systemPrompt}\n\nHistorial:\n${(history || []).map((h: any) => `${h.role}: ${h.text}`).join("\n")}\n\nUsuario: ${message}\n\nResponde en JSON: {"text": "...", "options": []}`;
       const rawPreview = await callAIForJSON(previewPrompt);
-      const parsed = JSON.parse(rawPreview.trim());
+      const parsed = parseAIJSON(rawPreview);
       res.json({ text: parsed.text, options: parsed.options || [] });
     } catch (e: any) {
       console.error("Preview chat error:", e.message);
@@ -1053,7 +1083,7 @@ Devuelve SOLO un JSON válido con esta estructura exacta (sin texto adicional). 
 ${dynamicSchema}
 }`;
       const rawSummary = await callAIForJSON(summarizePrompt);
-      res.json(JSON.parse(rawSummary.trim()));
+      res.json(parseAIJSON(rawSummary));
     } catch (e: any) {
       console.error("Gemini summarize error, falling back to mock:", e.message);
       res.json(getMockSummaryResponse(initialData));

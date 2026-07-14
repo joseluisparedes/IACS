@@ -307,6 +307,27 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
           </button>
         )}
 
+        {/* File type/size hint */}
+        {(() => {
+          const ft = field.options?.fileTypes || {
+            pdf: { enabled: true, maxMb: 1.0 },
+            docx: { enabled: true, maxMb: 1.0 },
+            txt: { enabled: true, maxMb: 1.0 },
+            image: { enabled: true, maxMb: 1.0 },
+          };
+          const parts: string[] = [];
+          if (ft.pdf?.enabled) parts.push(`PDF (máx. ${ft.pdf.maxMb} MB)`);
+          if (ft.docx?.enabled) parts.push(`DOCX (máx. ${ft.docx.maxMb} MB)`);
+          if (ft.txt?.enabled) parts.push(`TXT (máx. ${ft.txt.maxMb} MB)`);
+          if (ft.image?.enabled) parts.push(`Imagen (máx. ${ft.image.maxMb} MB)`);
+          if (parts.length === 0) return null;
+          return (
+            <p className="text-[10px] text-[#94A3B8] leading-relaxed">
+              <span className="font-semibold">Formatos permitidos:</span> {parts.join(' · ')}
+            </p>
+          );
+        })()}
+
         {error && (
           <div className="flex items-center gap-1 text-xs text-red-600 font-semibold bg-red-50 p-2 rounded-lg border border-red-100">
             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -423,6 +444,53 @@ export default function InitiativeForm() {
       (window as any).isInitiativeProcessInProgress = false;
     };
   }, [selectedPath]);
+  // Countdown before generating summary after chat finishes
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  const countdownHistoryRef = useRef<any[]>([]);
+
+  // ── Key-normaliser for AI summary merging ─────────────────────────────────
+  // Normalises a key to lowercase with no underscores/spaces so keys coming
+  // from the AI (camelCase, snake_case, with spaces) can be matched against
+  // the field keys stored in the database.
+  const normaliseKey = (k: string) => k.toLowerCase().replace(/[_\s]/g, '');
+
+  // Merges AI summary data into a formData object using normalised key matching.
+  // If no DB field matches the AI key, the AI key is used as-is.
+  const mergeAISummary = (base: Record<string, any>, summaryData: Record<string, any>) => {
+    const allFieldKeys = [...fields, ...aiFields].map(f => f.key);
+    const merged = { ...base };
+    Object.entries(summaryData).forEach(([aiKey, val]) => {
+      if (val === undefined || val === null || val === '') return;
+      // Try to find an exact match first
+      if (allFieldKeys.includes(aiKey)) {
+        merged[aiKey] = val;
+        return;
+      }
+      // Normalised match
+      const normAI = normaliseKey(aiKey);
+      const matchedKey = allFieldKeys.find(k => normaliseKey(k) === normAI);
+      if (matchedKey) {
+        merged[matchedKey] = val;
+      } else {
+        // No matching field key – store as-is so data isn't lost
+        merged[aiKey] = val;
+      }
+    });
+    return merged;
+  };
+
+  // ── Countdown timer effect ────────────────────────────────────────────────
+  useEffect(() => {
+    if (countdownSeconds === null) return;
+    if (countdownSeconds === 0) {
+      setCountdownSeconds(null);
+      generateSummary(countdownHistoryRef.current);
+      return;
+    }
+    const timer = setTimeout(() => setCountdownSeconds(s => (s !== null ? s - 1 : null)), 1000);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdownSeconds]);
   const [unstructuredText, setUnstructuredText] = useState("");
   const [aiWarnings, setAiWarnings] = useState<Record<string, string>>({});
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -515,6 +583,7 @@ export default function InitiativeForm() {
   const [attachError, setAttachError] = useState<string | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
+  const [isDraggingSupport, setIsDraggingSupport] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -566,14 +635,10 @@ export default function InitiativeForm() {
         const draft = draftRes?.data;
         if (draft) {
           // Backend draft found — use it and clear any stale local backup
-          const fData = { ...(draft.form_data || {}) };
-          if (draft.summary) {
-            Object.entries(draft.summary).forEach(([k, v]) => {
-              if (v !== undefined && v !== null && v !== "") {
-                fData[k] = v;
-              }
-            });
-          }
+          const rawFData = { ...(draft.form_data || {}) };
+          const fData = draft.summary
+            ? mergeAISummary(rawFData, draft.summary)
+            : rawFData;
           setFormData(fData);
           setConfirmedFields(draft.confirmed_fields || {});
           setUnstructuredText(draft.unstructured_text || "");
@@ -592,14 +657,10 @@ export default function InitiativeForm() {
             if (local) {
               const parsed = JSON.parse(local);
               if (parsed.form_data) {
-                const fData = { ...parsed.form_data };
-                if (parsed.summary) {
-                  Object.entries(parsed.summary).forEach(([k, v]) => {
-                    if (v !== undefined && v !== null && v !== "") {
-                      fData[k] = v;
-                    }
-                  });
-                }
+                const rawFData = { ...parsed.form_data };
+                const fData = parsed.summary
+                  ? mergeAISummary(rawFData, parsed.summary)
+                  : rawFData;
                 setFormData(fData);
                 setSelectedPath(fData.selectedPath || 'direct');
               }
@@ -851,21 +912,18 @@ export default function InitiativeForm() {
     } catch (e) { console.error('Error saving feedback', e); }
   };
 
-  // ── File attachment handler ───────────────────────────────────────────────
-  const handleFileAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
+  // ── File attachment handler (chat / step-1 strip) ───────────────────────
+  const processFile = async (file: File, context: 'chat' | 'support' = 'support') => {
     setAttachError(null);
 
     let typeKey: 'pdf' | 'docx' | 'txt' | 'image' = 'txt';
     const name = file.name.toLowerCase();
     const mime = file.type;
-    
+
     if (mime === 'application/pdf' || name.endsWith('.pdf')) typeKey = 'pdf';
     else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')) typeKey = 'docx';
     else if (mime.startsWith('image/')) typeKey = 'image';
-    
+
     const typeConfig = fileTypes[typeKey];
     if (!typeConfig.enabled) {
       const errorMsg = `La subida de archivos de tipo ${typeKey.toUpperCase()} está deshabilitada.`;
@@ -894,9 +952,9 @@ export default function InitiativeForm() {
     setUploadingFile(file);
     setIsProcessingFile(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/chat/attach-file', { method: 'POST', body: formData });
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/chat/attach-file', { method: 'POST', body: fd });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setAttachedFileContent(data.content);
@@ -916,11 +974,11 @@ export default function InitiativeForm() {
         };
       });
 
-      if (step === 2 && selectedPath === 'unstructured') {
+      if (context === 'chat' && step === 2 && selectedPath === 'unstructured') {
         setTimeout(() => {
           submitMessage(`He subido un archivo de soporte llamado: ${file.name}. Por favor analízalo.`);
         }, 100);
-      } else if (step !== 2) {
+      } else {
         setAttachedFile(null);
         setAttachedFileContent(null);
       }
@@ -933,6 +991,15 @@ export default function InitiativeForm() {
       setUploadingFile(null);
     }
   };
+
+  const handleFileAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const ctx = (step === 2 && selectedPath === 'unstructured') ? 'chat' : 'support';
+    await processFile(file, ctx);
+  };
+
 
   const removeAttachment = (fileName?: string) => {
     setAttachedFile(null);
@@ -1098,7 +1165,7 @@ export default function InitiativeForm() {
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history: newHistory, message: aiMessage || displayText, initialData: formData, aiFields }),
+        body: JSON.stringify({ history: chatHistory, message: aiMessage || displayText, initialData: formData, aiFields }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
@@ -1109,7 +1176,9 @@ export default function InitiativeForm() {
         const finalHistory = text ? [...newHistory, { role: "model" as const, text, options }] : newHistory;
         if (text) setChatHistory(finalHistory);
         autoSave(finalHistory, summary);
-        await generateSummary(finalHistory);
+        // Start 3-second countdown so user can read the last AI message
+        countdownHistoryRef.current = finalHistory;
+        setCountdownSeconds(3);
       } else {
         const finalHistory = [...newHistory, { role: "model" as const, text, options }];
         setChatHistory(finalHistory);
@@ -1129,19 +1198,15 @@ export default function InitiativeForm() {
     setIsAiTyping(true);
     setStep(3);
     try {
+      const fieldsToSummarize = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion"].includes(f.key.toLowerCase()));
       const res = await fetch("/api/summarize", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history: fullHistory, initialData: formData, aiFields }),
+        body: JSON.stringify({ history: fullHistory, initialData: formData, aiFields: fieldsToSummarize }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
       setSummary(data);
-      const mergedFormData = { ...formData };
-      Object.entries(data || {}).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== "") {
-          mergedFormData[k] = v;
-        }
-      });
+      const mergedFormData = mergeAISummary({ ...formData }, data || {});
       setFormData(mergedFormData);
       autoSave(fullHistory, data, mergedFormData);
     } catch { showToast("Error al generar resumen.", "error"); setStep(2); }
@@ -1368,12 +1433,24 @@ export default function InitiativeForm() {
             {useAttachments && Object.values(fileTypes).some(t => t.enabled) && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[#64748B]">Documentos o archivos de soporte (opcional):</span>
+                  <div>
+                    <span className="text-xs font-semibold text-[#64748B]">Documentos o archivos de soporte (opcional):</span>
+                    {(() => {
+                      const parts: string[] = [];
+                      if (fileTypes.pdf?.enabled) parts.push(`PDF (máx. ${fileTypes.pdf.maxMb} MB)`);
+                      if (fileTypes.docx?.enabled) parts.push(`DOCX (máx. ${fileTypes.docx.maxMb} MB)`);
+                      if (fileTypes.txt?.enabled) parts.push(`TXT (máx. ${fileTypes.txt.maxMb} MB)`);
+                      if (fileTypes.image?.enabled) parts.push(`Imagen (máx. ${fileTypes.image.maxMb} MB)`);
+                      return parts.length > 0 ? (
+                        <p className="text-[10px] text-[#94A3B8] mt-0.5">{parts.join(' · ')}</p>
+                      ) : null;
+                    })()}
+                  </div>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isAnalyzing || isProcessingFile}
-                    className="flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold transition-colors shrink-0"
                   >
                     <Paperclip className="w-3.5 h-3.5" /> Adjuntar archivo
                   </button>
@@ -1471,7 +1548,7 @@ export default function InitiativeForm() {
         </div>
       )}
 
-      {((step === 1 && selectedPath === 'direct') || (step === 2 && selectedPath === 'unstructured') || (step === 3 && selectedPath === 'direct')) && (
+      {((step === 1 && selectedPath === 'direct') || (step === 2 && selectedPath === 'unstructured') || (step === 3 && selectedPath === 'direct')) && !isAiTyping && (
         <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden animate-in fade-in duration-200">
           {/* Header */}
           <div className="px-8 pt-8 pb-6 border-b border-[#F1F5F9] flex justify-between items-start gap-4">
@@ -1684,85 +1761,162 @@ export default function InitiativeForm() {
             {/* Archivos de soporte (opcional) */}
             {useAttachments && Object.values(fileTypes).some(t => t.enabled) && (
               <div className="px-8 pb-8 pt-6 border-t border-[#F1F5F9] space-y-4 bg-slate-50/20">
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between gap-4">
                   <div>
                     <h4 className="text-sm font-bold text-[#1E293B]">Archivos de soporte cargados</h4>
                     <p className="text-[11px] text-[#94A3B8] mt-0.5">Estos archivos de soporte sustentan la propuesta analizada por la IA.</p>
+                    {(() => {
+                      const parts: string[] = [];
+                      if (fileTypes.pdf?.enabled) parts.push(`PDF (máx. ${fileTypes.pdf.maxMb} MB)`);
+                      if (fileTypes.docx?.enabled) parts.push(`DOCX (máx. ${fileTypes.docx.maxMb} MB)`);
+                      if (fileTypes.txt?.enabled) parts.push(`TXT (máx. ${fileTypes.txt.maxMb} MB)`);
+                      if (fileTypes.image?.enabled) parts.push(`Imagen (máx. ${fileTypes.image.maxMb} MB)`);
+                      return parts.length > 0 ? (
+                        <p className="text-[10px] text-[#94A3B8] mt-1 font-medium">{parts.join(' · ')}</p>
+                      ) : null;
+                    })()}
                   </div>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isProcessingFile}
-                    className="flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-bold transition-colors border border-[#4F5AF5]/20 hover:border-[#4F5AF5] px-3 py-1.5 rounded-lg bg-[#EEF2FF]/30"
+                    className="flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-bold transition-colors border border-[#4F5AF5]/20 hover:border-[#4F5AF5] px-3 py-1.5 rounded-lg bg-[#EEF2FF]/30 shrink-0"
                   >
                     <Paperclip className="w-3.5 h-3.5" /> Adjuntar archivo
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {(!formData.attachments || formData.attachments.length === 0) && !uploadingFile ? (
-                    <div className="col-span-2 text-center py-6 text-xs text-[#94A3B8] border border-dashed border-[#CBD5E1] rounded-xl bg-white">
-                      No hay archivos cargados.
+                {/* Drag-and-drop zone */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSupport(true); }}
+                  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSupport(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingSupport(false); }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingSupport(false);
+                    const files = Array.from(e.dataTransfer.files);
+                    for (const file of files) {
+                      await processFile(file, 'support');
+                    }
+                  }}
+                  onClick={() => !isProcessingFile && fileInputRef.current?.click()}
+                  className={`relative rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer
+                    ${
+                      isDraggingSupport
+                        ? 'border-[#4F5AF5] bg-[#EEF2FF] scale-[1.01]'
+                        : 'border-[#CBD5E1] bg-white hover:border-[#4F5AF5]/50 hover:bg-[#EEF2FF]/20'
+                    }
+                    ${isProcessingFile ? 'pointer-events-none opacity-70' : ''}
+                  `}
+                >
+                  {/* Drop overlay text */}
+                  {isDraggingSupport && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10 pointer-events-none">
+                      <div className="w-10 h-10 rounded-full bg-[#4F5AF5] flex items-center justify-center shadow-lg shadow-[#4F5AF5]/30 animate-bounce">
+                        <Paperclip className="w-5 h-5 text-white" />
+                      </div>
+                      <p className="text-sm font-bold text-[#4F5AF5]">Suelta para adjuntar</p>
                     </div>
-                  ) : (
-                    <>
-                      {(formData.attachments || []).map((file: any, fileIdx: number) => (
-                        <div key={fileIdx} className="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded-xl p-3 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200">
-                          {file.type?.startsWith('image/') ? (
-                            <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
-                          ) : (
-                            <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-[#1E293B] truncate" title={file.name}>
-                              {file.name}
-                            </p>
-                            <p className="text-[10px] text-[#64748B]">
-                              {file.size ? (file.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
-                            </p>
-                          </div>
-                          {file.url && (
-                            <button 
-                              type="button" 
-                              onClick={() => setPreviewFile({ url: file.url || '', name: file.name, type: file.type })}
-                              className="text-[#4F5AF5] hover:text-[#3F49E0] transition-colors p-1"
-                              title="Ver vista previa"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => removeAttachment(file.name)}
-                            className="text-[#94A3B8] hover:text-red-500 transition-colors p-1"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      {isProcessingFile && uploadingFile && (
-                        <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#CBD5E1] rounded-xl p-3 shadow-sm animate-pulse">
-                          {uploadingFile.type?.startsWith('image/') ? (
-                            <ImageIcon className="w-4 h-4 text-[#64748B] shrink-0" />
-                          ) : (
-                            <FileText className="w-4 h-4 text-[#64748B] shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-[#64748B] truncate" title={uploadingFile.name}>
-                              {uploadingFile.name}
-                            </p>
-                            <p className="text-[10px] text-[#64748B]">
-                              {uploadingFile.size ? (uploadingFile.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
-                            </p>
-                          </div>
-                          <span className="flex items-center gap-1.5 text-[10px] text-[#4F5AF5] font-semibold shrink-0">
-                            <div className="w-3 h-3 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
-                            Cargando...
-                          </span>
-                        </div>
-                      )}
-                    </>
                   )}
+
+                  <div className={`p-4 transition-opacity duration-150 ${isDraggingSupport ? 'opacity-0' : 'opacity-100'}`}>
+                    {(!formData.attachments || formData.attachments.length === 0) && !uploadingFile ? (
+                      <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
+                        <div className="w-10 h-10 rounded-full bg-[#F1F5F9] flex items-center justify-center">
+                          <Paperclip className="w-4 h-4 text-[#94A3B8]" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-[#475569]">Arrastra archivos aquí o <span className="text-[#4F5AF5] underline underline-offset-2">haz clic para explorar</span></p>
+                          <p className="text-[10px] text-[#94A3B8] mt-0.5">Puedes subir varios archivos</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {(formData.attachments || []).map((file: any, fileIdx: number) => (
+                          <div key={fileIdx} onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded-xl p-3 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200">
+                            {file.type?.startsWith('image/') ? (
+                              <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                            ) : (
+                              <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-[#1E293B] truncate" title={file.name}>
+                                {file.name}
+                              </p>
+                              <p className="text-[10px] text-[#64748B]">
+                                {file.size ? (file.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
+                              </p>
+                            </div>
+                            {file.url && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setPreviewFile({ url: file.url || '', name: file.name, type: file.type }); }}
+                                className="text-[#4F5AF5] hover:text-[#3F49E0] transition-colors p-1"
+                                title="Ver vista previa"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); removeAttachment(file.name); }}
+                              className="text-[#94A3B8] hover:text-red-500 transition-colors p-1"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        {isProcessingFile && uploadingFile && (
+                          <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#CBD5E1] rounded-xl p-3 shadow-sm animate-pulse">
+                            {uploadingFile.type?.startsWith('image/') ? (
+                              <ImageIcon className="w-4 h-4 text-[#64748B] shrink-0" />
+                            ) : (
+                              <FileText className="w-4 h-4 text-[#64748B] shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-[#64748B] truncate" title={uploadingFile.name}>
+                                {uploadingFile.name}
+                              </p>
+                              <p className="text-[10px] text-[#64748B]">
+                                {uploadingFile.size ? (uploadingFile.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
+                              </p>
+                            </div>
+                            <span className="flex items-center gap-1.5 text-[10px] text-[#4F5AF5] font-semibold shrink-0">
+                              <div className="w-3 h-3 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
+                              Cargando...
+                            </span>
+                          </div>
+                        )}
+                        {/* Añadir más */}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                          disabled={isProcessingFile}
+                          className="flex items-center justify-center gap-2 border border-dashed border-[#CBD5E1] hover:border-[#4F5AF5] hover:bg-[#EEF2FF]/30 text-[#94A3B8] hover:text-[#4F5AF5] rounded-xl p-3 text-xs font-semibold transition-all"
+                        >
+                          <Paperclip className="w-3.5 h-3.5" /> Añadir otro archivo
+                        </button>
+                      </div>
+                    )}
+                    {/* Upload spinner when empty */}
+                    {isProcessingFile && uploadingFile && (!formData.attachments || formData.attachments.length === 0) && (
+                      <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#CBD5E1] rounded-xl p-3 shadow-sm animate-pulse mt-2">
+                        {uploadingFile.type?.startsWith('image/') ? (
+                          <ImageIcon className="w-4 h-4 text-[#64748B] shrink-0" />
+                        ) : (
+                          <FileText className="w-4 h-4 text-[#64748B] shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-[#64748B] truncate">{uploadingFile.name}</p>
+                        </div>
+                        <span className="flex items-center gap-1.5 text-[10px] text-[#4F5AF5] font-semibold shrink-0">
+                          <div className="w-3 h-3 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
+                          Cargando...
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -2048,8 +2202,38 @@ export default function InitiativeForm() {
               </div>
             )}
 
+            {/* ── Countdown Banner (shown when AI finished and summary is about to generate) */}
+            {countdownSeconds !== null && (
+              <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="flex flex-col items-center gap-2 py-3 px-4 bg-gradient-to-r from-[#4F5AF5]/10 via-[#7B84F7]/10 to-[#4F5AF5]/10 border border-[#4F5AF5]/30 rounded-xl">
+                  <div className="flex items-center gap-3 w-full">
+                    <div className="relative w-9 h-9 shrink-0">
+                      <svg className="w-9 h-9 -rotate-90" viewBox="0 0 36 36">
+                        <circle cx="18" cy="18" r="15" fill="none" stroke="#E2E8F0" strokeWidth="3" />
+                        <circle
+                          cx="18" cy="18" r="15" fill="none"
+                          stroke="#4F5AF5" strokeWidth="3"
+                          strokeDasharray={`${2 * Math.PI * 15}`}
+                          strokeDashoffset={`${2 * Math.PI * 15 * (1 - countdownSeconds / 3)}`}
+                          strokeLinecap="round"
+                          className="transition-all duration-1000 ease-linear"
+                        />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#4F5AF5]">
+                        {countdownSeconds}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-[#1E293B]">Preparando resumen…</p>
+                      <p className="text-[10px] text-[#64748B]">En {countdownSeconds}s se generará el resumen con toda la información recopilada.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Input row */}
-            <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+            <form onSubmit={handleSendMessage} className={`flex items-center gap-2 ${countdownSeconds !== null ? 'pointer-events-none opacity-40' : ''}`}>
 
               {/* Attach button */}
               {useAttachments && Object.values(fileTypes).some(t => t.enabled) && (
