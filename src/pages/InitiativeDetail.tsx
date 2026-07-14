@@ -861,7 +861,7 @@ export default function InitiativeDetail() {
     const newHistoryEntry = {
       date: new Date().toISOString(),
       user_name: profile?.name || 'Desconocido',
-      user_role: 'BP TI',
+      user_role: isAdmin ? 'Administrador' : (isBP ? 'BP TI' : 'Key user'),
       action: 'Observada',
       details: `Visto bueno del VP incorrecto: ${voboRejectReason}`,
       snapshot: {
@@ -992,7 +992,7 @@ export default function InitiativeDetail() {
         const newHistoryEntry = {
           date: new Date().toISOString(),
           user_name: profile?.name || 'Desconocido',
-          user_role: 'BP TI',
+          user_role: isAdmin ? 'Administrador' : (isBP ? 'BP TI' : 'Key user'),
           action: 'Observada',
           details: 'Observó la iniciativa con cambios sugeridos.',
           snapshot: {
@@ -2167,7 +2167,7 @@ export default function InitiativeDetail() {
             <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-[#F1F5F9] flex justify-between items-center">
                 <h3 className="text-sm font-bold text-[#1E293B]">BP Asignado</h3>
-                {isBP && (
+                {(isBP || isAdmin) && (
                   <button onClick={() => {
                     setSelectedBP(fd.bp_ti_asignado);
                     setIsEditingBP(true);
@@ -2180,7 +2180,7 @@ export default function InitiativeDetail() {
                 <span className="font-semibold text-[#4F5AF5]">{fd.bp_ti_asignado}</span>
               </div>
             </div>
-          ) : isBP ? (
+          ) : (isBP || isAdmin) ? (
             <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-[#F1F5F9] flex justify-between items-center">
                 <h3 className="text-sm font-bold text-[#1E293B]">Asignar BP</h3>
