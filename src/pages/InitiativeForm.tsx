@@ -1231,7 +1231,12 @@ export default function InitiativeForm() {
       if (["registrador", "solicitante", "vicepresidencia", "direccion"].includes(field.key.toLowerCase())) return;
       
       const val = formData[field.key];
-      const isEmpty = val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0);
+      let isEmpty = val === undefined || val === null || (Array.isArray(val) && val.length === 0);
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed === "" || trimmed === "null" || trimmed === "{}") isEmpty = true;
+      }
+
       if (field.is_required && isEmpty) {
         errors.push(`El campo "${field.label}" es obligatorio.`);
       }
@@ -1258,6 +1263,8 @@ export default function InitiativeForm() {
     const { isValid, errors } = validateAllFields();
     if (!isValid) {
       setFormErrors(errors);
+      showToast("Por favor completa todos los campos obligatorios antes de continuar.", "error");
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     setFormErrors([]);
@@ -1916,6 +1923,23 @@ export default function InitiativeForm() {
                         </span>
                       </div>
                     )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Form Validation Errors */}
+            {formErrors.length > 0 && (
+              <div className="px-8 py-4 border-t border-[#F1F5F9] bg-red-50/50">
+                <div className="flex items-start gap-3 p-4 bg-red-50 rounded-xl border border-red-200">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1 text-sm text-red-700">
+                    <p className="font-bold">Por favor, corrige los siguientes errores:</p>
+                    <ul className="list-disc list-inside text-xs space-y-1 mt-2">
+                      {formErrors.map((err, i) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
               </div>

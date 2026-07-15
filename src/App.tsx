@@ -645,7 +645,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   setShowNavConfirmModal(false);
                   (window as any).isInitiativeProcessInProgress = false;
                   if (pendingNavPath) {
-                    window.location.href = pendingNavPath;
+                    navigate(pendingNavPath);
                   }
                 }}
                 className="flex-grow flex items-center justify-center gap-2 bg-[#EB5F46] hover:bg-[#c94a32] text-white px-4 py-2 text-xs font-semibold rounded-lg transition-colors shadow-md shadow-[#EB5F46]/10"
