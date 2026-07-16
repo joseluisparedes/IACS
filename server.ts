@@ -100,12 +100,14 @@ const startAgentTask = async (role: string, title: string) => {
   return null;
 };
 
-const updateAgentTask = async (id: string | null, progress: number, status: 'completed' | 'in_progress') => {
+const updateAgentTask = async (id: string | null, progress: number, status: 'completed' | 'in_progress', details?: any) => {
   if (!id) return;
   try {
+    const updateData: any = { progress, status };
+    if (details) updateData.details = details;
     await supabase
       .from("agent_logs")
-      .update({ progress, status })
+      .update(updateData)
       .eq("id", id);
   } catch (err) {
     console.error("Error updating agent task:", err);
@@ -330,7 +332,7 @@ Reglas OBLIGATORIAS y proceso de autocrítica (Debes ejecutar estos 3 pasos inte
 1. PASO 1 (Extracción Inicial): Extrae los datos del texto y mapéalos a las claves de campo indicadas. Si no se menciona un campo, déjalo vacío.
 2. PASO 2 (Refinamiento y Auto-Corrección según Guardarrieles y Prompts de Campos):
    - Revisa el valor asignado a cada campo y contrástalo estrictamente contra sus "INSTRUCCIONES ESPECÍFICAS OBLIGATORIAS PARA ESTE CAMPO". Si el valor inicial no cumple con alguna regla (como la del campo "titulo" que exige empezar con verbo en infinitivo), DEBES reescribir el título inicial para que se alinee 100% con esa regla.
-   - Si un campo tiene una advertencia ("warning") pero su información se puede deducir o inferir de manera obvia y lógica a partir del texto del usuario y las reglas de negocio, elimina la advertencia y autocompleta el valor.
+   - REGLA CRÍTICA DE ADVERTENCIAS (WARNINGS): Bajo NINGUNA circunstancia generes un "warning" para un campo si has logrado extraer, deducir o inferir un valor para ese campo. Los "warnings" son ÚNICAMENTE para campos que han quedado completamente vacíos o nulos debido a falta absoluta de información. Si un campo tiene un valor asignado en "values", NO debe existir una clave correspondiente en "warnings".
    - Corrige la redacción, coherencia, ortografía y claridad de todos los campos de texto libre para que se presenten de manera impecable y profesional.
 3. PASO 3 (Generación de Salida): Entrega ÚNICAMENTE el JSON final refinado y corregido, respetando los guardarrieles globales y los prompts específicos. No incluyas explicaciones adicionales fuera del JSON.
 Responde estrictamente en formato JSON con la siguiente estructura:
@@ -358,16 +360,16 @@ Responde estrictamente en formato JSON con la siguiente estructura:
       const parsed = parseAIJSON(rawText);
       console.log("[AI Analyze] Parsed response:", JSON.stringify(parsed, null, 2));
       
-      await updateAgentTask(tOrqId, 100, 'completed');
-      await updateAgentTask(tPoId, 100, 'completed');
-      await updateAgentTask(tRegId, 100, 'completed');
-      await updateAgentTask(tDocId, 100, 'completed');
+      await updateAgentTask(tOrqId, 100, 'completed', { action: "Delegando a agentes especializados", input_length: text.length });
+      await updateAgentTask(tPoId, 100, 'completed', { action: "Extracción de entidades y mapeo", prompt_preview: prompt.substring(0, 300) + "...", ai_response: parsed });
+      await updateAgentTask(tRegId, 100, 'completed', { action: "Análisis de seguridad", model: "gemini-2.5-flash", status: "Seguro" });
+      await updateAgentTask(tDocId, 100, 'completed', { action: "Corrección ortográfica y de estilo", warnings: parsed.warnings });
 
       res.json(parsed);
     } catch (e: any) {
       console.error("Error al analizar texto estructurado:", e.message);
-      await updateAgentTask(tOrqId, 100, 'completed');
-      await updateAgentTask(tPoId, 100, 'completed');
+      await updateAgentTask(tOrqId, 100, 'completed', { error: e.message });
+      await updateAgentTask(tPoId, 100, 'completed', { error: e.message });
       res.status(500).json({ error: "Error al procesar el texto con la IA: " + e.message });
     }
   });
@@ -399,11 +401,11 @@ Responde estrictamente en formato JSON:
 
       const rawText = await callAIForJSON(prompt);
       const parsed = parseAIJSON(rawText);
-      await updateAgentTask(tQAId, 100, 'completed');
+      await updateAgentTask(tQAId, 100, 'completed', { field_validated: label, input_value: value, ai_evaluation: parsed });
       res.json(parsed);
     } catch (e: any) {
       console.error("Error al validar campo:", e.message);
-      await updateAgentTask(tQAId, 100, 'completed');
+      await updateAgentTask(tQAId, 100, 'completed', { error: e.message });
       res.json({ warning: "" });
     }
   });
@@ -422,6 +424,15 @@ Responde estrictamente en formato JSON:
 
   app.delete("/api/fields/:id", async (req, res) => {
     const { id } = req.params;
+    
+    // Check if it's a system field
+    const { data: fieldData, error: fetchError } = await supabase.from("initiative_fields").select("key").eq("id", id).single();
+    if (fetchError) return res.status(500).json({ error: fetchError.message });
+    
+    if (fieldData && ["aprobacin_de_director"].includes(fieldData.key)) {
+      return res.status(403).json({ error: "Este es un campo de sistema y no puede ser eliminado." });
+    }
+
     const { error } = await supabase.from("initiative_fields").delete().eq("id", id);
     if (error) return res.status(500).json({ error: error.message });
     res.json({ success: true });
@@ -760,12 +771,14 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
 }`;
       const rawChat = await callAIForJSON(chatPrompt);
       const parsed = parseAIJSON(rawChat);
-      await updateAgentTask(tOrqId, 100, 'completed');
-      await updateAgentTask(tPoId, 100, 'completed');
-      await updateAgentTask(tRegId, 100, 'completed');
+      await updateAgentTask(tOrqId, 100, 'completed', { action: "Orquestación de la conversación", user_message: message });
+      await updateAgentTask(tPoId, 100, 'completed', { action: "Análisis de contexto", ai_response: parsed });
+      await updateAgentTask(tRegId, 100, 'completed', { action: "Validación de tokens usados" });
       res.json({ text: parsed.text, options: parsed.options || [] });
     } catch (e: any) {
       console.error("Gemini API error, falling back to mock:", e.message);
+      await updateAgentTask(tOrqId, 100, 'completed', { error: e.message });
+      await updateAgentTask(tPoId, 100, 'completed', { error: e.message });
       res.json({
         text: getMockChatResponse(history, initialData, message),
         options: getMockOptions(history, message)

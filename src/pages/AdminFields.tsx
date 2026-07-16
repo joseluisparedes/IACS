@@ -6,7 +6,7 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, Trash2, EyeOff, Eye, Settings2, X, Save, Pencil, GripVertical, Bot, ListTodo, Paperclip, FileText, Image as ImageIcon } from "lucide-react";
+import { Plus, Trash2, EyeOff, Eye, Settings2, X, Save, Pencil, GripVertical, Bot, ListTodo, Paperclip, FileText, Image as ImageIcon, Lock } from "lucide-react";
 import { FieldDefinition, FieldType } from "@/src/types";
 
 type PanelMode = "create" | "edit";
@@ -24,6 +24,8 @@ const FIELD_TYPE_COLORS: Record<FieldType, string> = {
   select: "bg-violet-50 text-violet-700 border-violet-100",
   file: "bg-emerald-50 text-emerald-700 border-emerald-100",
 };
+
+const SYSTEM_FIELDS = ["aprobacin_de_director"];
 
 const defaultFileOptions = () => ({
   fileTypes: {
@@ -117,7 +119,12 @@ function SortableRow({ field, index, onToggleVisible, onEdit, onDelete, deleting
         <button onClick={() => onToggleVisible(field)} title={field.is_visible ? "Ocultar" : "Mostrar"} className="p-2 rounded-lg text-[#94A3B8] hover:text-amber-600 hover:bg-amber-50 transition-colors">
           {field.is_visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
         </button>
-        <button onClick={() => onDelete(field.id)} disabled={deletingId === field.id} title="Eliminar" className="p-2 rounded-lg text-[#94A3B8] hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40">
+        <button 
+          onClick={() => onDelete(field.id)} 
+          disabled={deletingId === field.id || SYSTEM_FIELDS.includes(field.key)} 
+          title={SYSTEM_FIELDS.includes(field.key) ? "Campo de sistema, no se puede eliminar" : "Eliminar"} 
+          className={`p-2 rounded-lg transition-colors ${SYSTEM_FIELDS.includes(field.key) ? "text-gray-300 cursor-not-allowed" : "text-[#94A3B8] hover:text-red-600 hover:bg-red-50 disabled:opacity-40"}`}
+        >
           {deletingId === field.id
             ? <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
             : <Trash2 className="w-4 h-4" />}
@@ -139,7 +146,7 @@ export default function AdminFields() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [activeSection, setActiveSection] = useState<"form" | "ai">("form");
+  const [activeSection, setActiveSection] = useState<"form" | "ai" | "system">("form");
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -217,7 +224,12 @@ export default function AdminFields() {
     setSaving(true);
     try {
       if (panelMode === "create") {
-        const sectionFields = fields.filter(f => (f.section || "form") === activeSection);
+        const sectionFields = fields.filter(f => {
+          const s = f.section || "form";
+          if (activeSection === "system") return SYSTEM_FIELDS.includes(f.key);
+          if (activeSection === "form") return s === "form" && !SYSTEM_FIELDS.includes(f.key);
+          return s === activeSection && !SYSTEM_FIELDS.includes(f.key);
+        });
         const maxOrder = sectionFields.reduce((m, f) => Math.max(m, f.sort_order), -1);
         const payload = { ...form, options: payloadOptions, sort_order: maxOrder + 1, section: activeSection };
         const res = await fetch("/api/fields", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -260,7 +272,12 @@ export default function AdminFields() {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const sectionFields = fields
-      .filter(f => (f.section || "form") === activeSection)
+      .filter(f => {
+        const s = f.section || "form";
+        if (activeSection === "system") return SYSTEM_FIELDS.includes(f.key);
+        if (activeSection === "form") return s === "form" && !SYSTEM_FIELDS.includes(f.key);
+        return s === activeSection && !SYSTEM_FIELDS.includes(f.key);
+      })
       .sort((a, b) => a.sort_order - b.sort_order);
     const oldIdx = sectionFields.findIndex(f => f.id === active.id);
     const newIdx = sectionFields.findIndex(f => f.id === over.id);
@@ -282,7 +299,12 @@ export default function AdminFields() {
   };
 
   const displayedFields = fields
-    .filter(f => (f.section || "form") === activeSection)
+    .filter(f => {
+      const s = f.section || "form";
+      if (activeSection === "system") return SYSTEM_FIELDS.includes(f.key);
+      if (activeSection === "form") return s === "form" && !SYSTEM_FIELDS.includes(f.key);
+      return s === activeSection && !SYSTEM_FIELDS.includes(f.key);
+    })
     .sort((a, b) => a.sort_order - b.sort_order);
 
   return (
@@ -322,6 +344,15 @@ export default function AdminFields() {
           <Bot className="w-4 h-4" />
           Preguntas IA (Resumen)
         </button>
+        <button
+          onClick={() => setActiveSection("system")}
+          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-colors ${
+            activeSection === "system" ? "border-[#4F5AF5] text-[#4F5AF5]" : "border-transparent text-[#64748B] hover:text-[#1E293B]"
+          }`}
+        >
+          <Lock className="w-4 h-4" />
+          Campos de Sistema
+        </button>
       </div>
 
       {/* Stats */}
@@ -342,7 +373,7 @@ export default function AdminFields() {
       <div className="bg-white border border-[#E2E8F0] rounded-2xl shadow-sm overflow-hidden">
         <div className="px-5 py-3.5 border-b border-[#F1F5F9] flex items-center justify-between bg-[#F8FAFC]">
           <h3 className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">
-            {activeSection === "form" ? "Campos Iniciales" : "Campos a solicitar por IA"}
+            {activeSection === "form" ? "Campos Iniciales" : activeSection === "ai" ? "Campos a solicitar por IA" : "Campos Fijos de Sistema"}
           </h3>
           <p className="text-xs text-[#94A3B8]">Arrastra ⠿ para reordenar</p>
         </div>

@@ -1980,9 +1980,11 @@ export default function InitiativeDetail() {
               <h3 className="text-sm font-bold text-[#1E293B]">Datos del Formulario</h3>
             </div>
             <div className="px-6 py-2">
-              {fieldsConfig
-                .filter(f => f.is_visible && (f.section || 'form') === 'form')
-                .map(f => {
+              {(() => {
+                const normalFields = fieldsConfig.filter(f => f.is_visible && (f.section || 'form') === 'form' && f.key !== 'aprobacin_de_director');
+                const voboField = fieldsConfig.find(f => f.is_visible && f.key === 'aprobacin_de_director');
+                const allFields = voboField ? [...normalFields, voboField] : normalFields;
+                return allFields.map(f => {
                   const k = f.key;
                   const v = getValueCaseInsensitive(fd, k) ?? "";
                   return (
@@ -2002,7 +2004,8 @@ export default function InitiativeDetail() {
                       onConfirmedChange={(checked: boolean) => setEditedConfirmedFields(prev => ({ ...prev, [k]: checked }))}
                     />
                   );
-                })}
+                })
+              })()}
             </div>
           </div>
 
@@ -2141,14 +2144,14 @@ export default function InitiativeDetail() {
             </div>
           )}
 
-          {/* Declaración de Responsabilidad de Director */}
+          {/* Declaración de Responsabilidad */}
           {fd._director_declaration_accepted && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex gap-3 shadow-sm shadow-emerald-500/5">
               <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Declaración de Responsabilidad</h4>
                 <p className="text-xs text-emerald-700 leading-relaxed font-semibold">
-                  El solicitante declaró bajo su responsabilidad que la información ingresada es verídica y que la iniciativa cuenta con el conocimiento y aprobación de, como mínimo, su <span className="font-bold">Director</span>.
+                  El solicitante declaró su conformidad con la información mostrada, siendo consciente de lo que ha registrado y aceptado.
                 </p>
               </div>
             </div>

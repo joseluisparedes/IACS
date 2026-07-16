@@ -338,20 +338,32 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
     );
   }
 
-  if (["titulo", "descripcion", "objetivo", "beneficio", "situacion", "proceso"].some(kw => field.key.toLowerCase().includes(kw))) {
+  if (field.field_type === "text") {
     return (
       <textarea
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={e => {
+          e.target.style.height = 'auto';
+          e.target.style.height = e.target.scrollHeight + 'px';
+          onChange(e.target.value);
+        }}
         onBlur={onBlur ? () => onBlur(value) : undefined}
         required={field.is_required}
         disabled={disabled}
         placeholder={`Ingresa ${field.label.toLowerCase()}...`}
-        className={`${inputCls} min-h-[90px] resize-y py-2.5 leading-relaxed`}
+        className={`${inputCls} min-h-[42px] overflow-hidden resize-none py-2.5 leading-relaxed`}
+        style={{ height: value ? 'auto' : undefined }}
+        ref={(el) => {
+          if (el) {
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+          }
+        }}
       />
     );
   }
 
+  // Fallback for any other type not explicitly handled (though text should cover most strings)
   return <input type="text" value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur ? () => onBlur(value) : undefined} required={field.is_required} disabled={disabled} placeholder={`Ingresa ${field.label.toLowerCase()}...`} className={inputCls} />;
 }
 
@@ -627,9 +639,11 @@ export default function InitiativeForm() {
           setFileTypes(features.fileTypes);
         }
         
-        const visibleFormFields = data.filter((f: FieldDefinition) => f.is_visible && (f.section || 'form') === 'form');
+        const normalFormFields = data.filter((f: FieldDefinition) => f.is_visible && (f.section || 'form') === 'form' && f.key !== 'aprobacin_de_director');
+        const voboField = data.find((f: FieldDefinition) => f.is_visible && f.key === 'aprobacin_de_director');
+        const allVisibleFormFields = voboField ? [...normalFormFields, voboField] : normalFormFields;
         const visibleAiFields = data.filter((f: FieldDefinition) => f.is_visible && f.section === 'ai');
-        setFields(visibleFormFields);
+        setFields(allVisibleFormFields);
         setAiFields(visibleAiFields);
         
         const draft = draftRes?.data;
@@ -686,7 +700,7 @@ export default function InitiativeForm() {
           if (!restored) {
             // Fresh session
             const initial: Record<string, any> = {};
-            visibleFormFields.forEach((f: FieldDefinition) => {
+            allVisibleFormFields.forEach((f: FieldDefinition) => {
               if (f.field_type === "select") {
                 initial[f.key] = f.allow_multiple ? [] : "";
               } else {
@@ -1957,7 +1971,7 @@ export default function InitiativeForm() {
                     className="w-4 h-4 mt-0.5 rounded border-[#E2E8F0] text-[#4F5AF5] focus:ring-[#4F5AF5] transition-colors cursor-pointer"
                   />
                   <label htmlFor="disclaimer-checkbox" className="text-xs text-amber-900 leading-relaxed select-none cursor-pointer">
-                    <span className="font-bold">Declaración de Responsabilidad:</span> Confirmo que toda la información ingresada y analizada es correcta, y declaro bajo mi responsabilidad que la solicitud cuenta con el conocimiento y aprobación de, como mínimo, mi <span className="font-semibold">Director</span>.
+                    <span className="font-bold">Declaración de Responsabilidad:</span> Estoy conforme con la información mostrada y soy consciente de la información que estoy registrando y aceptando.
                   </label>
                 </div>
               </div>

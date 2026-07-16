@@ -1021,11 +1021,12 @@ function GuardrailsTab({ entries, onCreate, onUpdate, onDelete, onToggle, setEnt
               {entries.map(entry => (
                 editing?.id === entry.id ? (
                   <div key={entry.id} className="flex gap-2 p-3 rounded-xl border border-[#4F5AF5]/40 bg-[#EEF2FF]">
-                    <input
+                    <textarea
                       value={editing.text}
                       onChange={e => setEditing(prev => prev ? { ...prev, text: e.target.value } : null)}
                       autoFocus
-                      className="flex-1 border border-[#E2E8F0] bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
+                      rows={2}
+                      className="flex-1 border border-[#E2E8F0] bg-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] resize-y min-h-[38px]"
                     />
                     <button onClick={() => { onUpdate(entry.id, { content: editing.text }); setEditing(null); }} className="bg-[#4F5AF5] text-white px-3 py-1.5 rounded-lg text-sm font-semibold">Guardar</button>
                     <button onClick={() => setEditing(null)} className="border border-[#E2E8F0] bg-white px-3 py-1.5 rounded-lg text-sm font-semibold text-[#64748B]">Cancelar</button>
