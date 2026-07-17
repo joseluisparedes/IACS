@@ -6,8 +6,9 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Plus, Trash2, EyeOff, Eye, Settings2, X, Save, Pencil, GripVertical, Bot, ListTodo, Paperclip, FileText, Image as ImageIcon, Lock } from "lucide-react";
+import { Plus, Trash2, EyeOff, Eye, Settings2, X, Save, Pencil, GripVertical, Bot, ListTodo, Paperclip, FileText, Image as ImageIcon, Lock, ShieldAlert } from "lucide-react";
 import { FieldDefinition, FieldType } from "@/src/types";
+import { supabase } from "@/src/lib/supabase";
 
 type PanelMode = "create" | "edit";
 
@@ -147,6 +148,25 @@ export default function AdminFields() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [activeSection, setActiveSection] = useState<"form" | "ai" | "system">("form");
+
+  const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
+  const [loadingMaintenance, setLoadingMaintenance] = useState(true);
+
+  // Fetch Maintenance Mode
+  useEffect(() => {
+    const fetchMaintenance = async () => {
+      const { data } = await supabase.from('site_settings').select('maintenance_mode').eq('id', 1).single();
+      if (data) setIsMaintenanceMode(data.maintenance_mode);
+      setLoadingMaintenance(false);
+    };
+    fetchMaintenance();
+  }, []);
+
+  const toggleMaintenanceMode = async () => {
+    const newVal = !isMaintenanceMode;
+    setIsMaintenanceMode(newVal);
+    await supabase.from('site_settings').update({ maintenance_mode: newVal }).eq('id', 1);
+  };
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -318,10 +338,26 @@ export default function AdminFields() {
           </h2>
           <p className="text-sm text-[#64748B] mt-1">Configura los datos iniciales y los que la IA solicitará luego.</p>
         </div>
-        <button onClick={openCreate} className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 hover:-translate-y-px">
-          <Plus className="w-4 h-4" />
-          Nuevo Campo
-        </button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 bg-white border border-[#E2E8F0] px-4 py-2 rounded-lg shadow-sm">
+            <ShieldAlert className={`w-5 h-5 ${isMaintenanceMode ? 'text-red-500' : 'text-gray-400'}`} />
+            <div>
+              <p className="text-xs font-bold text-[#1E293B]">Modo Mantenimiento</p>
+              <p className="text-[10px] text-[#64748B]">{isMaintenanceMode ? 'Activo (Bloquea accesos)' : 'Inactivo'}</p>
+            </div>
+            <div className="ml-2">
+              {loadingMaintenance ? (
+                <div className="w-8 h-4 bg-gray-200 rounded-full animate-pulse" />
+              ) : (
+                <Toggle checked={isMaintenanceMode} onChange={toggleMaintenanceMode} color="bg-red-500" />
+              )}
+            </div>
+          </div>
+          <button onClick={openCreate} className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 hover:-translate-y-px">
+            <Plus className="w-4 h-4" />
+            Nuevo Campo
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

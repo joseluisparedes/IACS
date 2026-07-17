@@ -6,6 +6,8 @@ import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
 import InitiativeDetail from './pages/InitiativeDetail';
 import AdminFields from './pages/AdminFields';
+import AdminPDFTemplate from './pages/AdminPDFTemplate';
+import ConfigFields from './pages/ConfigFields';
 import AgentBoard from './pages/AgentBoard';
 import UserManagement from './pages/UserManagement';
 import VPManagement from './pages/VPManagement';
@@ -15,10 +17,11 @@ import EmailLogs from './pages/EmailLogs';
 import BulkUpload from './pages/BulkUpload';
 import StateFlow from './pages/StateFlow';
 import C4Architecture from './pages/C4Architecture';
+import MaintenanceScreen from './components/MaintenanceScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
 
-const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura'];
+const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura', '/admin/pdf-template'];
 
 function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -174,6 +177,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       items: [
         { name: 'Flujo de Estados', path: '/admin/flujo-estados', icon: GitBranch },
         { name: 'Campos del Formulario', path: '/admin', icon: Settings2 },
+        { name: 'Plantilla PDF', path: '/admin/pdf-template', icon: Layers },
         { name: 'Arquitectura C4', path: '/admin/arquitectura', icon: Layers },
       ]
     },
@@ -702,9 +706,30 @@ function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useAuth();
+  const { session, profile, loading } = useAuth();
+  const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(true);
 
-  if (loading) {
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase.from('site_settings').select('maintenance_mode').eq('id', 1).single();
+      if (data) {
+        setIsMaintenanceMode(data.maintenance_mode);
+      }
+      setMaintenanceLoading(false);
+    };
+    fetchSettings();
+
+    const channel = supabase.channel('settings_channel')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'site_settings', filter: 'id=eq.1' }, (payload) => {
+        setIsMaintenanceMode(payload.new.maintenance_mode);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  if (loading || maintenanceLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F0F4FF]">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#4F5AF5] border-t-transparent"></div>
@@ -714,6 +739,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!session) {
     return <Navigate to="/login" replace />;
+  }
+
+  const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
+  if (isMaintenanceMode && !isAdmin) {
+    return <MaintenanceScreen />;
   }
 
   return <Layout>{children}</Layout>;
@@ -745,6 +775,7 @@ export default function App() {
           <Route path="/bandeja" element={<ProtectedRoute><ApprovalBoard /></ProtectedRoute>} />
           <Route path="/iniciativa/:id" element={<ProtectedRoute><InitiativeDetail /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AdminFields /></ProtectedRoute>} />
+          <Route path="/admin/pdf-template" element={<ProtectedRoute><AdminPDFTemplate /></ProtectedRoute>} />
           <Route path="/admin/estructura" element={<ProtectedRoute><VPManagement /></ProtectedRoute>} />
           <Route path="/admin/agentes" element={<ProtectedRoute><AgentBoard /></ProtectedRoute>} />
           <Route path="/admin/usuarios" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />

@@ -3,6 +3,8 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check, HelpCircle, Eye } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
+import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
+import { useReactToPrint } from "react-to-print";
 
 const STATUS_STYLE: Record<string, string> = {
   "Pendiente de aprobación": "bg-[#EEF2FF] text-[#4F5AF5]",
@@ -169,7 +171,6 @@ function Row({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-
   const isList = Array.isArray(value);
 
   // Parse if it's a file JSON string
@@ -674,6 +675,14 @@ export default function InitiativeDetail() {
   const [fieldsConfig, setFieldsConfig] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null);
+  const [pdfTemplate, setPdfTemplate] = useState<string>("");
+  
+  const pdfRef = useRef<HTMLDivElement>(null);
+
+  const generatePDF = useReactToPrint({
+    contentRef: pdfRef,
+    documentTitle: `Informe_Ejecutivo_${initiative?.id?.substring(0,8)}`,
+  });
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'error') => {
     setToast({ message, type });
@@ -775,11 +784,15 @@ export default function InitiativeDetail() {
       fetch("/api/fields").then(r => r.json()),
       supabase.from('vps').select('id, name'),
       supabase.from('direcciones').select('id, name, vp_id'),
-      supabase.from('allowed_users').select('name, user_roles_whitelist(*)')
+      supabase.from('allowed_users').select('name, user_roles_whitelist(*)'),
+      supabase.from('site_settings').select('pdf_template').eq('id', 1).single()
     ])
-      .then(([data, fieldsData, vpsRes, dirRes, usersRes]) => {
+      .then(([data, fieldsData, vpsRes, dirRes, usersRes, settingsRes]) => {
         const found = Array.isArray(data) ? data.find((i: any) => i.id === id) : null;
         setInitiative(found ?? null);
+        if (settingsRes.data?.pdf_template) {
+          setPdfTemplate(settingsRes.data.pdf_template);
+        }
 
         if (Array.isArray(fieldsData)) {
           setFieldsConfig(fieldsData);
@@ -1515,6 +1528,16 @@ export default function InitiativeDetail() {
               >
                 <Ban className="w-4 h-4" />
                 Desestimar
+              </button>
+            )}
+
+            {initiative?.status === 'En demanda' && (
+              <button
+                onClick={generatePDF}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-blue-500/20"
+              >
+                <FileText className="w-4 h-4" />
+                Generar Informe (PDF)
               </button>
             )}
 
@@ -2477,6 +2500,14 @@ export default function InitiativeDetail() {
           </div>
         </div>
       )}
+      
+      {/* Footer Area with empty space */}
+      <div className="h-20" />
+      
+      {/* Componente Oculto para PDF */}
+      <div className="hidden">
+        <ExecutiveReportPDF ref={pdfRef} initiative={initiative} template={pdfTemplate} />
+      </div>
     </div>
   );
 }
