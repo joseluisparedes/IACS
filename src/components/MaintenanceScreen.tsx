@@ -24,7 +24,9 @@ export default function MaintenanceScreen() {
             onClick={async () => {
               const { supabase } = await import('../lib/supabase');
               await supabase.auth.signOut();
-              window.location.href = '/login';
+              const baseUrl = (import.meta as any).env.BASE_URL || '/';
+              const targetUrl = baseUrl.endsWith('/') ? `${baseUrl}login` : `${baseUrl}/login`;
+              window.location.href = targetUrl;
             }}
             className="mt-4 flex items-center justify-center w-full gap-2 px-4 py-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg shadow-sm hover:bg-indigo-50 font-semibold text-sm transition-colors"
           >
