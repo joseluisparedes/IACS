@@ -203,7 +203,7 @@ function getMockOptions(history: any[], message: string): string[] {
 function getMockSummaryResponse(initialData: any) {
   const area = Object.values(initialData)[0] || "la organización";
   return {
-    titulo: `Iniciativa de mejora para ${area}`,
+    titulo: `Automatización y Digitalización de Procesos en ${area}`,
     objetivo: `Implementar una solución digital que optimice el flujo de trabajo del área de ${area}, reduciendo tiempos y errores manuales.`,
     tipo_iniciativa: "Automatización de procesos",
     descripcion_de_la_necesidad: "El proceso actual es manual, lento y propenso a errores, lo que genera reprocesos y baja visibilidad en tiempo real de los indicadores clave.",
@@ -378,6 +378,30 @@ Responde estrictamente en formato JSON con la siguiente estructura:
     const { fieldKey, value, label, context } = req.body;
     if (value === undefined || value === null || String(value).trim() === "") {
       return res.json({ warning: `Falta información: Por favor, completa este campo.` });
+    }
+
+    const keyLower = String(fieldKey || "").toLowerCase();
+    const labelLower = String(label || "").toLowerCase();
+
+    // Check title quality for title fields
+    if (keyLower === "titulo" || keyLower === "titulo_de_la_necesidad" || labelLower.includes("título") || labelLower.includes("titulo")) {
+      const valStr = String(value).trim();
+      const genericPatterns = [
+        /^\s*iniciativa\s+de\s+mejora(\s+para|\s+de)?\s*/i,
+        /^\s*iniciativa\s+para\s*/i,
+        /^\s*nueva\s+iniciativa/i,
+        /^\s*iniciativa\s+sin\s+t[ií]tulo/i,
+        /^\s*mejora\s+para\s*/i,
+        /^\s*proyecto\s+de\s+mejora/i,
+        /^\s*prueba/i,
+        /^\s*test/i,
+      ];
+      const words = valStr.split(/\s+/).filter(Boolean);
+      if (valStr.length < 10 || (genericPatterns.some(p => p.test(valStr)) && words.length <= 5)) {
+        return res.json({ 
+          warning: "El título es demasiado genérico o corto. Ingresa un título concreto y descriptivo del proyecto (ej: 'Automatización del proceso de barrido de contactos inalcanzables')." 
+        });
+      }
     }
 
     const tQAId = await startAgentTask("Tester", `Validando campo: ${label}`);
@@ -1081,7 +1105,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
 
     const dynamicSchema = aiFields && aiFields.length > 0
       ? aiFields.map((f: any) => `  "${f.key}": "string - ${f.label}${f.field_type === 'select' && f.options?.length ? ` (Elige 1 de: ${f.options.join(', ')})` : ''}"`).join(",\n")
-      : `  "titulo": "string - nombre corto descriptivo",\n  "objetivo": "string - objetivo principal"`;
+      : `  "titulo": "string - nombre concreto, profesional y altamente descriptivo del proyecto o solución",\n  "objetivo": "string - objetivo principal"`;
 
     try {
       const summarizePrompt = `Eres un Business Analyst Senior. A partir del siguiente levantamiento de información, genera un resumen estructurado en formato JSON estrictamente.
@@ -1094,7 +1118,11 @@ ${history.map((h: any) => `${h.role === "user" ? "Solicitante" : "Business Analy
 Devuelve SOLO un JSON válido con esta estructura exacta (sin texto adicional). Asegúrate de llenar todos los campos solicitados en la estructura:
 {
 ${dynamicSchema}
-}`;
+}
+
+REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
+- El título DEBE ser un nombre profesional, concreto y específico del proyecto o solución de TI/negocio (ej: "Automatización del proceso de barrido de contactos inalcanzables", "Portal web autogestionable para postulantes").
+- ESTÁ ESTRICTAMENTE PROHIBIDO generar títulos genéricos, vagos o frases de relleno como "Iniciativa de mejora para...", "Nueva iniciativa", "Sistema de mejora", "Mejora para UPN" o similares. Sintetiza el propósito real expuesto por el usuario.`;
       const rawSummary = await callAIForJSON(summarizePrompt);
       res.json(parseAIJSON(rawSummary));
     } catch (e: any) {

@@ -102,6 +102,45 @@ function MultiSelectDropdown({ options, selected, onChange, disabled, placeholde
   );
 }
 
+// ─── Title Quality Validator ──────────────────────────────────────────────────
+function validateTitleQuality(title: string | undefined | null): { isValid: boolean; error?: string } {
+  if (!title || typeof title !== 'string') {
+    return { isValid: false, error: 'El campo "Título" es obligatorio.' };
+  }
+
+  const trimmed = title.trim();
+  if (trimmed.length < 10) {
+    return { isValid: false, error: 'El título es demasiado corto (mínimo 10 caracteres). Ingresa un título descriptivo del proyecto.' };
+  }
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length < 3) {
+    return { isValid: false, error: 'El título debe contener al menos 3 palabras descriptivas del proyecto o necesidad.' };
+  }
+
+  const genericPatterns = [
+    /^\s*iniciativa\s+de\s+mejora(\s+para|\s+de)?\s*/i,
+    /^\s*iniciativa\s+para\s*/i,
+    /^\s*nueva\s+iniciativa/i,
+    /^\s*iniciativa\s+sin\s+t[ií]tulo/i,
+    /^\s*mejora\s+para\s*/i,
+    /^\s*proyecto\s+de\s+mejora/i,
+    /^\s*solicitud\s+de\s+mejora/i,
+    /^\s*prueba/i,
+    /^\s*test/i,
+  ];
+
+  const isGeneric = genericPatterns.some(pattern => pattern.test(trimmed));
+  if (isGeneric && words.length <= 5) {
+    return { 
+      isValid: false, 
+      error: `El título "${trimmed}" es demasiado genérico. Por favor especifica el proyecto o solución concreta (ej: "Automatización del proceso de barrido de contactos inalcanzables").` 
+    };
+  }
+
+  return { isValid: true };
+}
+
 // ─── Dynamic field ────────────────────────────────────────────────────────────
 function DynamicField({ field, value, onChange, parentValue, disabled, optionsOverride, onUploadingChange, onBlur, onPreview }: {
   field: FieldDefinition; value: string; onChange: (v: string) => void; parentValue?: string;
@@ -125,8 +164,21 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
     }
   }
 
-  if (field.field_type === "date")
-    return <input type="date" value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur ? () => onBlur(value) : undefined} required={field.is_required} disabled={disabled} className={inputCls} />;
+  if (field.field_type === "date") {
+    let dateVal = typeof value === "string" ? value.trim() : "";
+    if (dateVal) {
+      const dmyMatch = dateVal.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+      if (dmyMatch) {
+        dateVal = `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+      } else {
+        const ymdMatch = dateVal.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+        if (ymdMatch) {
+          dateVal = `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
+        }
+      }
+    }
+    return <input type="date" value={dateVal} onChange={e => onChange(e.target.value)} onBlur={onBlur ? () => onBlur(dateVal) : undefined} required={field.is_required} disabled={disabled} className={inputCls} />;
+  }
   
   if (field.field_type === "select") {
     let options = optionsOverride || field.options;
@@ -1257,6 +1309,15 @@ export default function InitiativeForm() {
       if (field.requires_confirmation && !isEmpty && !confirmedFields[field.key]) {
         errors.push(`Debes confirmar que la información mostrada para el campo "${field.label}" es correcta.`);
       }
+
+      // Check title quality for title fields
+      const isTitleField = field.key.toLowerCase() === 'titulo' || field.key.toLowerCase() === 'titulo_de_la_necesidad' || field.label.toLowerCase().includes('título') || field.label.toLowerCase().includes('titulo');
+      if (isTitleField && !isEmpty) {
+        const titleRes = validateTitleQuality(val);
+        if (!titleRes.isValid && titleRes.error) {
+          errors.push(titleRes.error);
+        }
+      }
     });
 
     // Check if there are any active warnings shown
@@ -1751,6 +1812,12 @@ export default function InitiativeForm() {
                           onBlur={(val) => validateField(field.key, typeof val === 'string' ? val : (formData[field.key] ?? ""), field.label)}
                           onPreview={setPreviewFile}
                         />
+                        {(field.key.toLowerCase() === 'titulo' || field.key.toLowerCase() === 'titulo_de_la_necesidad' || field.label.toLowerCase().includes('título') || field.label.toLowerCase().includes('titulo')) && (formData[field.key] !== undefined && formData[field.key] !== "") && !validateTitleQuality(formData[field.key]).isValid && (
+                          <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg flex items-start gap-2 font-medium">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <span>{validateTitleQuality(formData[field.key]).error}</span>
+                          </div>
+                        )}
                         {field.requires_confirmation && (formData[field.key] !== undefined && formData[field.key] !== "") && (
                           <div className={`mt-2 flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all ${confirmedFields[field.key] ? 'bg-emerald-50/50 border-emerald-200 text-emerald-800 shadow-sm shadow-emerald-100/50' : 'bg-amber-50/30 border-amber-200/60 text-[#64748B]'}`}>
                             <input 
