@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2 } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2, FileText, Network, Building2 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
 import InitiativeDetail from './pages/InitiativeDetail';
 import AdminFields from './pages/AdminFields';
 import AdminPDFTemplate from './pages/AdminPDFTemplate';
-import ConfigFields from './pages/ConfigFields';
 import AgentBoard from './pages/AgentBoard';
 import UserManagement from './pages/UserManagement';
 import VPManagement from './pages/VPManagement';
@@ -161,14 +160,14 @@ function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     ...(isRegistrador || isAdmin ? [{ name: 'Nueva necesidad', path: '/', icon: PlusCircle }] : []),
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { name: 'Bandeja de Aprobación', path: '/bandeja', icon: Inbox },
+    { name: 'Bandeja de Revisión', path: '/bandeja', icon: Inbox },
   ];
 
   const adminGroups = [
     {
       name: 'Organización y Accesos',
       items: [
-        { name: 'Estructura Organizativa', path: '/admin/estructura', icon: Settings2 },
+        { name: 'Estructura Organizativa', path: '/admin/estructura', icon: Building2 },
         { name: 'Gestión de Usuarios', path: '/admin/usuarios', icon: ShieldAlert },
       ]
     },
@@ -177,8 +176,8 @@ function Layout({ children }: { children: React.ReactNode }) {
       items: [
         { name: 'Flujo de Estados', path: '/admin/flujo-estados', icon: GitBranch },
         { name: 'Campos del Formulario', path: '/admin', icon: Settings2 },
-        { name: 'Plantilla PDF', path: '/admin/pdf-template', icon: Layers },
-        { name: 'Arquitectura C4', path: '/admin/arquitectura', icon: Layers },
+        { name: 'Plantilla PDF', path: '/admin/pdf-template', icon: FileText },
+        { name: 'Arquitectura C4', path: '/admin/arquitectura', icon: Network },
       ]
     },
     {
@@ -524,22 +523,22 @@ function Layout({ children }: { children: React.ReactNode }) {
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${adminOpen ? 'rotate-180' : ''}`} />
                 </button>
 
-                <div className={`overflow-hidden transition-all duration-200 ease-in-out ${adminOpen ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <div className="pt-1 pl-2 space-y-3 pb-2">
+                <div className={`overflow-hidden transition-all duration-300 ease-in-out ${adminOpen ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="pt-1 pl-1 space-y-2 pb-2">
                     {adminGroups.map((group) => {
                       const isExpanded = !!expandedGroups[group.name];
                       return (
-                        <div key={group.name} className="space-y-1">
+                        <div key={group.name} className="space-y-0.5">
                           <button
                             onClick={() => toggleGroup(group.name)}
-                            className="w-full flex items-center justify-between text-[9px] uppercase font-bold text-[#9ca3af] tracking-wider px-3 py-1.5 mt-1 hover:text-[#1a1a2e] transition-colors"
+                            className="w-full flex items-center justify-between text-[10px] uppercase font-bold text-[#9ca3af] tracking-wider px-3 py-1.5 mt-1 hover:text-[#1a1a2e] transition-colors rounded-md hover:bg-[#f8fafc]"
                           >
-                            <span>{group.name}</span>
-                            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            <span className="truncate">{group.name}</span>
+                            <ChevronDown className={`w-3 h-3 transition-transform duration-200 shrink-0 ${isExpanded ? 'rotate-180' : ''}`} />
                           </button>
                           
-                          <div className={`overflow-hidden transition-all duration-200 ease-in-out ${isExpanded ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
-                            <div className="space-y-1 pl-1 py-1">
+                          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                            <div className="space-y-0.5 pl-2 py-0.5">
                               {group.items.map((item) => {
                                 const Icon = item.icon;
                                 const active = location.pathname === item.path;
@@ -547,14 +546,14 @@ function Layout({ children }: { children: React.ReactNode }) {
                                   <Link
                                     key={item.path}
                                     to={item.path}
-                                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                    className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
                                       active
-                                        ? 'bg-[#fff0ed] text-[#EB5F46] shadow-sm'
-                                        : 'text-[#4a5568] hover:bg-[#f7f8fc] hover:text-[#1a1a2e]'
+                                        ? 'bg-[#fff0ed] text-[#EB5F46] font-bold shadow-xs'
+                                        : 'text-[#4a5568] hover:bg-[#f7f8fc] hover:text-[#1a1a2e] font-medium'
                                     }`}
                                   >
-                                    <Icon className="w-4 h-4 shrink-0" />
-                                    {item.name}
+                                    <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[#EB5F46]' : 'text-slate-400'}`} />
+                                    <span className="truncate leading-snug">{item.name}</span>
                                   </Link>
                                 );
                               })}
