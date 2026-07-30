@@ -570,30 +570,30 @@ function Layout({ children }: { children: React.ReactNode }) {
 
           {/* User */}
           <div className="p-4 border-t border-[#e4e6ea]">
-            <div className="flex items-center gap-3 px-1 mb-3">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#EB5F46] to-[#0D436C] flex items-center justify-center text-xs font-bold text-white shrink-0 uppercase shadow-md shadow-[#EB5F46]/10">
+            <div className="flex items-start gap-3 px-1 mb-3">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#EB5F46] to-[#0D436C] flex items-center justify-center text-xs font-bold text-white shrink-0 uppercase shadow-md shadow-[#EB5F46]/10 mt-0.5">
                 {userInitials}
               </div>
-              <div className="overflow-hidden flex-1">
-                <p className="text-sm font-semibold text-[#1a1a2e] truncate">{userName}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-[#1a1a2e] leading-snug break-words" title={userName}>{userName}</p>
                 {formattedRoles.length > 0 ? (
                   <button 
                     onClick={() => setShowRolesModal(true)}
-                    className="text-[10px] text-[#EB5F46] hover:text-[#c94a32] truncate uppercase text-left w-full block mt-0.5"
+                    className="text-[10px] text-[#EB5F46] hover:text-[#c94a32] uppercase text-left w-full block mt-1"
                     title="Ver detalles de los roles"
                   >
                     <div className="flex flex-col gap-0.5">
                       {isAdmin ? (
-                        <span className="underline">Admin</span>
+                        <span className="underline font-semibold">Admin</span>
                       ) : (
                         formattedRoles.map((r: any, idx: number) => (
-                          <span key={idx} className="underline truncate leading-tight">{r}</span>
+                          <span key={idx} className="underline font-semibold leading-tight block break-words">{r}</span>
                         ))
                       )}
                     </div>
                   </button>
                 ) : (
-                  <p className="text-[10px] text-[#9ca3af] truncate uppercase mt-0.5">Invitado</p>
+                  <p className="text-[10px] text-[#9ca3af] uppercase mt-0.5 font-medium">Invitado</p>
                 )}
               </div>
             </div>
