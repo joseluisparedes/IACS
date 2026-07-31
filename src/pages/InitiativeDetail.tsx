@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check, HelpCircle, Eye } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check, HelpCircle, Eye, Calendar } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
@@ -27,6 +27,121 @@ const LABEL_MAP: Record<string, string> = {
   "_vobo_status": "Visto Bueno (VoBo)",
   "bp_ti_asignado": "Business Partner TI Asignado"
 };
+
+// ─── Date Input with DD/MM/YYYY Display ──────────────────────────────────────
+function DateInputDDMMYYYY({
+  value,
+  onChange,
+  onBlur,
+  disabled,
+  className
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onBlur?: (v: string) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const hiddenDateRef = useRef<HTMLInputElement>(null);
+
+  const toDDMMYYYY = (val: string): string => {
+    if (!val) return "";
+    const trimmed = val.trim();
+    const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+    if (ymd) {
+      return `${ymd[3].padStart(2, "0")}/${ymd[2].padStart(2, "0")}/${ymd[1]}`;
+    }
+    const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+    if (dmy) {
+      return `${dmy[1].padStart(2, "0")}/${dmy[2].padStart(2, "0")}/${dmy[3]}`;
+    }
+    return trimmed;
+  };
+
+  const toYYYYMMDD = (val: string): string => {
+    if (!val) return "";
+    const trimmed = val.trim();
+    const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+    if (dmy) {
+      return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+    }
+    const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+    if (ymd) {
+      return `${ymd[1]}-${ymd[2].padStart(2, "0")}-${ymd[3].padStart(2, "0")}`;
+    }
+    return "";
+  };
+
+  const displayVal = toDDMMYYYY(value);
+  const isoVal = toYYYYMMDD(value);
+
+  const handleNativeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const pickerVal = e.target.value;
+    if (pickerVal) {
+      const formatted = toDDMMYYYY(pickerVal);
+      onChange(formatted);
+      if (onBlur) onBlur(formatted);
+    }
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(e.target.value);
+  };
+
+  const handleTextBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const formatted = toDDMMYYYY(e.target.value);
+    onChange(formatted);
+    if (onBlur) onBlur(formatted);
+  };
+
+  const openCalendar = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (hiddenDateRef.current && !disabled) {
+      if (typeof hiddenDateRef.current.showPicker === 'function') {
+        try {
+          hiddenDateRef.current.showPicker();
+        } catch {
+          hiddenDateRef.current.focus();
+          hiddenDateRef.current.click();
+        }
+      } else {
+        hiddenDateRef.current.focus();
+        hiddenDateRef.current.click();
+      }
+    }
+  };
+
+  return (
+    <div className="relative flex items-center w-full">
+      <input
+        type="text"
+        value={displayVal}
+        onChange={handleTextChange}
+        onBlur={handleTextBlur}
+        placeholder="dd/mm/aaaa"
+        disabled={disabled}
+        className={`${className || ''} pr-10`}
+      />
+      <button
+        type="button"
+        onClick={openCalendar}
+        disabled={disabled}
+        className="absolute right-3 text-slate-400 hover:text-slate-600 cursor-pointer disabled:opacity-50 p-1 rounded hover:bg-slate-100 transition-colors"
+        title="Seleccionar fecha del calendario"
+      >
+        <Calendar className="w-4 h-4 text-slate-500" />
+      </button>
+      <input
+        ref={hiddenDateRef}
+        type="date"
+        value={isoVal}
+        onChange={handleNativeChange}
+        tabIndex={-1}
+        className="sr-only absolute pointer-events-none opacity-0 w-0 h-0"
+      />
+    </div>
+  );
+}
 
 function formatLabel(k: string, fieldsMap: Record<string, string> = {}) {
   const normalizedKey = k.toLowerCase();
@@ -475,10 +590,9 @@ function Row({
               </select>
             )
           ) : fieldConfig?.field_type === "date" ? (
-            <input 
-              type="date" 
-              value={editValue || ""} 
-              onChange={e => onChange(e.target.value)}
+            <DateInputDDMMYYYY
+              value={editValue || ""}
+              onChange={onChange}
               className="w-full text-sm border border-[#E2E8F0] rounded-md px-3 py-2 bg-white outline-none focus:border-[#4F5AF5] focus:ring-1 focus:ring-[#4F5AF5]"
             />
           ) : isList ? (

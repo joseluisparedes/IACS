@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye } from "lucide-react";
+import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye, Calendar } from "lucide-react";
 import STTWorker from '../workers/stt.worker?worker';
 import { FieldDefinition } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
@@ -141,6 +141,124 @@ function validateTitleQuality(title: string | undefined | null): { isValid: bool
   return { isValid: true };
 }
 
+// ─── Date Input with DD/MM/YYYY Display ──────────────────────────────────────
+function DateInputDDMMYYYY({
+  value,
+  onChange,
+  onBlur,
+  required,
+  disabled,
+  className
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onBlur?: (v: string) => void;
+  required?: boolean;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const hiddenDateRef = useRef<HTMLInputElement>(null);
+
+  const toDDMMYYYY = (val: string): string => {
+    if (!val) return "";
+    const trimmed = val.trim();
+    const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+    if (ymd) {
+      return `${ymd[3].padStart(2, "0")}/${ymd[2].padStart(2, "0")}/${ymd[1]}`;
+    }
+    const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+    if (dmy) {
+      return `${dmy[1].padStart(2, "0")}/${dmy[2].padStart(2, "0")}/${dmy[3]}`;
+    }
+    return trimmed;
+  };
+
+  const toYYYYMMDD = (val: string): string => {
+    if (!val) return "";
+    const trimmed = val.trim();
+    const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+    if (dmy) {
+      return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+    }
+    const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+    if (ymd) {
+      return `${ymd[1]}-${ymd[2].padStart(2, "0")}-${ymd[3].padStart(2, "0")}`;
+    }
+    return "";
+  };
+
+  const displayVal = toDDMMYYYY(value);
+  const isoVal = toYYYYMMDD(value);
+
+  const handleNativeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const pickerVal = e.target.value;
+    if (pickerVal) {
+      const formatted = toDDMMYYYY(pickerVal);
+      onChange(formatted);
+      if (onBlur) onBlur(formatted);
+    }
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onChange(e.target.value);
+  };
+
+  const handleTextBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const formatted = toDDMMYYYY(e.target.value);
+    onChange(formatted);
+    if (onBlur) onBlur(formatted);
+  };
+
+  const openCalendar = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (hiddenDateRef.current && !disabled) {
+      if (typeof hiddenDateRef.current.showPicker === 'function') {
+        try {
+          hiddenDateRef.current.showPicker();
+        } catch {
+          hiddenDateRef.current.focus();
+          hiddenDateRef.current.click();
+        }
+      } else {
+        hiddenDateRef.current.focus();
+        hiddenDateRef.current.click();
+      }
+    }
+  };
+
+  return (
+    <div className="relative flex items-center w-full">
+      <input
+        type="text"
+        value={displayVal}
+        onChange={handleTextChange}
+        onBlur={handleTextBlur}
+        placeholder="dd/mm/aaaa"
+        required={required}
+        disabled={disabled}
+        className={`${className || ''} pr-10`}
+      />
+      <button
+        type="button"
+        onClick={openCalendar}
+        disabled={disabled}
+        className="absolute right-3 text-slate-400 hover:text-slate-600 cursor-pointer disabled:opacity-50 p-1 rounded hover:bg-slate-100 transition-colors"
+        title="Seleccionar fecha del calendario"
+      >
+        <Calendar className="w-4 h-4 text-slate-500" />
+      </button>
+      <input
+        ref={hiddenDateRef}
+        type="date"
+        value={isoVal}
+        onChange={handleNativeChange}
+        tabIndex={-1}
+        className="sr-only absolute pointer-events-none opacity-0 w-0 h-0"
+      />
+    </div>
+  );
+}
+
 // ─── Dynamic field ────────────────────────────────────────────────────────────
 function DynamicField({ field, value, onChange, parentValue, disabled, optionsOverride, onUploadingChange, onBlur, onPreview }: {
   field: FieldDefinition; value: string; onChange: (v: string) => void; parentValue?: string;
@@ -165,19 +283,16 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
   }
 
   if (field.field_type === "date") {
-    let dateVal = typeof value === "string" ? value.trim() : "";
-    if (dateVal) {
-      const dmyMatch = dateVal.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
-      if (dmyMatch) {
-        dateVal = `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
-      } else {
-        const ymdMatch = dateVal.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
-        if (ymdMatch) {
-          dateVal = `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
-        }
-      }
-    }
-    return <input type="date" value={dateVal} onChange={e => onChange(e.target.value)} onBlur={onBlur ? () => onBlur(dateVal) : undefined} required={field.is_required} disabled={disabled} className={inputCls} />;
+    return (
+      <DateInputDDMMYYYY
+        value={value}
+        onChange={onChange}
+        onBlur={onBlur}
+        required={field.is_required}
+        disabled={disabled}
+        className={inputCls}
+      />
+    );
   }
   
   if (field.field_type === "select") {
