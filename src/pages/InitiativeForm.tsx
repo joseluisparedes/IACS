@@ -1387,7 +1387,7 @@ export default function InitiativeForm() {
     const MAX_RETRIES = 3;
     let lastError: any;
 
-    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion"].includes(f.key.toLowerCase()));
+    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion", "institucion", "empresa", "organizacion"].includes(f.key.toLowerCase()));
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -1438,7 +1438,7 @@ export default function InitiativeForm() {
     removeAttachment();
     setIsAiTyping(true);
 
-    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion"].includes(f.key.toLowerCase()));
+    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion", "institucion", "empresa", "organizacion"].includes(f.key.toLowerCase()));
 
     try {
       const res = await fetch("/api/chat", {
