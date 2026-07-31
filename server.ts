@@ -35,28 +35,27 @@ function getGroq(): Groq | null {
 }
 
 // ─── Unified AI JSON Call with Auto-Fallback ─────────────────────────────
-// Tries Gemini first. If quota is exceeded (429) or model not found (404),
-// automatically switches to Groq (llama-3.3-70b-versatile) at no cost.
+// Tries Gemini first. If Gemini fails (quota 429, unavailable 503, invalid model 404),
+// automatically switches to Groq (llama-3.3-70b-versatile) seamlessly.
 async function callAIForJSON(prompt: string): Promise<string> {
   // 1. Try Gemini first
   try {
     const response = await getGenAI().models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: { responseMimeType: "application/json" }
     });
     return response.text;
   } catch (geminiErr: any) {
-    const errBody = geminiErr?.message ? JSON.parse(geminiErr.message.includes('{') ? geminiErr.message : '{}') : {};
-    const code = errBody?.error?.code ?? geminiErr?.status ?? 0;
-    const isQuotaOrNotFound = code === 429 || code === 404 || code === 503;
-    if (!isQuotaOrNotFound) throw geminiErr; // Re-throw non-quota errors
+    console.warn("[AI Call] Gemini attempt failed:", geminiErr?.message?.substring(0, 150) || geminiErr);
 
     // 2. Fallback to Groq
     const groq = getGroq();
-    if (!groq) throw new Error("Gemini quota exceeded and no GROQ_API_KEY configured. Please add a Groq API key to .env");
+    if (!groq) {
+      throw new Error("La API Key de Gemini ha agotado su cuota y no se pudo conectar con Groq. Por favor verifica las llaves en .env");
+    }
 
-    console.log("[AI Fallback] Gemini quota/unavailable, switching to Groq...");
+    console.log("[AI Fallback] Switching seamlessly to Groq llama-3.3-70b-versatile...");
     const completion = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [{ role: "user", content: prompt }],
@@ -173,11 +172,14 @@ function isApiKeyConfigured(): boolean {
 
 // ─── Mock fallbacks ───────────────────────────────────────────────────────────
 function getMockChatResponse(history: any[], initialData: any, message: string): string {
-  const hasLast = history.some(h => h.role === "user" && h.text === message);
-  const fullHistory = hasLast ? history : [...history, { role: "user", text: message }];
-  const userMessages = fullHistory.filter((h) => h.role === "user");
-  const count = userMessages.length;
-  if (count === 0) return `¡Hola! Soy tu asistente de análisis de negocio. Veo que deseas registrar una iniciativa. Para comenzar, ¿podrías describirme cuál es el problema actual que buscas resolver?`;
+  if (message === "[INICIALIZAR_CHAT]" || history.length === 0) {
+    return `¡Hola! Para poder estructurar tu iniciativa, por favor, describe la necesidad o el problema que deseas abordar en tus propias palabras. Así podré entender mejor el contexto y ayudarte a definir los siguientes pasos.`;
+  }
+  const cleanHistory = history.filter(h => h.role === "user" && h.text !== "[INICIALIZAR_CHAT]");
+  const hasLast = cleanHistory.some(h => h.text === message);
+  const fullHistory = hasLast ? cleanHistory : [...cleanHistory, { role: "user", text: message }];
+  const count = fullHistory.length;
+
   if (count === 1) return `Entendido. ¿Cuál es el objetivo principal o resultado esperado?`;
   if (count === 2) return `¿Qué usuarios o áreas estarán involucrados en el uso diario?`;
   if (count === 3) return `¿Qué sistemas o aplicaciones actuales se verían impactados?`;
@@ -187,10 +189,11 @@ function getMockChatResponse(history: any[], initialData: any, message: string):
 }
 
 function getMockOptions(history: any[], message: string): string[] {
-  const hasLast = history.some(h => h.role === "user" && h.text === message);
-  const fullHistory = hasLast ? history : [...history, { role: "user", text: message }];
-  const userMessages = fullHistory.filter((h) => h.role === "user");
-  const count = userMessages.length;
+  if (message === "[INICIALIZAR_CHAT]" || history.length === 0) return [];
+  const cleanHistory = history.filter(h => h.role === "user" && h.text !== "[INICIALIZAR_CHAT]");
+  const hasLast = cleanHistory.some(h => h.text === message);
+  const fullHistory = hasLast ? cleanHistory : [...cleanHistory, { role: "user", text: message }];
+  const count = fullHistory.length;
 
   if (count === 1) return ["Ahorrar tiempo operativo", "Tener trazabilidad y reportes", "Reducir errores de digitación"];
   if (count === 2) return ["El equipo comercial y TI", "Operaciones y Back Office", "Toda la organización"];
@@ -203,18 +206,20 @@ function getMockOptions(history: any[], message: string): string[] {
 function getMockSummaryResponse(initialData: any) {
   const area = Object.values(initialData)[0] || "la organización";
   return {
-    titulo: `Automatización y Digitalización de Procesos en ${area}`,
-    objetivo: `Implementar una solución digital que optimice el flujo de trabajo del área de ${area}, reduciendo tiempos y errores manuales.`,
-    tipo_iniciativa: "Automatización de procesos",
-    descripcion_de_la_necesidad: "El proceso actual es manual, lento y propenso a errores, lo que genera reprocesos y baja visibilidad en tiempo real de los indicadores clave.",
-    situacion_deseada: "Contar con una plataforma integrada que automatice el flujo de trabajo, notifique en tiempo real y genere reportes automáticos para la toma de decisiones.",
-    proceso_y_areas_impactadas: `${area}, Back Office, Reportería, Control de Gestión`,
+    titulo: `Implementación de barrido de contactos inalcanzables en ${area}`,
+    objetivo: `Depurar la base de contactos mediante e-Contact y API para reducir números inalcanzables e incrementar efectividad outbound.`,
+    descripcion_de_la_necesidad: `La base de contactos contiene un 30%-35% de números inalcanzables (SIP 480), reduciendo la efectividad outbound e incrementando costos operativos.`,
+    descripcion_del_problema_o_desafio_situacion_actual: `Actualmente entre el 30% y 35% de la base de contactos de 2 millones de registros corresponden a números inalcanzables (SIP 480).`,
+    fecha_requerida: "31/12/2026",
+    que_pasa_si_no_lo_tenemos_en_esta_fecha: "No podremos tener claridad del tipo de leads contactados y se mantendrán altos costos por intentos fallidos.",
+    es_un_proceso_nuevo: "No",
+    proceso_y_areas_impactadas: `${area}, Operaciones, TI, Call Center, Control de Gestión`,
     usuarios_beneficiados: ["Operaciones", "TI"],
-    beneficio_cuantitativo_anual: "Reducción del 40% en tiempo de procesamiento. Ahorro estimado de 15 horas semanales en validaciones manuales.",
+    pilar_estrategico: "Excelencia operativa",
+    beneficio_cuantitativo_anual: "Entre S/100,000.00 y S/500,000.00",
     beneficio_cualitativo: "Mayor visibilidad y trazabilidad de los procesos. Decisiones más oportunas basadas en datos confiables.",
-    complejidad: "Media",
-    riesgo: "Bajo",
-    pilar_estratgico: "Excelencia operativa",
+    es_proyecto_spo: "No",
+    que_escenarios_de_pruebas_debemos_considerar: "Pruebas de integración API con e-Contact, validación de SIP 480 y barrido de base de 2M registros."
   };
 }
 
@@ -362,7 +367,7 @@ Responde estrictamente en formato JSON con la siguiente estructura:
       
       await updateAgentTask(tOrqId, 100, 'completed', { action: "Delegando a agentes especializados", input_length: text.length });
       await updateAgentTask(tPoId, 100, 'completed', { action: "Extracción de entidades y mapeo", prompt_preview: prompt.substring(0, 300) + "...", ai_response: parsed });
-      await updateAgentTask(tRegId, 100, 'completed', { action: "Análisis de seguridad", model: "gemini-2.5-flash", status: "Seguro" });
+      await updateAgentTask(tRegId, 100, 'completed', { action: "Análisis de seguridad", model: "gemini-2.0-flash", status: "Seguro" });
       await updateAgentTask(tDocId, 100, 'completed', { action: "Corrección ortográfica y de estilo", warnings: parsed.warnings });
 
       res.json(parsed);
@@ -453,7 +458,7 @@ Responde estrictamente en formato JSON:
     const { data: fieldData, error: fetchError } = await supabase.from("initiative_fields").select("key").eq("id", id).single();
     if (fetchError) return res.status(500).json({ error: fetchError.message });
     
-    if (fieldData && ["aprobacin_de_director"].includes(fieldData.key)) {
+    if (fieldData && ["aprobacion_de_director", "aprobacin_de_director"].includes(fieldData.key)) {
       return res.status(403).json({ error: "Este es un campo de sistema y no puede ser eliminado." });
     }
 
@@ -626,7 +631,7 @@ Responde estrictamente en formato JSON:
       const mime = req.file.mimetype?.startsWith("audio/") ? req.file.mimetype : "audio/webm";
 
       const response = await getGenAI().models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.0-flash",
         contents: [{
           role: "user",
           parts: [
@@ -753,8 +758,8 @@ Responde estrictamente en formato JSON:
     const sanitizedInitialData = sanitizeInitialDataForAI(initialData);
 
     const fieldsListStr = aiFields && aiFields.length > 0
-      ? aiFields.map((f: any) => `- ${f.label}${f.field_type === 'select' && f.options && f.options.length > 0 ? ` (Valores permitidos estrictos, elige 1 de: ${f.options.join(', ')})` : ''}${f.ai_instructions ? ` (Instrucciones: ${f.ai_instructions})` : ''}`).join("\n")
-      : `- Usuarios involucrados.\n- Proceso actual.\n- Proceso deseado.\n- Sistemas impactados.\n- Frecuencia de uso.\n- Beneficios esperados.`;
+      ? aiFields.map((f: any) => `- Clave: "${f.key}", Campo: "${f.label}" (${f.field_type})${f.field_type === 'select' && f.options && f.options.length > 0 ? ` [Opciones permitidas: ${f.options.join(', ')}]` : ''}${f.ai_instructions ? ` [Instrucciones: ${f.ai_instructions}]` : ''}`).join("\n")
+      : `- Título de la iniciativa.\n- Fecha requerida (y consecuencia de no tenerlo en fecha).\n- Descripción del problema o desafío (Situación actual).\n- ¿Es un proceso nuevo?\n- Proceso y áreas impactadas.\n- Usuarios beneficiados.\n- Pilar estratégico.\n- Beneficio cuantitativo (anual).\n- Beneficio cualitativo.\n- ¿Es proyecto SPO?\n- ¿Qué escenarios de pruebas debemos considerar?`;
 
     const tOrqId = await startAgentTask("Orquestador", "Procesando mensaje de chat");
     const tPoId = await startAgentTask("Product Owner", "Analizando respuestas de la iniciativa");
@@ -775,12 +780,24 @@ Responde estrictamente en formato JSON:
       const systemPrompt = buildSystemPrompt(training);
 
       const tRegId = await startAgentTask("Regulador de Tokens", "Validando seguridad y tokens");
-      const chatPrompt = `${systemPrompt}
+      const isInitialGreeting = message === "[INICIALIZAR_CHAT]" || history.length === 0;
+      const chatPrompt = isInitialGreeting
+        ? `${systemPrompt}
+
+Este es el INICIO de la conversación con el usuario. El usuario acaba de abrir la ventana del asistente Teo.
+Saluda amablemente al usuario, preséntate como Teo (Analista de Negocio Senior) e invítalo a describir en sus propias palabras cuál es la necesidad o el problema de negocio que desea abordar. NO asumas que ya ha dado detalles ni hagas preguntas secundarias sobre objetivos todavía.
+
+IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
+{
+  "text": "¡Hola! Para poder estructurar tu iniciativa, por favor, describe la necesidad o el problema que deseas abordar en tus propias palabras. Así podré entender mejor el contexto y ayudarte a definir los siguientes pasos.",
+  "options": []
+}`
+        : `${systemPrompt}
 
 Datos iniciales proporcionados por el usuario:
 ${Object.entries(sanitizedInitialData || {}).map(([k, v]) => `${k}: ${v}`).join("\n")}
 
-Asegúrate de recolectar al menos la siguiente información (si no está en los datos iniciales). Es VITAL que no existan campos en blanco ni respuestas vacías. Si falta información para alguno de estos campos, haz preguntas específicas y directas para obtenerla. NO repitas una pregunta si el usuario ya la ha respondido (aunque sea de forma breve); acéptala y pasa al siguiente punto. No termines la conversación ni devuelvas "[INFORMACION_COMPLETA]" en el texto hasta tener respuestas concretas para TODOS los puntos:
+Asegúrate de recolectar al menos la siguiente información (si no está en los datos iniciales). Es VITAL que no existan campos en blanco ni respuestas vacías al finalizar la iniciativa:
 ${fieldsListStr}
 
 Historial de conversación:
@@ -788,10 +805,16 @@ ${history.map((h: any) => `${h.role === 'user' ? 'Usuario' : 'Asistente'}: ${h.t
 
 Usuario: ${message}
 
+REGLAS STRICTAS DE CONVERSACIÓN:
+1. Revisa detenidamente el historial y evalúa la información proporcionada por el usuario hasta ahora.
+2. Si faltan datos clave (por ejemplo: fecha requerida de implementación, consecuencia de no tenerlo en fecha, descripción de la situación actual o problema, si es un proceso nuevo, beneficio cuantitativo, escenarios de prueba, es proyecto SPO), DEBES formular preguntas breves, concisas y amables para obtener esos datos faltantes. Haz máximo 1 o 2 preguntas por turno.
+3. ESTÁ PROHIBIDO dar por terminada la conversación o incluir la etiqueta '[INFORMACION_COMPLETA]' si todavía existen campos clave sin responder.
+4. Solo cuando tengas claridad razonable sobre la necesidad, fechas, beneficios, áreas impactadas y escenarios de prueba (o si el usuario indica que no tiene más información), incluye la etiqueta exacta '[INFORMACION_COMPLETA]' en tu texto.
+
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
-  "text": "Tu respuesta amigable y concisa (en formato Markdown si deseas enfatizar o listar algo). Si consideras que ya tienes TODA la información, finaliza incluyendo la etiqueta exacta '[INFORMACION_COMPLETA]' en tu texto.",
-  "options": ["Opción sugerida 1", "Opción sugerida 2"] // NUNCA devuelvas "Continuar". Si no tienes sugerencias verdaderamente útiles y contextuales, devuelve un array vacío [].
+  "text": "Tu respuesta amigable y concisa (en formato Markdown si deseas enfatizar o listar algo). Si consideras que ya tienes TODA la información requerida de todos los campos, finaliza incluyendo la etiqueta exacta '[INFORMACION_COMPLETA]' en tu texto.",
+  "options": ["Opción sugerida 1", "Opción sugerida 2"]
 }`;
       const rawChat = await callAIForJSON(chatPrompt);
       const parsed = parseAIJSON(rawChat);

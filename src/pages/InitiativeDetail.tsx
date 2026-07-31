@@ -1050,8 +1050,8 @@ export default function InitiativeDetail() {
 
   const handleSaveObservedEdits = async () => {
     if (!isEditMode) return;
-    const currentVobo = initiative.form_data?.aprobacin_de_director;
-    const editedVobo = editedFormData.aprobacin_de_director;
+    const currentVobo = initiative.form_data?.aprobacion_de_director ?? initiative.form_data?.aprobacin_de_director;
+    const editedVobo = editedFormData.aprobacion_de_director ?? editedFormData.aprobacin_de_director;
     const newFormData = { ...editedFormData };
     if (editedVobo !== currentVobo) {
       delete newFormData._vobo_status;
@@ -1388,9 +1388,10 @@ export default function InitiativeDetail() {
   const isObserved = initiative.status === "Observada";
   const isBorrador = initiative.status === "Borrador";
   let voboFileObj: { name: string; content?: string; url?: string; type?: string } | null = null;
-  if (typeof fd.aprobacin_de_director === "string" && fd.aprobacin_de_director.startsWith('{"name":')) {
+  const rawVoboStr = fd.aprobacion_de_director ?? fd.aprobacin_de_director;
+  if (typeof rawVoboStr === "string" && rawVoboStr.startsWith('{"name":')) {
     try {
-      voboFileObj = JSON.parse(fd.aprobacin_de_director);
+      voboFileObj = JSON.parse(rawVoboStr);
     } catch (e) {}
   }
   
@@ -1417,7 +1418,7 @@ export default function InitiativeDetail() {
       }
     }
 
-    const voboVal = getVal("aprobacin_de_director");
+    const voboVal = getVal("aprobacion_de_director") ?? getVal("aprobacin_de_director");
     let currentVoboFileObj = null;
     if (voboVal) {
       if (typeof voboVal === "string" && voboVal.startsWith('{"name":')) {
@@ -1449,7 +1450,7 @@ export default function InitiativeDetail() {
       }
     }
 
-    const requiredFields = fieldsConfig.filter(f => f.is_required && f.is_visible && f.key !== 'aprobacin_de_director');
+    const requiredFields = fieldsConfig.filter(f => f.is_required && f.is_visible && f.key !== 'aprobacion_de_director' && f.key !== 'aprobacin_de_director');
     requiredFields.forEach(f => {
       const val = getVal(f.key);
       if (val === undefined || val === null || (typeof val === 'string' && val.trim() === '')) {
@@ -2118,8 +2119,8 @@ export default function InitiativeDetail() {
             </div>
             <div className="px-6 py-2">
               {(() => {
-                const normalFields = fieldsConfig.filter(f => f.is_visible && (f.section || 'form') === 'form' && f.key !== 'aprobacin_de_director');
-                const voboField = fieldsConfig.find(f => f.is_visible && f.key === 'aprobacin_de_director');
+                const normalFields = fieldsConfig.filter(f => f.is_visible && (f.section || 'form') === 'form' && f.key !== 'aprobacion_de_director' && f.key !== 'aprobacin_de_director');
+                const voboField = fieldsConfig.find(f => f.is_visible && (f.key === 'aprobacion_de_director' || f.key === 'aprobacin_de_director'));
                 const allFields = voboField ? [...normalFields, voboField] : normalFields;
                 return allFields.map(f => {
                   const k = f.key;

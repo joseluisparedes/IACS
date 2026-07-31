@@ -73,17 +73,17 @@ const DEFAULT_SAMPLE_DATA: Record<string, string> = {
   fecha_requerida:            '17/07/2026',
   descripcion_de_la_necesidad: 'La base de contactos de UPN (~2M registros) contiene entre un 30% y 35% de números inalcanzables (respuesta SIP 480), lo que reduce significativamente la eficiencia de las campañas outbound. Se requiere escalar el proceso de barrido de contactos inalcanzables que actualmente se realiza vía IVR.',
   objetivo:                   'Mejorar la efectividad de las campañas outbound mediante la depuración automática de números SIP 480.',
-  qu_pasa_si_no_lo_tenemos_en_esta_fecha: 'Se perderá presupuesto en llamadas a números no válidos durante la campaña de admisión.',
-  descripcin_del_problema_o_desafo_situacin_actual: 'El barrido manual toma semanas y causa saturación de líneas y costo de telefonía innecesario.',
+  que_pasa_si_no_lo_tenemos_en_esta_fecha: 'Se perderá presupuesto en llamadas a números no válidos durante la campaña de admisión.',
+  descripcion_del_problema_o_desafio_situacion_actual: 'El barrido manual toma semanas y causa saturación de líneas y costo de telefonía innecesario.',
   es_un_proceso_nuevo:        'No (Optimización de proceso existente)',
   proceso_y_areas_impactadas:  'Negocio (gestión de campañas outbound), e-Contact (proveedor IVR), TI Omnicanal.',
   usuarios_beneficiados:      'Operadores de Call Center, Analistas de Admisión y equipo de TI',
-  pilar_estratgico:          'Excelencia Operativa y Eficiencia de Costos',
+  pilar_estrategico:          'Excelencia Operativa y Eficiencia de Costos',
   beneficio_cuantitativo_anual: 'S/. 45,000 anuales',
   beneficio_cualitativo:       'Reducción del estrés operativo, mejor experiencia del usuario final y trazabilidad de contactos.',
   es_proyecto_spo:             'Sí',
-  qu_escenarios_de_pruebas_debemos_considerar: 'Pruebas de volumen de 100k registros, validación de respuestas SIP 480 e integración CRM.',
-  aprobacin_de_director:      'Aprobacion_Director_TI.pdf',
+  que_escenarios_de_pruebas_debemos_considerar: 'Pruebas de volumen de 100k registros, validación de respuestas SIP 480 e integración CRM.',
+  aprobacion_de_director:      'Aprobacion_Director_TI.pdf',
   situacion_deseada:           'Contar con una base de datos de contactos depurada y actualizada que permita mejorar la efectividad de las campañas de comunicación outbound.',
   imagenes_adjuntas:           SAMPLE_IMAGES_HTML,
 };
@@ -193,7 +193,7 @@ const DEFAULT_TEMPLATE_HTML = `
     <p style="font-size:9.5pt; font-weight:bold; color:#ffffff; text-transform:uppercase; letter-spacing:1.5px; margin:0; text-align:center;">5. ¿QUÉ PASA SI NO LO TENEMOS PARA ESTA FECHA?</p>
   </div>
   <div style="border-radius:6px; padding:14px 16px; background:#FAFCFF; font-size:10pt; text-align:justify; line-height:1.7; color:#1E293B;">
-    {{qu_pasa_si_no_lo_tenemos_en_esta_fecha}}
+    {{que_pasa_si_no_lo_tenemos_en_esta_fecha}}
   </div>
 </div>
 

@@ -159,9 +159,41 @@ function DateInputDDMMYYYY({
 }) {
   const hiddenDateRef = useRef<HTMLInputElement>(null);
 
+  const parseQuarterDate = (val: string): string | null => {
+    if (!val) return null;
+    const trimmed = val.trim().toUpperCase();
+    const qMatch = trimmed.match(/(?:Q([1-4])|([1-4])T)[^\d]*(\d{4})/i);
+    if (qMatch) {
+      const q = parseInt(qMatch[1] || qMatch[2], 10);
+      const year = qMatch[3];
+      const quarterEndDates: Record<number, string> = {
+        1: `31/03/${year}`,
+        2: `30/06/${year}`,
+        3: `30/09/${year}`,
+        4: `31/12/${year}`
+      };
+      return quarterEndDates[q] || null;
+    }
+    const months: Record<string, string> = {
+      ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
+      JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12'
+    };
+    for (const [mName, mNum] of Object.entries(months)) {
+      if (trimmed.includes(mName)) {
+        const yMatch = trimmed.match(/\d{4}/);
+        const year = yMatch ? yMatch[0] : new Date().getFullYear().toString();
+        const lastDay = new Date(parseInt(year, 10), parseInt(mNum, 10), 0).getDate();
+        return `${String(lastDay).padStart(2, '0')}/${mNum}/${year}`;
+      }
+    }
+    return null;
+  };
+
   const toDDMMYYYY = (val: string): string => {
     if (!val) return "";
     const trimmed = val.trim();
+    const qDate = parseQuarterDate(trimmed);
+    if (qDate) return qDate;
     const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
     if (ymd) {
       return `${ymd[3].padStart(2, "0")}/${ymd[2].padStart(2, "0")}/${ymd[1]}`;
@@ -176,11 +208,12 @@ function DateInputDDMMYYYY({
   const toYYYYMMDD = (val: string): string => {
     if (!val) return "";
     const trimmed = val.trim();
-    const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+    const dmyStr = parseQuarterDate(trimmed) || trimmed;
+    const dmy = dmyStr.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
     if (dmy) {
       return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
     }
-    const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+    const ymd = dmyStr.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
     if (ymd) {
       return `${ymd[1]}-${ymd[2].padStart(2, "0")}-${ymd[3].padStart(2, "0")}`;
     }
@@ -392,7 +425,7 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
 
         // Store the stringified JSON
         onChange(JSON.stringify({ 
-          name: file.originalname || file.name, 
+          name: (file as any).originalname || file.name, 
           content: data.content, 
           url: data.url, 
           type: data.type || file.type 
@@ -627,29 +660,89 @@ export default function InitiativeForm() {
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownHistoryRef = useRef<any[]>([]);
 
-  // ── Key-normaliser for AI summary merging ─────────────────────────────────
-  // Normalises a key to lowercase with no underscores/spaces so keys coming
-  // from the AI (camelCase, snake_case, with spaces) can be matched against
-  // the field keys stored in the database.
-  const normaliseKey = (k: string) => k.toLowerCase().replace(/[_\s]/g, '');
+  const removeAccents = (str: string) =>
+    str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+
+  const normaliseKey = (k: string) => {
+    if (!k) return "";
+    let norm = removeAccents(k.toLowerCase()).replace(/[^a-z0-9]/g, '');
+    // Handle database key distortions like 'qu' vs 'que', 'descripcin' vs 'descripcion'
+    norm = norm.replace(/^que/, 'qu').replace(/descripcion/g, 'descripcin');
+    return norm;
+  };
 
   // Merges AI summary data into a formData object using normalised key matching.
   // If no DB field matches the AI key, the AI key is used as-is.
   const mergeAISummary = (base: Record<string, any>, summaryData: Record<string, any>) => {
-    const allFieldKeys = [...fields, ...aiFields].map(f => f.key);
+    const allFormFields = [...fields, ...aiFields];
     const merged = { ...base };
+
     Object.entries(summaryData).forEach(([aiKey, val]) => {
       if (val === undefined || val === null || val === '') return;
-      // Try to find an exact match first
-      if (allFieldKeys.includes(aiKey)) {
-        merged[aiKey] = val;
-        return;
+
+      // 1. Try exact key match
+      let targetField = allFormFields.find(f => f.key === aiKey);
+
+      // 2. Try normalised key match
+      if (!targetField) {
+        const normAI = normaliseKey(aiKey);
+        targetField = allFormFields.find(f => normaliseKey(f.key) === normAI);
       }
-      // Normalised match
-      const normAI = normaliseKey(aiKey);
-      const matchedKey = allFieldKeys.find(k => normaliseKey(k) === normAI);
-      if (matchedKey) {
-        merged[matchedKey] = val;
+
+      // 3. Try label match
+      if (!targetField) {
+        const normAILabel = normaliseKey(aiKey);
+        targetField = allFormFields.find(f => normaliseKey(f.label) === normAILabel);
+      }
+
+      if (targetField) {
+        let finalVal = val;
+
+        // Date field processing (e.g. Q4 DEL 2026 -> 31/12/2026 or YYYY-MM-DD)
+        if (targetField.field_type === 'date' && typeof val === 'string') {
+          const qMatch = val.trim().match(/(?:Q([1-4])|([1-4])T)[^\d]*(\d{4})/i);
+          if (qMatch) {
+            const q = parseInt(qMatch[1] || qMatch[2], 10);
+            const year = qMatch[3];
+            const quarterEndDates: Record<number, string> = {
+              1: `31/03/${year}`,
+              2: `30/06/${year}`,
+              3: `30/09/${year}`,
+              4: `31/12/${year}`
+            };
+            finalVal = quarterEndDates[q] || val;
+          } else {
+            const ymd = val.trim().match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+            if (ymd) {
+              finalVal = `${ymd[3].padStart(2, "0")}/${ymd[2].padStart(2, "0")}/${ymd[1]}`;
+            }
+          }
+        }
+
+        // Select field processing (Fuzzy option matching)
+        if (targetField.field_type === 'select' && targetField.options && targetField.options.length > 0) {
+          if (typeof val === 'string') {
+            const normVal = removeAccents(val.toLowerCase().trim());
+            const exactOpt = targetField.options.find(o => removeAccents(o.toLowerCase().trim()) === normVal);
+            if (exactOpt) {
+              finalVal = exactOpt;
+            } else {
+              const partialOpt = targetField.options.find(o => removeAccents(o.toLowerCase().trim()).includes(normVal) || normVal.includes(removeAccents(o.toLowerCase().trim())));
+              if (partialOpt) {
+                finalVal = partialOpt;
+              }
+            }
+          } else if (Array.isArray(val) && targetField.allow_multiple) {
+            finalVal = val.map(item => {
+              if (typeof item !== 'string') return item;
+              const normItem = removeAccents(item.toLowerCase().trim());
+              const match = targetField.options.find(o => removeAccents(o.toLowerCase().trim()) === normItem);
+              return match || item;
+            });
+          }
+        }
+
+        merged[targetField.key] = finalVal;
       } else {
         // No matching field key – store as-is so data isn't lost
         merged[aiKey] = val;
@@ -806,8 +899,8 @@ export default function InitiativeForm() {
           setFileTypes(features.fileTypes);
         }
         
-        const normalFormFields = data.filter((f: FieldDefinition) => f.is_visible && (f.section || 'form') === 'form' && f.key !== 'aprobacin_de_director');
-        const voboField = data.find((f: FieldDefinition) => f.is_visible && f.key === 'aprobacin_de_director');
+        const normalFormFields = data.filter((f: FieldDefinition) => f.is_visible && (f.section || 'form') === 'form' && f.key !== 'aprobacion_de_director' && f.key !== 'aprobacin_de_director');
+        const voboField = data.find((f: FieldDefinition) => f.is_visible && (f.key === 'aprobacion_de_director' || f.key === 'aprobacin_de_director'));
         const allVisibleFormFields = voboField ? [...normalFormFields, voboField] : normalFormFields;
         const visibleAiFields = data.filter((f: FieldDefinition) => f.is_visible && f.section === 'ai');
         setFields(allVisibleFormFields);
@@ -1294,11 +1387,13 @@ export default function InitiativeForm() {
     const MAX_RETRIES = 3;
     let lastError: any;
 
+    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion"].includes(f.key.toLowerCase()));
+
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         const res = await fetch("/api/chat", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ history: [], message: "Hola, quiero registrar una nueva iniciativa.", initialData: formData, aiFields }),
+          body: JSON.stringify({ history: [], message: "[INICIALIZAR_CHAT]", initialData: formData, aiFields: fieldsForAI }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -1343,10 +1438,12 @@ export default function InitiativeForm() {
     removeAttachment();
     setIsAiTyping(true);
 
+    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion"].includes(f.key.toLowerCase()));
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history: chatHistory, message: aiMessage || displayText, initialData: formData, aiFields }),
+        body: JSON.stringify({ history: chatHistory, message: aiMessage || displayText, initialData: formData, aiFields: fieldsForAI }),
       });
       if (!res.ok) throw new Error();
       const data = await res.json();

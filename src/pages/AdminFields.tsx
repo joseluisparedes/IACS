@@ -26,7 +26,7 @@ const FIELD_TYPE_COLORS: Record<FieldType, string> = {
   file: "bg-emerald-50 text-emerald-700 border-emerald-100",
 };
 
-const SYSTEM_FIELDS = ["aprobacin_de_director"];
+const SYSTEM_FIELDS = ["aprobacion_de_director", "aprobacin_de_director"];
 
 const defaultFileOptions = () => ({
   fileTypes: {
@@ -209,7 +209,17 @@ export default function AdminFields() {
 
   const closePanel = () => { setShowPanel(false); setError(""); };
 
-  const autoKey = (label: string) => label.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+  const removeAccents = (str: string) =>
+    str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+
+  const autoKey = (label: string) => {
+    if (!label) return "";
+    return removeAccents(label.toLowerCase())
+      .replace(/[\s\/-]+/g, "_")
+      .replace(/[^a-z0-9_]/g, "")
+      .replace(/^_+|_+$/g, "")
+      .replace(/_+/g, "_");
+  };
 
   const handleLabelChange = (v: string) => {
     setForm(f => ({ ...f, label: v, ...(panelMode === "create" ? { key: autoKey(v) } : {}) }));

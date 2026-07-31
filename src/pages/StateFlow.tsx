@@ -119,7 +119,7 @@ export default function StateFlow() {
           name: '2. Evaluación de Visto Bueno (VoBo VP)',
           responsible: 'Business Partner TI (BP TI)',
           description: 'El BP analiza la firma o documento adjunto de aprobación del Vicepresidente. Marca el documento como "Correcto" o "Incorrecto" según corresponda.',
-          inputs: ['Archivo adjunto aprobacin_de_director'],
+          inputs: ['Archivo adjunto aprobacion_de_director'],
           outputs: ['Estado de VoBo actualizado en el registro (_vobo_status)'],
           rules: [
             'Si existe un VoBo cargado, no se habilitará la aprobación definitiva hasta que el estado del VoBo sea validado como "Correcto".',
@@ -493,7 +493,7 @@ export default function StateFlow() {
                 <td className="p-3 font-semibold text-emerald-600">Aprobar</td>
                 <td className="p-3 font-bold text-emerald-700">En demanda</td>
                 <td className="p-3">BP TI, Admin</td>
-                <td className="p-3">Si hay VoBo VP (`aprobacin_de_director`), requiere que esté validado como "correcto" (`_vobo_status === "correcto"`).</td>
+                <td className="p-3">Si hay VoBo VP (`aprobacion_de_director`), requiere que esté validado como "correcto" (`_vobo_status === "correcto"`).</td>
               </tr>
               <tr className="hover:bg-slate-50/50">
                 <td className="p-3 font-bold text-slate-800">Pendiente de aprobación</td>
