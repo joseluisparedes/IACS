@@ -805,18 +805,15 @@ ${history.map((h: any) => `${h.role === 'user' ? 'Usuario' : 'Asistente'}: ${h.t
 
 Usuario: ${message}
 
-REGLAS STRICTAS DE CONVERSACIÓN (CUMPLIMIENTO OBLIGATORIO):
-1. NO REPETIR EL CONTEXTO: ESTÁ PROHIBIDO volver a resumir o listar todo lo que el usuario ya respondió en turnos anteriores (ej: "Entiendo que la base de UPN tiene 2M de registros...", "Dado que la fecha es Q4..."). El usuario ya sabe lo que dijo. Ve directo al grano en una frase amable.
-2. EXACTAMENTE UNA (1) PREGUNTA POR TURNO: Está ESTRICTAMENTE PROHIBIDO hacer 2 o más preguntas en el mismo mensaje. Haz EXACTAMENTE UNA (1) pregunta clara y puntual sobre el siguiente campo pendiente por completar.
-3. OPCIONES SUGERIDAS ("options"):
-   - Si la única pregunta que estás haciendo corresponde a un campo de tipo 'select' con opciones cerradas (ej. "¿Es un proceso nuevo?", "Pilar estratégico", "Beneficio cuantitativo", "Es proyecto SPO"), el array "options" DEBE contener únicamente las opciones válidas para esa específica pregunta (ej. ["Sí", "No"]).
-   - NUNCA mezcles opciones de preguntas distintas. Si la pregunta es de texto libre, devuelve "options": [].
-4. CONTINUIDAD: No des por terminada la conversación ni incluyas '[INFORMACION_COMPLETA]' mientras queden campos obligatorios sin responder. Únicamente al tener todos los campos requeridos cubiertos, incluye '[INFORMACION_COMPLETA]' al final de tu respuesta.
+REGLAS DE INTERACCIÓN (CUMPLE ESTRICTAMENTE LOS GUARDARRIELES CARGADOS EN EL SISTEMA):
+1. PROPUESTA DE TÍTULO Y OBJETIVO: Cuando el usuario te brinde la descripción de su necesidad o problema, NO le pidas que él redacte o invente un título. Analiza su mensaje y FORMULA TÚ MISMO una propuesta concreta de Título (que comience estrictamente con verbo en infinitivo como 'Implementar...', 'Automatizar...', 'Integrar...') y de Objetivo, presentándoselos para su conformidad (ej: "¿Estás de acuerdo con esta propuesta o deseas realizar algún ajuste?").
+2. SEGUIMIENTO DE GUARDARRIELES: Aplica estrictamente los Guardarrieles configurados arriba en la base de datos (respuestas directas y acotadas, sin repetir bloques de texto que el usuario ya respondió, proponiendo las opciones sugeridas para campos de selección, y convirtiendo trimestres a fechas exactas).
+3. CONTINUIDAD: Avanza paso a paso de forma fluida proponiendo o validando la información para los campos requeridos. Incluye la etiqueta '[INFORMACION_COMPLETA]' únicamente cuando se hayan recopilado o acordado los datos de todos los campos obligatorios.
 
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
-  "text": "Tu respuesta directa, amable y concisa (con 1 sola pregunta final). Si ya completaste todos los campos, incluye '[INFORMACION_COMPLETA]'.",
-  "options": ["Opción 1", "Opción 2"]
+  "text": "Tu respuesta respetando los guardarrieles (proponiendo título y objetivo cuando corresponda, o validando el siguiente campo). Si ya se completaron todos los puntos, incluye '[INFORMACION_COMPLETA]'.",
+  "options": ["Opción sugerida 1", "Opción sugerida 2"]
 }`;
       const rawChat = await callAIForJSON(chatPrompt);
       const parsed = parseAIJSON(rawChat);
