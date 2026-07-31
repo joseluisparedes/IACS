@@ -34,9 +34,9 @@ function getGroq(): Groq | null {
   return _groq;
 }
 
-// ─── Unified AI JSON Call with Auto-Fallback ─────────────────────────────
-// Tries Gemini first. If Gemini fails (quota 429, unavailable 503, invalid model 404),
-// automatically switches to Groq (llama-3.3-70b-versatile) seamlessly.
+// ─── Unified AI JSON Call with Multi-Model Auto-Fallback Cascade ─────────────
+// Tries Gemini 2.0 Flash first. If quota/rate limit is reached, cascades through
+// Groq models (llama-3.3-70b-versatile -> llama-3.1-8b-instant) seamlessly.
 async function callAIForJSON(prompt: string): Promise<string> {
   // 1. Try Gemini first
   try {
@@ -48,22 +48,31 @@ async function callAIForJSON(prompt: string): Promise<string> {
     return response.text;
   } catch (geminiErr: any) {
     console.warn("[AI Call] Gemini attempt failed:", geminiErr?.message?.substring(0, 150) || geminiErr);
-
-    // 2. Fallback to Groq
-    const groq = getGroq();
-    if (!groq) {
-      throw new Error("La API Key de Gemini ha agotado su cuota y no se pudo conectar con Groq. Por favor verifica las llaves en .env");
-    }
-
-    console.log("[AI Fallback] Switching seamlessly to Groq llama-3.3-70b-versatile...");
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-    });
-    return completion.choices[0]?.message?.content ?? "{}";
   }
+
+  // 2. Fallback to Groq multi-model cascade
+  const groq = getGroq();
+  if (!groq) {
+    throw new Error("No se pudo establecer conexión con los proveedores de IA. Por favor verifica las API Keys en el panel de control.");
+  }
+
+  const groqModels = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+  for (const model of groqModels) {
+    try {
+      console.log(`[AI Fallback] Trying Groq model: ${model}...`);
+      const completion = await groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        temperature: 0.2,
+      });
+      return completion.choices[0]?.message?.content ?? "{}";
+    } catch (groqErr: any) {
+      console.warn(`[AI Fallback] Groq model ${model} failed:`, groqErr?.message?.substring(0, 150) || groqErr);
+    }
+  }
+
+  throw new Error("Los servicios de IA se encuentran temporalmente saturados. Por favor reintenta en unos instantes.");
 }
 
 // ─── Robust AI JSON Parser ───────────────────────────────────────────────────
