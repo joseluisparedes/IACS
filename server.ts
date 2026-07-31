@@ -805,16 +805,18 @@ ${history.map((h: any) => `${h.role === 'user' ? 'Usuario' : 'Asistente'}: ${h.t
 
 Usuario: ${message}
 
-REGLAS STRICTAS DE CONVERSACIÓN:
-1. Revisa detenidamente el historial y evalúa la información proporcionada por el usuario hasta ahora.
-2. Si faltan datos clave (por ejemplo: fecha requerida de implementación, consecuencia de no tenerlo en fecha, descripción de la situación actual o problema, si es un proceso nuevo, beneficio cuantitativo, escenarios de prueba, es proyecto SPO), DEBES formular preguntas breves, concisas y amables para obtener esos datos faltantes. Haz máximo 1 o 2 preguntas por turno.
-3. ESTÁ PROHIBIDO dar por terminada la conversación o incluir la etiqueta '[INFORMACION_COMPLETA]' si todavía existen campos clave sin responder.
-4. Solo cuando tengas claridad razonable sobre la necesidad, fechas, beneficios, áreas impactadas y escenarios de prueba (o si el usuario indica que no tiene más información), incluye la etiqueta exacta '[INFORMACION_COMPLETA]' en tu texto.
+REGLAS STRICTAS DE CONVERSACIÓN (CUMPLIMIENTO OBLIGATORIO):
+1. NO REPETIR EL CONTEXTO: ESTÁ PROHIBIDO volver a resumir o listar todo lo que el usuario ya respondió en turnos anteriores (ej: "Entiendo que la base de UPN tiene 2M de registros...", "Dado que la fecha es Q4..."). El usuario ya sabe lo que dijo. Ve directo al grano en una frase amable.
+2. EXACTAMENTE UNA (1) PREGUNTA POR TURNO: Está ESTRICTAMENTE PROHIBIDO hacer 2 o más preguntas en el mismo mensaje. Haz EXACTAMENTE UNA (1) pregunta clara y puntual sobre el siguiente campo pendiente por completar.
+3. OPCIONES SUGERIDAS ("options"):
+   - Si la única pregunta que estás haciendo corresponde a un campo de tipo 'select' con opciones cerradas (ej. "¿Es un proceso nuevo?", "Pilar estratégico", "Beneficio cuantitativo", "Es proyecto SPO"), el array "options" DEBE contener únicamente las opciones válidas para esa específica pregunta (ej. ["Sí", "No"]).
+   - NUNCA mezcles opciones de preguntas distintas. Si la pregunta es de texto libre, devuelve "options": [].
+4. CONTINUIDAD: No des por terminada la conversación ni incluyas '[INFORMACION_COMPLETA]' mientras queden campos obligatorios sin responder. Únicamente al tener todos los campos requeridos cubiertos, incluye '[INFORMACION_COMPLETA]' al final de tu respuesta.
 
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
-  "text": "Tu respuesta amigable y concisa (en formato Markdown si deseas enfatizar o listar algo). Si consideras que ya tienes TODA la información requerida de todos los campos, finaliza incluyendo la etiqueta exacta '[INFORMACION_COMPLETA]' en tu texto.",
-  "options": ["Opción sugerida 1", "Opción sugerida 2"]
+  "text": "Tu respuesta directa, amable y concisa (con 1 sola pregunta final). Si ya completaste todos los campos, incluye '[INFORMACION_COMPLETA]'.",
+  "options": ["Opción 1", "Opción 2"]
 }`;
       const rawChat = await callAIForJSON(chatPrompt);
       const parsed = parseAIJSON(rawChat);
