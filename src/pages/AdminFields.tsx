@@ -39,7 +39,7 @@ const defaultFileOptions = () => ({
 
 const emptyForm = {
   label: "", key: "", field_type: "select" as FieldType,
-  options: [] as string[], is_required: false, is_visible: true,
+  options: [] as any, is_required: false, is_visible: true,
   depends_on: "", options_map: {} as Record<string, string[]>, ai_instructions: "",
   allow_multiple: false, help_text: "", requires_confirmation: false
 };
@@ -246,7 +246,7 @@ export default function AdminFields() {
         : form.options;
       if (payloadOptions.length < 2) return setError("Un selector debe tener al menos 2 opciones en total.");
     } else if (form.field_type === "file") {
-      if (!payloadOptions || typeof payloadOptions !== 'object' || Array.isArray(payloadOptions) || !payloadOptions.fileTypes) {
+      if (!payloadOptions || typeof payloadOptions !== 'object' || Array.isArray(payloadOptions) || !(payloadOptions as any).fileTypes) {
         payloadOptions = defaultFileOptions();
       }
     }
@@ -492,7 +492,7 @@ export default function AdminFields() {
                 <label className={labelCls}>Tipo de campo <span className="text-red-500">*</span></label>
                 <div className="grid grid-cols-4 gap-2">
                   {(["text", "date", "select", "file"] as FieldType[]).map(t => (
-                    <button key={t} type="button" onClick={() => setForm(f => ({ ...f, field_type: t, options: t === "file" ? defaultFileOptions() : (t === "select" ? [] : f.options) }))}
+                    <button key={t} type="button" onClick={() => setForm(f => ({ ...f, field_type: t, options: t === "file" ? defaultFileOptions() as any : (t === "select" ? [] as any : f.options) }))}
                       className={`py-3 px-2 rounded-lg text-xs font-semibold border transition-all ${
                         form.field_type === t
                           ? "bg-[#4F5AF5] border-[#4F5AF5] text-white shadow-sm shadow-[#4F5AF5]/20"

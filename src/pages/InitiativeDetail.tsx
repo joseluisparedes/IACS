@@ -351,7 +351,7 @@ function Row({
       if (data.error) throw new Error(data.error);
 
       onChange(JSON.stringify({ 
-        name: file.originalname || file.name, 
+        name: (file as any).originalname || file.name, 
         content: data.content, 
         url: data.url, 
         type: data.type || file.type 

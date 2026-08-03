@@ -505,12 +505,13 @@ Responde estrictamente en formato JSON:
       if (existingNotifs.data && existingNotifs.data.length > 0) return;
 
       if (formData && formData.vicepresidencia && formData.direccion) {
-        const vpRes = await supabase.from('vps').select('id').eq('name', formData.vicepresidencia).single();
-        const dirRes = await supabase.from('direcciones').select('id').eq('name', formData.direccion).eq('vp_id', vpRes.data?.id).single();
-        
-        if (vpRes.data && dirRes.data) {
-          const vpId = vpRes.data.id;
-          const dirId = dirRes.data.id;
+        const vpRes = await supabase.from('vps').select('id').eq('name', formData.vicepresidencia).maybeSingle();
+        if (!vpRes.data) return;
+        const dirRes = await supabase.from('direcciones').select('id').eq('name', formData.direccion).eq('vp_id', vpRes.data.id).maybeSingle();
+        if (!dirRes.data) return;
+
+        const vpId = vpRes.data.id;
+        const dirId = dirRes.data.id;
           
           const usersRes = await supabase.from('allowed_users').select('id, name, user_roles_whitelist(*)');
           if (usersRes.data) {
@@ -534,7 +535,6 @@ Responde estrictamente en formato JSON:
             }
           }
         }
-      }
     } catch (e) {
       console.error("Error creating notifications", e);
     }
