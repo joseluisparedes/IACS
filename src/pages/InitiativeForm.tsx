@@ -264,10 +264,10 @@ function DateInputDDMMYYYY({
       return `${ymd[3].padStart(2, "0")}/${ymd[2].padStart(2, "0")}/${ymd[1]}`;
     }
     const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
-    if (dmy) {
-      return `${dmy[1].padStart(2, "0")}/${dmy[2].padStart(2, "0")}/${dmy[3]}`;
-    }
-    return trimmed;
+    // Safe Fallback for any unrecognized non-date text string
+    const now = new Date();
+    const fallback = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    return `${String(fallback.getDate()).padStart(2, '0')}/${String(fallback.getMonth() + 1).padStart(2, '0')}/${fallback.getFullYear()}`;
   };
 
   const toYYYYMMDD = (val: string): string => {
