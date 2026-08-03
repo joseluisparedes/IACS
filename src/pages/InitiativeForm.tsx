@@ -1064,7 +1064,10 @@ export default function InitiativeForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: draftIdRef.current,
-          form_data: currentFormData,
+          form_data: {
+            ...currentFormData,
+            _director_declaration_accepted: disclaimerAccepted || currentFormData?._director_declaration_accepted || false
+          },
           chat_history: currentHistory,
           summary: currentSummary,
           confirmed_fields: confirmedFields,
@@ -1360,6 +1363,14 @@ export default function InitiativeForm() {
 
   const handleAnalyzeText = async () => {
     if (!unstructuredText.trim()) return;
+    if (!disclaimerAccepted) {
+      showToast("Debes declarar que tu Director tiene conocimiento sobre esta iniciativa antes de continuar.", "warning");
+      return;
+    }
+    setFormData(prev => ({
+      ...prev,
+      _director_declaration_accepted: true
+    }));
     setIsAnalyzing(true);
     setError("");
     try {
@@ -1644,12 +1655,20 @@ export default function InitiativeForm() {
 
   const handleStartChatWithValidation = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!disclaimerAccepted) {
+      showToast("Debes declarar que tu Director tiene conocimiento sobre esta iniciativa antes de iniciar el chat.", "warning");
+      return;
+    }
     const { isValid, errors } = validateAllFields();
     if (!isValid) {
       setFormErrors(errors);
       return;
     }
     setFormErrors([]);
+    setFormData(prev => ({
+      ...prev,
+      _director_declaration_accepted: true
+    }));
     handleStartChat(e);
   };
 
@@ -2314,7 +2333,7 @@ export default function InitiativeForm() {
             )}
 
             {/* Disclaimer and Checkbox */}
-            {(selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3) || step === 3) && (
+            {(step === 1 || selectedPath === 'unstructured' || step === 3) && (
               <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#FFFBEB]/30">
                 <div className="flex items-start gap-3 p-4 bg-amber-50/60 rounded-xl border border-amber-100/70">
                   <input
