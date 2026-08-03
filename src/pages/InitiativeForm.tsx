@@ -141,6 +141,101 @@ function validateTitleQuality(title: string | undefined | null): { isValid: bool
   return { isValid: true };
 }
 
+// ─── Date Parsing Helper ──────────────────────────────────────────────────────
+const parseQuarterDate = (val: string): string | null => {
+  if (!val) return null;
+  const trimmed = val.trim().toUpperCase();
+  const removeAccents = (str: string) => str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const cleanStr = removeAccents(trimmed);
+
+  // 1. Quarters (e.g. Q4 2026, 4T 2026)
+  const qMatch = cleanStr.match(/(?:Q([1-4])|([1-4])T)[^\d]*(\d{4})/i);
+  if (qMatch) {
+    const q = parseInt(qMatch[1] || qMatch[2], 10);
+    const year = qMatch[3];
+    const quarterEndDates: Record<number, string> = {
+      1: `31/03/${year}`,
+      2: `30/06/${year}`,
+      3: `30/09/${year}`,
+      4: `31/12/${year}`
+    };
+    return quarterEndDates[q] || null;
+  }
+
+  // 2. Month + Year (e.g. Diciembre 2026)
+  const months: Record<string, string> = {
+    ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
+    JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12'
+  };
+  for (const [mName, mNum] of Object.entries(months)) {
+    if (cleanStr.includes(mName)) {
+      const yMatch = cleanStr.match(/\d{4}/);
+      const year = yMatch ? yMatch[0] : new Date().getFullYear().toString();
+      const lastDay = new Date(parseInt(year, 10), parseInt(mNum, 10), 0).getDate();
+      return `${String(lastDay).padStart(2, '0')}/${mNum}/${year}`;
+    }
+  }
+
+  const now = new Date();
+
+  // 3. "INMEDIATAMENTE", "HOY", "ASAP", "LO ANTES POSIBLE"
+  if (cleanStr.includes('INMEDIATAMENTE') || cleanStr.includes('HOY') || cleanStr.includes('ASAP') || cleanStr.includes('ANTES POSIBLE')) {
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  // 4. "FIN DE ANO", "CIERRE DE ANO"
+  if (cleanStr.includes('FIN DE ANO') || cleanStr.includes('CIERRE DE ANO')) {
+    const yMatch = cleanStr.match(/\d{4}/);
+    const year = yMatch ? yMatch[0] : now.getFullYear().toString();
+    return `31/12/${year}`;
+  }
+
+  // 5. "PROXIMO MES", "MES SIGUIENTE"
+  if (cleanStr.includes('PROXIMO MES') || cleanStr.includes('MES SIGUIENTE')) {
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const year = targetDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  // 6. "ESTE MES", "FIN DE MES"
+  if (cleanStr.includes('ESTE MES') || cleanStr.includes('FIN DE MES')) {
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const year = targetDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  // 7. "DENTRO DE X MESES", "EN X MESES", "PROXIMOS X MESES"
+  const mMatch = cleanStr.match(/(?:DENTRO DE|EN|PROXIMOS)\s+(?:LOS\s+)?(\d{1,2})\s+MESES?/);
+  if (mMatch) {
+    const numMonths = parseInt(mMatch[1], 10);
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + 1 + numMonths, 0);
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const year = targetDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  // 8. "DENTRO DE X DIAS", "EN X DIAS"
+  const dMatch = cleanStr.match(/(?:DENTRO DE|EN)\s+(\d{1,3})\s+DIAS?/);
+  if (dMatch) {
+    const numDays = parseInt(dMatch[1], 10);
+    const targetDate = new Date(now.valueOf() + numDays * 86400000);
+    const day = String(targetDate.getDate()).padStart(2, '0');
+    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+    const year = targetDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  return null;
+};
+
 // ─── Date Input with DD/MM/YYYY Display ──────────────────────────────────────
 function DateInputDDMMYYYY({
   value,
@@ -158,36 +253,6 @@ function DateInputDDMMYYYY({
   className?: string;
 }) {
   const hiddenDateRef = useRef<HTMLInputElement>(null);
-
-  const parseQuarterDate = (val: string): string | null => {
-    if (!val) return null;
-    const trimmed = val.trim().toUpperCase();
-    const qMatch = trimmed.match(/(?:Q([1-4])|([1-4])T)[^\d]*(\d{4})/i);
-    if (qMatch) {
-      const q = parseInt(qMatch[1] || qMatch[2], 10);
-      const year = qMatch[3];
-      const quarterEndDates: Record<number, string> = {
-        1: `31/03/${year}`,
-        2: `30/06/${year}`,
-        3: `30/09/${year}`,
-        4: `31/12/${year}`
-      };
-      return quarterEndDates[q] || null;
-    }
-    const months: Record<string, string> = {
-      ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
-      JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12'
-    };
-    for (const [mName, mNum] of Object.entries(months)) {
-      if (trimmed.includes(mName)) {
-        const yMatch = trimmed.match(/\d{4}/);
-        const year = yMatch ? yMatch[0] : new Date().getFullYear().toString();
-        const lastDay = new Date(parseInt(year, 10), parseInt(mNum, 10), 0).getDate();
-        return `${String(lastDay).padStart(2, '0')}/${mNum}/${year}`;
-      }
-    }
-    return null;
-  };
 
   const toDDMMYYYY = (val: string): string => {
     if (!val) return "";
@@ -698,19 +763,11 @@ export default function InitiativeForm() {
       if (targetField) {
         let finalVal = val;
 
-        // Date field processing (e.g. Q4 DEL 2026 -> 31/12/2026 or YYYY-MM-DD)
+        // Date field processing (e.g. Q4 DEL 2026 -> 31/12/2026, Próximo mes -> 30/09/2026, YYYY-MM-DD -> DD/MM/YYYY)
         if (targetField.field_type === 'date' && typeof val === 'string') {
-          const qMatch = val.trim().match(/(?:Q([1-4])|([1-4])T)[^\d]*(\d{4})/i);
-          if (qMatch) {
-            const q = parseInt(qMatch[1] || qMatch[2], 10);
-            const year = qMatch[3];
-            const quarterEndDates: Record<number, string> = {
-              1: `31/03/${year}`,
-              2: `30/06/${year}`,
-              3: `30/09/${year}`,
-              4: `31/12/${year}`
-            };
-            finalVal = quarterEndDates[q] || val;
+          const flexDate = parseQuarterDate(val);
+          if (flexDate) {
+            finalVal = flexDate;
           } else {
             const ymd = val.trim().match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
             if (ymd) {
