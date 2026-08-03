@@ -2097,7 +2097,12 @@ export default function InitiativeForm() {
                           }}
                           onChange={v => {
                             setFormData(p => {
-                              const newForm = { ...p, [field.key]: v };
+                              const isVobo = field.key === 'aprobacion_de_director' || field.key === 'aprobacin_de_director';
+                              const newForm = { 
+                                ...p, 
+                                [field.key]: v,
+                                ...(isVobo ? { aprobacion_de_director: v, aprobacin_de_director: v } : {})
+                              };
                               // Reset any child fields that depend on this one
                               fields.filter(f => f.depends_on === field.key).forEach(child => {
                                 newForm[child.key] = "";
