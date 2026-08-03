@@ -1447,6 +1447,13 @@ export default function InitiativeForm() {
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
+      if (data.extractedFields && (data.extractedFields.titulo || data.extractedFields.objetivo)) {
+        setFormData(prev => ({
+          ...prev,
+          ...(data.extractedFields.titulo ? { titulo: data.extractedFields.titulo } : {}),
+          ...(data.extractedFields.objetivo ? { objetivo: data.extractedFields.objetivo } : {})
+        }));
+      }
       let text = data.text as string;
       const options = data.options;
       if (text.includes("[INFORMACION_COMPLETA]")) {

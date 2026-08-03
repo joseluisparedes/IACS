@@ -761,10 +761,42 @@ Responde estrictamente en formato JSON:
     return sanitized;
   }
 
+  function extractProposalFromHistory(history: any[]): { titulo?: string; objetivo?: string } {
+    if (!history || !Array.isArray(history)) return {};
+    for (let i = history.length - 1; i >= 0; i--) {
+      const msg = history[i];
+      if (msg.role === 'model' && msg.text) {
+        const text = msg.text;
+        const tMatch = text.match(/Título\s*[-:]\s*['"“]?([^'"”]+?)['"”]?\s*(?:,\s*Objetivo|\s+Objetivo)/i) || text.match(/Título\s*[-:]\s*['"“]?([^'"”]+)/i);
+        const oMatch = text.match(/Objetivo\s*[-:]\s*['"“]?([^'"”]+?)(?:['"”]?\s*\.|\?|$)/i);
+        if (tMatch || oMatch) {
+          return {
+            titulo: tMatch ? tMatch[1].trim() : undefined,
+            objetivo: oMatch ? oMatch[1].trim() : undefined,
+          };
+        }
+      }
+    }
+    return {};
+  }
+
   // ── AI Chat ──────────────────────────────────────────────────────────────────
   app.post("/api/chat", async (req, res) => {
     const { history, message, initialData, aiFields } = req.body;
     const sanitizedInitialData = sanitizeInitialDataForAI(initialData);
+
+    const isUserAcceptance = /^\s*(sí|si|de acuerdo|estoy de acuerdo|acepto|conforme|ok|perfecto|adelante|excelente)/i.test(message || "");
+    let extractedProposal: { titulo?: string; objetivo?: string } = {};
+
+    if (isUserAcceptance) {
+      extractedProposal = extractProposalFromHistory(history);
+      if (extractedProposal.titulo && !sanitizedInitialData.titulo) {
+        sanitizedInitialData.titulo = extractedProposal.titulo;
+      }
+      if (extractedProposal.objetivo && !sanitizedInitialData.objetivo) {
+        sanitizedInitialData.objetivo = extractedProposal.objetivo;
+      }
+    }
 
     const fieldsListStr = aiFields && aiFields.length > 0
       ? aiFields.map((f: any) => `- Clave: "${f.key}", Campo: "${f.label}" (${f.field_type})${f.field_type === 'select' && f.options && f.options.length > 0 ? ` [Opciones permitidas: ${f.options.join(', ')}]` : ''}${f.ai_instructions ? ` [Instrucciones: ${f.ai_instructions}]` : ''}`).join("\n")
@@ -778,7 +810,8 @@ Responde estrictamente en formato JSON:
       await updateAgentTask(tPoId, 100, 'completed');
       return res.json({
         text: getMockChatResponse(history, sanitizedInitialData, message),
-        options: getMockOptions(history, message)
+        options: getMockOptions(history, message),
+        extractedFields: extractedProposal
       });
     }
 
@@ -816,9 +849,14 @@ Usuario: ${message}
 
 REGLAS DE INTERACCIÓN (CUMPLE ESTRICTAMENTE LOS GUARDARRIELES CARGADOS EN EL SISTEMA):
 1. DATOS EXISTENTES Y NO REPETICIÓN: NUNCA preguntes por datos que ya están en los 'Datos iniciales proporcionados por el usuario' (como institucion, vicepresidencia, direccion, etc.) ni en el 'Historial de conversación'. NUNCA repitas la misma pregunta que el Asistente formuló en el mensaje inmediatamente anterior. Si el usuario ya te dio una respuesta (ej. eligió una opción o escribió una palabra), procesa su respuesta y avanza directamente al siguiente campo pendiente.
-2. PROPUESTA DE TÍTULO Y OBJETIVO: Cuando el usuario te brinde la descripción de su necesidad o problema, NO le pidas que él redacte o invente un título. Analiza su mensaje y FORMULA TÚ MISMO una propuesta concreta de Título (que comience estrictamente con verbo en infinitivo como 'Implementar...', 'Automatizar...', 'Integrar...') y de Objetivo, presentándoselos para su conformidad (ej: "¿Estás de acuerdo con esta propuesta o deseas realizar algún ajuste?").
-3. SEGUIMIENTO DE GUARDARRIELES: Aplica estrictamente los Guardarrieles configurados arriba en la base de datos (respuestas directas y acotadas, sin repetir bloques de texto que el usuario ya respondió, proponiendo las opciones sugeridas para campos de selección, y convirtiendo trimestres a fechas exactas).
-4. CONTINUIDAD: Avanza paso a paso de forma fluida proponiendo o validando la información para los campos requeridos. Incluye la etiqueta '[INFORMACION_COMPLETA]' únicamente cuando se hayan recopilado o acordado los datos de todos los campos obligatorios.
+2. PROPUESTA DE TÍTULO Y OBJETIVO: Cuando el usuario te brinde la descripción de su necesidad o problema por primera vez (y el título aún esté vacío), NO le pidas que él redacte o invente un título. Analiza su mensaje y FORMULA TÚ MISMO una propuesta concreta de Título (que comience estrictamente con verbo en infinitivo como 'Implementar...', 'Automatizar...', 'Integrar...') y de Objetivo, presentándoselos para su conformidad (ej: "¿Estás de acuerdo con esta propuesta o deseas realizar algún ajuste?").
+3. ACEPTACIÓN DE PROPUESTA: ${
+  isUserAcceptance && (sanitizedInitialData.titulo || extractedProposal.titulo)
+    ? `El usuario YA ACEPTÓ la propuesta de Título ("${sanitizedInitialData.titulo || extractedProposal.titulo}") y Objetivo ("${sanitizedInitialData.objetivo || extractedProposal.objetivo}"). Queda ESTRICTAMENTE PROHIBIDO volver a proponer el título y objetivo o preguntar si el usuario está de acuerdo. Avanza INMEDIATAMENTE a consultar el siguiente campo pendiente (por ejemplo: la fecha requerida de implementación).`
+    : 'Si el usuario acepta la propuesta de título y objetivo, confirma brevemente y pasa al siguiente campo.'
+}
+4. SEGUIMIENTO DE GUARDARRIELES: Aplica strictly los Guardarrieles configurados arriba en la base de datos (respuestas directas y acotadas, sin repetir bloques de texto que el usuario ya respondió, proponiendo las opciones sugeridas para campos de selección, y convirtiendo trimestres a fechas exactas).
+5. CONTINUIDAD: Avanza paso a paso de forma fluida proponiendo o validando la información para los campos requeridos. Incluye la etiqueta '[INFORMACION_COMPLETA]' únicamente cuando se hayan recopilado o acordado los datos de todos los campos obligatorios.
 
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
@@ -830,7 +868,11 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       await updateAgentTask(tOrqId, 100, 'completed', { action: "Orquestación de la conversación", user_message: message });
       await updateAgentTask(tPoId, 100, 'completed', { action: "Análisis de contexto", ai_response: parsed });
       await updateAgentTask(tRegId, 100, 'completed', { action: "Validación de tokens usados" });
-      res.json({ text: parsed.text, options: parsed.options || [] });
+      res.json({
+        text: parsed.text,
+        options: parsed.options || [],
+        extractedFields: extractedProposal
+      });
     } catch (e: any) {
       console.error("Gemini API error, falling back to mock:", e.message);
       await updateAgentTask(tOrqId, 100, 'completed', { error: e.message });
