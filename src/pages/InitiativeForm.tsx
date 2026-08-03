@@ -1328,7 +1328,7 @@ export default function InitiativeForm() {
         };
       });
 
-      if (context === 'chat' && step === 2 && selectedPath === 'unstructured') {
+      if (context === 'chat' && step >= 2 && selectedPath === 'unstructured') {
         setTimeout(() => {
           submitMessage(`He subido un archivo de soporte llamado: ${file.name}. Por favor analízalo.`);
         }, 100);
@@ -1350,7 +1350,7 @@ export default function InitiativeForm() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const ctx = (step === 2 && selectedPath === 'unstructured') ? 'chat' : 'support';
+    const ctx = (step >= 2 && selectedPath === 'unstructured') ? 'chat' : 'support';
     await processFile(file, ctx);
   };
 
@@ -1942,7 +1942,7 @@ export default function InitiativeForm() {
         </div>
       )}
 
-      {((step === 1 && selectedPath === 'direct') || (step === 2 && selectedPath === 'unstructured') || (step === 3 && selectedPath === 'direct')) && !isAiTyping && (
+      {((step === 1 && selectedPath === 'direct') || (step >= 2 && selectedPath === 'unstructured') || step === 3) && !isAiTyping && (
         <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden animate-in fade-in duration-200">
           {/* Header */}
           <div className="px-8 pt-8 pb-6 border-b border-[#F1F5F9] flex justify-between items-start gap-4">
@@ -1992,7 +1992,7 @@ export default function InitiativeForm() {
                 </div>
               ) : (
                 <>
-                  {((selectedPath === 'unstructured' && step === 2) || (selectedPath === 'direct' && step === 3)) && (
+                  {((selectedPath === 'unstructured' && step >= 2) || (selectedPath === 'direct' && step === 3)) && (
                     <div className="mb-6 p-4 bg-slate-50 border border-slate-200/80 rounded-xl flex items-start gap-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
                       <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
                         <AlertCircle className="w-4 h-4 text-amber-600" />
