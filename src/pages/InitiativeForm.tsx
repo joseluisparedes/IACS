@@ -1394,18 +1394,31 @@ export default function InitiativeForm() {
       }
       const data = await res.json();
       
-      setFormData(prev => {
-        const next = { ...prev };
-        Object.entries(data.values || {}).forEach(([k, v]) => {
-          if (v !== undefined && v !== null && v !== "") {
-            next[k] = v as string;
-          }
-        });
-        return next;
+      let updatedFormData = { ...formData };
+      Object.entries(data.values || {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== "") {
+          updatedFormData[k] = v as string;
+        }
       });
 
+      setFormData(updatedFormData);
       setAiWarnings(data.warnings || {});
-      setStep(2);
+
+      // Build summary object for Step 3
+      const summaryObj = {
+        titulo: updatedFormData.titulo || updatedFormData.titulo_de_la_necesidad || "Iniciativa de TI",
+        objetivo: updatedFormData.objetivo || "Optimizar procesos de negocio",
+        descripcion_de_la_necesidad: updatedFormData.descripcion_de_la_necesidad || unstructuredText,
+        fecha_requerida: updatedFormData.fecha_requerida || "",
+        vicepresidencia: updatedFormData.vicepresidencia || "",
+        direccion: updatedFormData.direccion || "",
+        ...data.values
+      };
+      setSummary(summaryObj);
+
+      // Transition directly to Step 3 (Resumen y Envío a Aprobación)
+      setStep(3);
+      autoSave([], summaryObj, updatedFormData);
     } catch (e: any) {
       console.error(e);
       setError(e.message || "Error al procesar el texto con la IA.");
