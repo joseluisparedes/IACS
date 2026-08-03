@@ -822,7 +822,7 @@ Responde estrictamente en formato JSON:
       const systemPrompt = buildSystemPrompt(training);
 
       const tRegId = await startAgentTask("Regulador de Tokens", "Validando seguridad y tokens");
-      const isInitialGreeting = message === "[INICIALIZAR_CHAT]" || history.length === 0;
+      const isInitialGreeting = message === "[INICIALIZAR_CHAT]";
       const chatPrompt = isInitialGreeting
         ? `${systemPrompt}
 
