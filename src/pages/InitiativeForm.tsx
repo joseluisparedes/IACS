@@ -2034,7 +2034,7 @@ export default function InitiativeForm() {
                       <option value="" disabled>Selecciona...</option>
                       {vpOptions.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
-                    {aiWarnings.vicepresidencia && (
+                    {aiWarnings.vicepresidencia && (!formData.vicepresidencia || String(formData.vicepresidencia).trim() === "") && (
                       <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded-lg flex items-start gap-1.5 font-medium leading-relaxed">
                         <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                         <span>{aiWarnings.vicepresidencia}</span>
@@ -2063,7 +2063,7 @@ export default function InitiativeForm() {
                       <option value="" disabled>Selecciona...</option>
                       {dirOptions.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
-                    {aiWarnings.direccion && (
+                    {aiWarnings.direccion && (!formData.direccion || String(formData.direccion).trim() === "") && (
                       <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded-lg flex items-start gap-1.5 font-medium leading-relaxed">
                         <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                         <span>{aiWarnings.direccion}</span>
@@ -2149,7 +2149,7 @@ export default function InitiativeForm() {
                             </label>
                           </div>
                         )}
-                        {aiWarnings[field.key] && (
+                        {aiWarnings[field.key] && (!formData[field.key] || String(formData[field.key]).trim() === "" || (Array.isArray(formData[field.key]) && formData[field.key].length === 0)) && (
                           <div className="mt-1.5 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 text-[11px] rounded-lg flex items-start gap-1.5 font-medium leading-relaxed">
                             <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
                             <span>{aiWarnings[field.key]}</span>

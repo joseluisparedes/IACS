@@ -504,6 +504,16 @@ Responde estrictamente en formato JSON con la siguiente estructura:
         parsed = extractLocalUnstructured(text, fields, vps, dirs);
       }
 
+      // Automatically purge warnings for any field that has a valid value assigned
+      if (parsed && parsed.values && parsed.warnings) {
+        Object.keys(parsed.values).forEach(k => {
+          const val = parsed.values[k];
+          if (val !== undefined && val !== null && String(val).trim() !== "" && String(val) !== "null") {
+            delete parsed.warnings[k];
+          }
+        });
+      }
+
       await updateAgentTask(tOrqId, 100, 'completed', { action: "Delegando a agentes especializados", input_length: text.length });
       await updateAgentTask(tPoId, 100, 'completed', { action: "Extracción de entidades y mapeo", prompt_preview: prompt.substring(0, 300) + "...", ai_response: parsed });
       await updateAgentTask(tRegId, 100, 'completed', { action: "Análisis de seguridad", model: "multi-model-fallback", status: "Seguro" });
