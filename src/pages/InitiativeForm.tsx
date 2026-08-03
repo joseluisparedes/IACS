@@ -736,11 +736,11 @@ export default function InitiativeForm() {
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type?: string } | null>(null);
   const [selectedPath, setSelectedPath] = useState<'select' | 'direct' | 'unstructured'>('select');
   useEffect(() => {
-    (window as any).isInitiativeProcessInProgress = (selectedPath !== 'select');
+    (window as any).isInitiativeProcessInProgress = (selectedPath !== 'select' || !!id);
     return () => {
       (window as any).isInitiativeProcessInProgress = false;
     };
-  }, [selectedPath]);
+  }, [selectedPath, id]);
   // Countdown before generating summary after chat finishes
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownHistoryRef = useRef<any[]>([]);
@@ -1035,7 +1035,7 @@ export default function InitiativeForm() {
           } catch (_) {}
 
           if (!restored) {
-            // Fresh session
+            // Fresh session — reset completely to Step 1 Options Screen
             const initial: Record<string, any> = {};
             allVisibleFormFields.forEach((f: FieldDefinition) => {
               if (f.field_type === "select") {
@@ -1045,12 +1045,19 @@ export default function InitiativeForm() {
               }
             });
             setFormData(initial);
+            setConfirmedFields({});
+            setUnstructuredText("");
+            setChatHistory([]);
+            setSummary(null);
+            setAiWarnings({});
+            setStep(1);
+            setSelectedPath('select');
           }
         }
       })
       .catch(console.error)
       .finally(() => setLoadingFields(false));
-  }, [id]);
+  }, [id, location.pathname, location.search]);
 
   const autoSave = async (currentHistory: any[], currentSummary: any, currentFormData = formData) => {
     // Always save to localStorage first as a reliable offline backup
@@ -1397,7 +1404,11 @@ export default function InitiativeForm() {
       let updatedFormData = { ...formData };
       Object.entries(data.values || {}).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== "") {
-          updatedFormData[k] = v as string;
+          let valStr = v as string;
+          if (k === 'titulo' && typeof valStr === 'string' && valStr.trim()) {
+            valStr = valStr.trim().charAt(0).toUpperCase() + valStr.trim().slice(1);
+          }
+          updatedFormData[k] = valStr;
         }
       });
 
@@ -1416,8 +1427,8 @@ export default function InitiativeForm() {
       };
       setSummary(summaryObj);
 
-      // Transition directly to Step 3 (Resumen y Envío a Aprobación)
-      setStep(3);
+      // Transition to Step 2 (Revisión con IA y Envío a Aprobación)
+      setStep(2);
       autoSave([], summaryObj, updatedFormData);
     } catch (e: any) {
       console.error(e);
@@ -1658,7 +1669,9 @@ export default function InitiativeForm() {
     
     if (status === "Pendiente de aprobación") {
       if (!disclaimerAccepted) {
-        showToast("Debes aceptar la declaración de responsabilidad indicando que tu Director tiene conocimiento antes de enviar a aprobación.", "warning");
+        showToast("Por favor marca el casilla de Declaración de Responsabilidad (Consentimiento) al final del formulario antes de enviar a aprobación.", "error");
+        const el = document.getElementById('consent-disclaimer-section');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
       setShowConsentModal(true);
@@ -1712,6 +1725,20 @@ export default function InitiativeForm() {
       setIsSaving(false);
     }
   };
+
+  if (id && loadingFields) {
+    return (
+      <div className="max-w-3xl mx-auto py-20 flex flex-col items-center justify-center text-center gap-4 animate-in fade-in duration-200">
+        <div className="w-14 h-14 rounded-2xl bg-[#EEF2FF] border border-[#E0E7FF] flex items-center justify-center text-[#4F5AF5] shadow-sm">
+          <div className="w-6 h-6 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-[#1E293B]">Cargando borrador...</h3>
+          <p className="text-xs text-[#64748B] mt-1">Recuperando la información y el estado de la iniciativa</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -2344,18 +2371,18 @@ export default function InitiativeForm() {
             )}
 
             {/* Disclaimer and Checkbox */}
-            {((selectedPath === 'unstructured' && step === 3) || (selectedPath === 'direct' && step === 3) || step === 3) && (
-              <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#FFFBEB]/30">
-                <div className="flex items-start gap-3 p-4 bg-amber-50/60 rounded-xl border border-amber-100/70">
+            {((selectedPath === 'unstructured' && step >= 2) || (selectedPath === 'direct' && step === 3) || step === 3) && (
+              <div id="consent-disclaimer-section" className="px-8 py-5 border-t border-[#F1F5F9] bg-[#FFFBEB]/30">
+                <div className={`flex items-start gap-3 p-4 rounded-xl border transition-all ${disclaimerAccepted ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-400/30'}`}>
                   <input
                     type="checkbox"
                     id="disclaimer-checkbox"
                     checked={disclaimerAccepted}
                     onChange={(e) => setDisclaimerAccepted(e.target.checked)}
-                    className="w-4 h-4 mt-0.5 rounded border-[#E2E8F0] text-[#4F5AF5] focus:ring-[#4F5AF5] transition-colors cursor-pointer"
+                    className="w-5 h-5 mt-0.5 rounded border-amber-400 text-[#4F5AF5] focus:ring-[#4F5AF5] transition-colors cursor-pointer shrink-0"
                   />
-                  <label htmlFor="disclaimer-checkbox" className="text-xs text-amber-900 leading-relaxed select-none cursor-pointer">
-                    <span className="font-bold">Declaración de Responsabilidad:</span> Estoy conforme con la información mostrada y soy consciente de la información que estoy registrando y aceptando.
+                  <label htmlFor="disclaimer-checkbox" className="text-xs text-amber-950 leading-relaxed select-none cursor-pointer">
+                    <span className="font-bold text-amber-900">Declaración de Responsabilidad (Consentimiento):</span> Estoy conforme con toda la información mostrada y declaro que mi Director / VP tiene pleno conocimiento y ha otorgado su consentimiento para que esta necesidad sea aprobada por el BP TI.
                   </label>
                 </div>
               </div>

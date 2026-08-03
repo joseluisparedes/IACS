@@ -489,7 +489,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   key={item.path}
                   to={item.path}
                   onClick={(e) => {
-                    if ((item.path === '/' || item.path === '/nueva') && (window as any).isInitiativeProcessInProgress) {
+                    if (location.pathname !== item.path && (window as any).isInitiativeProcessInProgress) {
                       e.preventDefault();
                       setPendingNavPath(item.path);
                       setShowNavConfirmModal(true);
@@ -546,6 +546,13 @@ function Layout({ children }: { children: React.ReactNode }) {
                                   <Link
                                     key={item.path}
                                     to={item.path}
+                                    onClick={(e) => {
+                                      if (location.pathname !== item.path && (window as any).isInitiativeProcessInProgress) {
+                                        e.preventDefault();
+                                        setPendingNavPath(item.path);
+                                        setShowNavConfirmModal(true);
+                                      }
+                                    }}
                                     className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
                                       active
                                         ? 'bg-[#fff0ed] text-[#EB5F46] font-bold shadow-xs'
@@ -624,9 +631,13 @@ function Layout({ children }: { children: React.ReactNode }) {
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-base font-bold text-slate-900">¿Iniciar nueva necesidad?</h3>
+                <h3 className="text-base font-bold text-slate-900">
+                  {pendingNavPath === '/nueva' ? '¿Iniciar nueva necesidad?' : '¿Salir del proceso de edición?'}
+                </h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  ¿Estás seguro de que deseas iniciar una nueva necesidad? Se perderán todos los cambios no guardados en el proceso actual.
+                  {pendingNavPath === '/nueva'
+                    ? '¿Estás seguro de que deseas iniciar una nueva necesidad? Se perderán todos los cambios no guardados en el proceso actual.'
+                    : 'Estás saliendo de la edición. Si no has guardado los cambios, la información no guardada se perderá.'}
                 </p>
               </div>
             </div>
@@ -648,7 +659,11 @@ function Layout({ children }: { children: React.ReactNode }) {
                   setShowNavConfirmModal(false);
                   (window as any).isInitiativeProcessInProgress = false;
                   if (pendingNavPath) {
-                    navigate(pendingNavPath);
+                    if (pendingNavPath === '/nueva') {
+                      navigate('/nueva', { replace: true, state: { reset: Date.now() } });
+                    } else {
+                      navigate(pendingNavPath);
+                    }
                   }
                 }}
                 className="flex-grow flex items-center justify-center gap-2 bg-[#EB5F46] hover:bg-[#c94a32] text-white px-4 py-2 text-xs font-semibold rounded-lg transition-colors shadow-md shadow-[#EB5F46]/10"

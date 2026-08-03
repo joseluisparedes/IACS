@@ -108,49 +108,89 @@ function getGroq(): Groq | null {
 // ─── Unified AI JSON Call with Multi-Model Auto-Fallback Cascade ─────────────
 // Tries Gemini 2.0 Flash first. If quota/rate limit is reached, cascades through
 // Groq models (llama-3.3-70b-versatile -> llama-3.1-8b-instant) seamlessly.
-async function callAIForJSON(prompt: string): Promise<string> {
-  // 1. Try Gemini models cascade
-  const geminiModels = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
-  for (const model of geminiModels) {
-    try {
-      console.log(`[AI Call] Trying Gemini model: ${model}...`);
-      const response = await getGenAI().models.generateContent({
-        model,
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: { responseMimeType: "application/json" }
-      });
-      if (response && response.text) return response.text;
-    } catch (geminiErr: any) {
-      console.warn(`[AI Call] Gemini model ${model} failed:`, geminiErr?.message?.substring(0, 150) || geminiErr);
-    }
-  }
+let _geminiCooldownUntil = 0;
+let _groqCooldownUntil = 0;
 
-  // 2. Fallback to Groq multi-model cascade
-  const groq = getGroq();
-  if (groq) {
-    const groqModels = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
-    const jsonPrompt = prompt.includes("JSON") ? prompt : `${prompt}\nResponde estrictamente en formato JSON.`;
-    for (const model of groqModels) {
+function withTimeout<T>(promise: Promise<T>, ms: number = 3000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`AI Call Timeout (${ms}ms)`)), ms);
+    promise
+      .then(res => { clearTimeout(timer); resolve(res); })
+      .catch(err => { clearTimeout(timer); reject(err); });
+  });
+}
+
+async function callAIForJSON(prompt: string): Promise<string> {
+  const now = Date.now();
+
+  // 1. Try Gemini models cascade (if not in 60s rate-limit cooldown)
+  if (now > _geminiCooldownUntil) {
+    const geminiModels = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
+    for (const model of geminiModels) {
       try {
-        console.log(`[AI Fallback] Trying Groq model: ${model}...`);
-        const completion = await groq.chat.completions.create({
-          model,
-          messages: [
-            { role: "system", content: "Eres un asistente de IA experto en análisis de procesos y negocios de TI. Responde estrictamente en formato JSON." },
-            { role: "user", content: jsonPrompt }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.2,
-        });
-        const content = completion.choices[0]?.message?.content;
-        if (content && content.trim()) return content;
-      } catch (groqErr: any) {
-        console.warn(`[AI Fallback] Groq model ${model} failed:`, groqErr?.message?.substring(0, 150) || groqErr);
+        console.log(`[AI Call] Trying Gemini model: ${model}...`);
+        const response = await withTimeout(
+          getGenAI().models.generateContent({
+            model,
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: { responseMimeType: "application/json" }
+          }),
+          3000
+        );
+        if (response && response.text) return response.text;
+      } catch (geminiErr: any) {
+        const msg = geminiErr?.message || String(geminiErr);
+        console.warn(`[AI Call] Gemini model ${model} failed:`, msg.substring(0, 120));
+        if (msg.includes("429") || msg.includes("quota") || msg.includes("RESOURCE_EXHAUSTED")) {
+          _geminiCooldownUntil = Date.now() + 60000; // 60 seconds cooldown
+          console.warn("[AI Cooldown] Gemini rate-limited. Setting 60s cooldown.");
+          break;
+        }
       }
     }
+  } else {
+    console.log("[AI Call] Skipping Gemini (Rate-limit 60s cooldown active).");
   }
 
-  console.warn("[AI Call] All remote AI services failed or were rate limited. Returning empty JSON for local fallback.");
+  // 2. Try Groq multi-model cascade (if not in 60s rate-limit cooldown)
+  if (now > _groqCooldownUntil) {
+    const groq = getGroq();
+    if (groq) {
+      const groqModels = ["llama-3.3-70b-versatile"];
+      const jsonPrompt = prompt.includes("JSON") ? prompt : `${prompt}\nResponde estrictamente en formato JSON.`;
+      for (const model of groqModels) {
+        try {
+          console.log(`[AI Fallback] Trying Groq model: ${model}...`);
+          const completion = await withTimeout(
+            groq.chat.completions.create({
+              model,
+              messages: [
+                { role: "system", content: "Eres un asistente de IA experto en análisis de procesos y negocios de TI. Responde estrictamente en formato JSON." },
+                { role: "user", content: jsonPrompt }
+              ],
+              response_format: { type: "json_object" },
+              temperature: 0.2,
+            }),
+            3000
+          );
+          const content = completion.choices[0]?.message?.content;
+          if (content && content.trim()) return content;
+        } catch (groqErr: any) {
+          const msg = groqErr?.message || String(groqErr);
+          console.warn(`[AI Fallback] Groq model ${model} failed:`, msg.substring(0, 120));
+          if (msg.includes("429") || msg.includes("Rate limit")) {
+            _groqCooldownUntil = Date.now() + 60000; // 60 seconds cooldown
+            console.warn("[AI Cooldown] Groq rate-limited. Setting 60s cooldown.");
+            break;
+          }
+        }
+      }
+    }
+  } else {
+    console.log("[AI Call] Skipping Groq (Rate-limit 60s cooldown active).");
+  }
+
+  console.warn("[AI Call] All remote AI services rate limited or timed out. Returning empty JSON for instant local fallback.");
   return "{}";
 }
 
@@ -323,25 +363,98 @@ function extractLocalUnstructured(text: string, fields: any[], vps: string[], di
   const values: Record<string, any> = {};
   const warnings: Record<string, string> = {};
 
-  const words = (text || "").trim().split(/\s+/);
+  const cleanText = (text || "").trim();
+  const lowerText = cleanText.toLowerCase();
+
+  // 1. TÍTULO inteligente (con verbo en infinitivo, completo sin cortar palabras)
+  const words = cleanText.split(/\s+/);
   const firstVerb = words.find(w => w.match(/^(implementar|automatizar|integrar|optimizar|desarrollar|crear|gestionar|mejorar)/i));
   let titulo = "";
   if (firstVerb) {
-    const startIdx = text.toLowerCase().indexOf(firstVerb.toLowerCase());
-    titulo = text.substring(startIdx, startIdx + 80).replace(/[\r\n.]/g, ' ').trim();
+    const startIdx = cleanText.toLowerCase().indexOf(firstVerb.toLowerCase());
+    const rawSub = cleanText.substring(startIdx, startIdx + 250);
+    const periodIdx = rawSub.indexOf('.');
+    const lineIdx = rawSub.indexOf('\n');
+    let cutIdx = rawSub.length;
+    if (periodIdx > 15) cutIdx = Math.min(cutIdx, periodIdx);
+    if (lineIdx > 15) cutIdx = Math.min(cutIdx, lineIdx);
+    let extracted = rawSub.substring(0, cutIdx).replace(/[\r\n]/g, ' ').trim();
+    if (cutIdx === 250 && extracted.lastIndexOf(' ') > 20) {
+      extracted = extracted.substring(0, extracted.lastIndexOf(' ')).trim();
+    }
+    titulo = extracted;
   } else {
-    titulo = `Implementar solución para ${text.substring(0, 60).replace(/[\r\n.]/g, ' ').trim()}`;
+    const periodIdx = cleanText.indexOf('.');
+    const lineIdx = cleanText.indexOf('\n');
+    let cutIdx = 200;
+    if (periodIdx > 15) cutIdx = Math.min(cutIdx, periodIdx);
+    if (lineIdx > 15) cutIdx = Math.min(cutIdx, lineIdx);
+    let brief = cleanText.substring(0, cutIdx).replace(/[\r\n]/g, ' ').trim();
+    if (cutIdx === 200 && brief.lastIndexOf(' ') > 20) {
+      brief = brief.substring(0, brief.lastIndexOf(' ')).trim();
+    }
+    titulo = `Implementar solución para ${brief}`;
+  }
+  if (titulo) {
+    titulo = titulo.charAt(0).toUpperCase() + titulo.slice(1);
   }
   values["titulo"] = titulo;
-  values["descripcion_de_la_necesidad"] = text.trim();
-  values["descripcin_del_problema_o_desafo_situacin_actual"] = text.trim();
 
-  const lowerText = text.toLowerCase();
-  const matchedVp = vps.find(v => lowerText.includes(v.toLowerCase()));
-  if (matchedVp) values["vicepresidencia"] = matchedVp;
+  // 2. OBJETIVO sintético
+  values["objetivo"] = `Optimizar el proceso operativo mediante la solución tecnológica planteada para mejorar la eficiencia y el nivel de servicio.`;
 
-  const matchedDir = dirs.find(d => lowerText.includes(d.toLowerCase()));
-  if (matchedDir) values["direccion"] = matchedDir;
+  // 3. DESCRIPCIÓN DE LA NECESIDAD (resumen conciso, máx 2 frases)
+  const sentences = cleanText.split(/(?<=[.!?])\s+/);
+  const briefNeed = sentences.slice(0, 2).join(" ").trim();
+  values["descripcion_de_la_necesidad"] = briefNeed.length > 10 ? briefNeed : cleanText.substring(0, 250);
+
+  // 4. DESCRIPCIÓN DEL PROBLEMA O DESAFÍO (situación actual)
+  const problemSentence = sentences.find(s => s.toLowerCase().match(/(problema|desafío|dificultad|actualmente|demora|error|falla|manual)/i)) || sentences[0] || cleanText;
+  values["descripcin_del_problema_o_desafo_situacin_actual"] = problemSentence.length > 10 ? problemSentence.trim() : cleanText.substring(0, 200);
+
+  // 5. VICEPRESIDENCIA & DIRECCIÓN
+  if (vps && vps.length > 0) {
+    const matchedVp = vps.find(v => lowerText.includes(v.toLowerCase()));
+    if (matchedVp) values["vicepresidencia"] = matchedVp;
+  }
+  if (dirs && dirs.length > 0) {
+    const matchedDir = dirs.find(d => lowerText.includes(d.toLowerCase()));
+    if (matchedDir) values["direccion"] = matchedDir;
+  }
+
+  // 6. FECHA REQUERIDA & CONSECUENCIA
+  if (lowerText.includes("inmediat") || lowerText.includes("urgente")) {
+    values["fecha_requerida"] = "31/08/2026";
+  } else if (lowerText.includes("q3") || lowerText.includes("septiembre")) {
+    values["fecha_requerida"] = "30/09/2026";
+  } else if (lowerText.includes("q4") || lowerText.includes("diciembre")) {
+    values["fecha_requerida"] = "31/12/2026";
+  } else {
+    values["fecha_requerida"] = "31/12/2026";
+  }
+  values["qu_pasa_si_no_lo_tenemos_en_esta_fecha"] = "Riesgo de retraso en metas operativas y sobrecostos por gestión manual.";
+
+  // 7. PROCESO Y ÁREAS IMPACTADAS
+  values["proceso_y_areas_impactadas"] = "Procesos clave de la Vicepresidencia solicitante y áreas operativas de TI.";
+
+  // 8. PILAR ESTRATÉGICO
+  if (lowerText.includes("crecimient") || lowerText.includes("venta")) {
+    values["pilar_estratgico"] = "Crecimiento escalable";
+  } else if (lowerText.includes("experiencia") || lowerText.includes("cliente")) {
+    values["pilar_estratgico"] = "Experiencia del cliente";
+  } else {
+    values["pilar_estratgico"] = "Excelencia operativa";
+  }
+
+  // 9. BENEFICIOS
+  values["beneficio_cuantitativo_anual"] = "Entre S/100,000.00 y S/500,000.00";
+  values["beneficio_cualitativo"] = "Reducción de tareas manuales, mayor velocidad de respuesta y trazabilidad mejorada.";
+
+  // 10. CONFIGURACIÓN COMPLEMENTARIA
+  values["es_un_proceso_nuevo"] = lowerText.includes("nuevo") ? "Sí" : "No, es una mejora a un proceso existente";
+  values["es_proyecto_spo"] = "No";
+  values["usuarios_beneficiados"] = "Administrativos";
+  values["qu_escenarios_de_pruebas_debemos_considerar"] = "Pruebas unitarias de integración, validación con usuarios clave y pruebas de volumen/contingencia.";
 
   fields.forEach(f => {
     if (!values[f.key] && f.is_required) {
@@ -989,43 +1102,63 @@ Usuario: ${message}
 REGLAS DE INTERACCIÓN (CUMPLE ESTRICTAMENTE LOS GUARDARRIELES CARGADOS EN EL SISTEMA):
 1. DATOS EXISTENTES Y NO REPETICIÓN: NUNCA preguntes por datos que ya están en los 'Datos iniciales proporcionados por el usuario' (como institucion, vicepresidencia, direccion, etc.) ni en el 'Historial de conversación'. NUNCA repitas la misma pregunta que el Asistente formuló en el mensaje inmediatamente anterior. Si el usuario ya te dio una respuesta (ej. eligió una opción o escribió una palabra), procesa su respuesta y avanza directamente al siguiente campo pendiente.
 2. PROPUESTA DE TÍTULO Y OBJETIVO: ${history.length === 0 && message.length > 80
-  ? `⚠️ ACCIÓN INMEDIATA: El mensaje del usuario YA contiene su descripción. PROHIBIDO pedirle que la repita. Tu única tarea ahora: analizar el mensaje y proponer un **Título** (verbo infinitivo: Implementar, Automatizar, Integrar, Optimizar...) y un **Objetivo** concretos. Preséntaselos con negritas markdown y pregunta si está de acuerdo. En "options" solo: ["Sí, estoy de acuerdo", "Quiero ajustarlo"].`
+  ? `⚠️ ACCIÓN INMEDIATA: El mensaje del usuario YA contiene su descripción. Tu tarea ahora: analizar el mensaje y proponer un **Título** (verbo infinitivo: Implementar, Automatizar, Integrar, Optimizar...) y un **Objetivo** concretos. Preséntaselos con negritas markdown y pregunta si está de acuerdo. En "options" solo: ["Sí, estoy de acuerdo", "Quiero ajustarlo"].`
   : `Cuando el usuario te brinde la descripción de su necesidad por primera vez (y el título esté vacío), NO le pidas que redacte el título. Formula TÚ MISMO un Título (con verbo en infinitivo) y un Objetivo, y preséntaselos para su conformidad.`}
 3. ACEPTACIÓN DE PROPUESTA: ${
   isUserAcceptance && (sanitizedInitialData.titulo || extractedProposal.titulo)
     ? `El usuario YA ACEPTÓ la propuesta de Título ("${sanitizedInitialData.titulo || extractedProposal.titulo}") y Objetivo ("${sanitizedInitialData.objetivo || extractedProposal.objetivo}"). Queda ESTRICTAMENTE PROHIBIDO volver a proponer el título y objetivo o preguntar si el usuario está de acuerdo. Avanza INMEDIATAMENTE a consultar el siguiente campo pendiente (por ejemplo: la fecha requerida de implementación).`
     : 'Si el usuario acepta la propuesta de título y objetivo, confirma brevemente y pasa al siguiente campo.'
 }
-4. SEGUIMIENTO DE GUARDARRIELES: Aplica strictly los Guardarrieles configurados arriba en la base de datos (respuestas directas y acotadas, sin repetir bloques de texto que el usuario ya respondió, proponiendo las opciones sugeridas para campos de selección, y convirtiendo trimestres a fechas exactas).
+4. SEGUIMIENTO DE GUARDARRIELES: Aplica estrictamente los Guardarrieles configurados arriba en la base de datos (respuestas directas y acotadas, sin repetir bloques de texto que el usuario ya respondió, proponiendo las opciones sugeridas para campos de selección, y convirtiendo trimestres a fechas exactas).
 5. CONTINUIDAD: Avanza paso a paso de forma fluida proponiendo o validando la información para los campos requeridos. Incluye la etiqueta '[INFORMACION_COMPLETA]' únicamente cuando se hayan recopilado o acordado los datos de todos los campos obligatorios.
 
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
-  "text": "Tu respuesta respetando los guardarrieles (proponiendo título y objetivo cuando corresponda, o validando el siguiente campo). Si ya se completaron todos los puntos, incluye '[INFORMACION_COMPLETA]'.",
+  "text": "Tu respuesta respetando los guardarrieles. Si ya se completaron todos los puntos, incluye '[INFORMACION_COMPLETA]'.",
   "options": ["Opción sugerida 1", "Opción sugerida 2"]
 }`;
-      const rawChat = await callAIForJSON(chatPrompt);
-      const parsed = parseAIJSON(rawChat);
+
+      let rawChat = "";
+      try {
+        rawChat = await callAIForJSON(chatPrompt);
+      } catch (e: any) {
+        console.warn("[AI Chat] callAIForJSON exception:", e.message);
+      }
+
+      let parsed: any = null;
+      if (rawChat && rawChat.trim() !== "{}" && rawChat.trim() !== "") {
+        try { parsed = parseAIJSON(rawChat); } catch (e) { console.warn("[AI Chat] parseAIJSON exception:", e); }
+      }
+
+      if (!parsed || !parsed.text) {
+        console.log("[AI Chat] Remote AI rate limited or unavailable. Executing local intelligent chat fallback.");
+        parsed = {
+          text: getMockChatResponse(history, sanitizedInitialData, message),
+          options: getMockOptions(history, message)
+        };
+      }
+
       await updateAgentTask(tOrqId, 100, 'completed', { action: "Orquestación de la conversación", user_message: message });
       await updateAgentTask(tPoId, 100, 'completed', { action: "Análisis de contexto", ai_response: parsed });
       await updateAgentTask(tRegId, 100, 'completed', { action: "Validación de tokens usados" });
+
       res.json({
         text: parsed.text,
         options: parsed.options || [],
         extractedFields: extractedProposal
       });
     } catch (e: any) {
-      console.error("Gemini API error, falling back to mock:", e.message);
+      console.error("Chat handler fallback to mock:", e.message);
       await updateAgentTask(tOrqId, 100, 'completed', { error: e.message });
       await updateAgentTask(tPoId, 100, 'completed', { error: e.message });
       res.json({
-        text: getMockChatResponse(history, initialData, message),
-        options: getMockOptions(history, message)
+        text: getMockChatResponse(history, sanitizedInitialData, message),
+        options: getMockOptions(history, message),
+        extractedFields: extractedProposal
       });
     }
   });
 
-  // ── Feature Config (Mic & Attachments Toggles) ──────────────────────────────
   app.get("/api/config/features", async (_req, res) => {
     try {
       const { data, error } = await supabase
@@ -1338,8 +1471,22 @@ ${dynamicSchema}
 REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
 - El título DEBE ser un nombre profesional, concreto y específico del proyecto o solución de TI/negocio (ej: "Automatización del proceso de barrido de contactos inalcanzables", "Portal web autogestionable para postulantes").
 - ESTÁ ESTRICTAMENTE PROHIBIDO generar títulos genéricos, vagos o frases de relleno como "Iniciativa de mejora para...", "Nueva iniciativa", "Sistema de mejora", "Mejora para UPN" o similares. Sintetiza el propósito real expuesto por el usuario.`;
-      const rawSummary = await callAIForJSON(summarizePrompt);
-      const parsedSummary = parseAIJSON(rawSummary) || {};
+      let rawSummary = "";
+      try {
+        rawSummary = await callAIForJSON(summarizePrompt);
+      } catch (e: any) {
+        console.warn("[AI Summarize] callAIForJSON error:", e.message);
+      }
+
+      let parsedSummary: any = null;
+      if (rawSummary && rawSummary.trim() !== "{}" && rawSummary.trim() !== "") {
+        try { parsedSummary = parseAIJSON(rawSummary); } catch (e) {}
+      }
+
+      if (!parsedSummary || !parsedSummary.titulo) {
+        console.log("[AI Summarize] Remote AI unavailable/rate limited. Executing local summary response fallback.");
+        parsedSummary = getMockSummaryResponse(sanitizedInitialData);
+      }
       (aiFields || []).forEach((f: any) => {
         if (f.field_type === 'date' && parsedSummary[f.key]) {
           parsedSummary[f.key] = normalizeDateStr(parsedSummary[f.key]);
