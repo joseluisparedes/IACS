@@ -381,13 +381,22 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Parse current value if it is a JSON file representation
+  // Parse current value if it is a JSON file representation, attachment text, or file URL
   let fileObj: { name: string; content?: string; url?: string; type?: string } | null = null;
-  if (value && typeof value === "string" && value.startsWith('{"name":')) {
-    try {
-      fileObj = JSON.parse(value);
-    } catch (e) {
-      // Not a valid JSON, fallback to null
+  if (value && typeof value === "string" && value.trim() !== "") {
+    if (value.startsWith('{"name":')) {
+      try {
+        fileObj = JSON.parse(value);
+      } catch (e) { /* Not JSON */ }
+    }
+    if (!fileObj && value.includes('[Archivo adjunto:')) {
+      const match = value.match(/\[Archivo adjunto:\s*([^\]]+)\]/);
+      if (match) {
+        fileObj = { name: match[1].trim() };
+      }
+    }
+    if (!fileObj && (value.match(/\.(png|jpg|jpeg|pdf|docx|txt|webp)$/i) || value.startsWith('http'))) {
+      fileObj = { name: value.split('/').pop() || value, url: value.startsWith('http') ? value : undefined };
     }
   }
 
@@ -1363,14 +1372,6 @@ export default function InitiativeForm() {
 
   const handleAnalyzeText = async () => {
     if (!unstructuredText.trim()) return;
-    if (!disclaimerAccepted) {
-      showToast("Debes declarar que tu Director tiene conocimiento sobre esta iniciativa antes de continuar.", "warning");
-      return;
-    }
-    setFormData(prev => ({
-      ...prev,
-      _director_declaration_accepted: true
-    }));
     setIsAnalyzing(true);
     setError("");
     try {
@@ -1655,20 +1656,12 @@ export default function InitiativeForm() {
 
   const handleStartChatWithValidation = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!disclaimerAccepted) {
-      showToast("Debes declarar que tu Director tiene conocimiento sobre esta iniciativa antes de iniciar el chat.", "warning");
-      return;
-    }
     const { isValid, errors } = validateAllFields();
     if (!isValid) {
       setFormErrors(errors);
       return;
     }
     setFormErrors([]);
-    setFormData(prev => ({
-      ...prev,
-      _director_declaration_accepted: true
-    }));
     handleStartChat(e);
   };
 
@@ -2338,7 +2331,7 @@ export default function InitiativeForm() {
             )}
 
             {/* Disclaimer and Checkbox */}
-            {(step === 1 || selectedPath === 'unstructured' || step === 3) && (
+            {((selectedPath === 'unstructured' && step === 3) || (selectedPath === 'direct' && step === 3) || step === 3) && (
               <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#FFFBEB]/30">
                 <div className="flex items-start gap-3 p-4 bg-amber-50/60 rounded-xl border border-amber-100/70">
                   <input

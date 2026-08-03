@@ -288,7 +288,10 @@ function getMockOptions(history: any[], message: string): string[] {
 
 function getMockSummaryResponse(initialData: any) {
   const inst = initialData?.institucion || "UPN";
+  const voboVal = initialData?.aprobacion_de_director || initialData?.aprobacin_de_director;
+  const extraVobo = voboVal ? { aprobacion_de_director: voboVal, aprobacin_de_director: voboVal } : {};
   return {
+    ...extraVobo,
     titulo: `Implementar un proceso escalable de depuración e integración API con e-Contact para la base de contactos de ${inst}`,
     objetivo: `Optimizar el rendimiento de las campañas comerciales outbound mediante la eliminación automatizada de números inalcanzables, reduciendo costos operativos y mejorando la efectividad.`,
     descripcion_de_la_necesidad: `La base de contactos contiene aproximadamente 2 millones de registros, de los cuales entre el 30% y 35% corresponden a números inalcanzables (SIP 480), reduciendo la efectividad outbound e incrementando costos operativos.`,
