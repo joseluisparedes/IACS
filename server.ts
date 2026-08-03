@@ -43,7 +43,7 @@ function normalizeDateStr(val: any): string {
   }
 
   if (cleanStr.includes('PROXIMO MES') || cleanStr.includes('MES SIGUIENTE')) {
-    const targetDate = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
     return String(targetDate.getDate()).padStart(2, '0') + '/' + String(targetDate.getMonth() + 1).padStart(2, '0') + '/' + targetDate.getFullYear();
   }
 
@@ -55,7 +55,7 @@ function normalizeDateStr(val: any): string {
   const mMatch = cleanStr.match(/(?:DENTRO DE|EN|PROXIMOS)\s+(?:LOS\s+)?(\d{1,2})\s+MESES?/);
   if (mMatch) {
     const numMonths = parseInt(mMatch[1], 10);
-    const targetDate = new Date(now.getFullYear(), now.getMonth() + 1 + numMonths, 0);
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + numMonths, now.getDate());
     return String(targetDate.getDate()).padStart(2, '0') + '/' + String(targetDate.getMonth() + 1).padStart(2, '0') + '/' + targetDate.getFullYear();
   }
 

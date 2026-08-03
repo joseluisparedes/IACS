@@ -195,7 +195,7 @@ const parseQuarterDate = (val: string): string | null => {
 
   // 5. "PROXIMO MES", "MES SIGUIENTE"
   if (cleanStr.includes('PROXIMO MES') || cleanStr.includes('MES SIGUIENTE')) {
-    const targetDate = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
     const day = String(targetDate.getDate()).padStart(2, '0');
     const month = String(targetDate.getMonth() + 1).padStart(2, '0');
     const year = targetDate.getFullYear();
@@ -215,7 +215,7 @@ const parseQuarterDate = (val: string): string | null => {
   const mMatch = cleanStr.match(/(?:DENTRO DE|EN|PROXIMOS)\s+(?:LOS\s+)?(\d{1,2})\s+MESES?/);
   if (mMatch) {
     const numMonths = parseInt(mMatch[1], 10);
-    const targetDate = new Date(now.getFullYear(), now.getMonth() + 1 + numMonths, 0);
+    const targetDate = new Date(now.getFullYear(), now.getMonth() + numMonths, now.getDate());
     const day = String(targetDate.getDate()).padStart(2, '0');
     const month = String(targetDate.getMonth() + 1).padStart(2, '0');
     const year = targetDate.getFullYear();
@@ -253,6 +253,11 @@ function DateInputDDMMYYYY({
   className?: string;
 }) {
   const hiddenDateRef = useRef<HTMLInputElement>(null);
+  const [inputText, setInputText] = useState<string>(value || "");
+
+  useEffect(() => {
+    setInputText(value || "");
+  }, [value]);
 
   const toDDMMYYYY = (val: string): string => {
     if (!val) return "";
@@ -264,10 +269,10 @@ function DateInputDDMMYYYY({
       return `${ymd[3].padStart(2, "0")}/${ymd[2].padStart(2, "0")}/${ymd[1]}`;
     }
     const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
-    // Safe Fallback for any unrecognized non-date text string
-    const now = new Date();
-    const fallback = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-    return `${String(fallback.getDate()).padStart(2, '0')}/${String(fallback.getMonth() + 1).padStart(2, '0')}/${fallback.getFullYear()}`;
+    if (dmy) {
+      return `${dmy[1].padStart(2, "0")}/${dmy[2].padStart(2, "0")}/${dmy[3]}`;
+    }
+    return val;
   };
 
   const toYYYYMMDD = (val: string): string => {
@@ -285,26 +290,30 @@ function DateInputDDMMYYYY({
     return "";
   };
 
-  const displayVal = toDDMMYYYY(value);
-  const isoVal = toYYYYMMDD(value);
+  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+    onChange(val);
+  };
+
+  const handleTextBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    const formatted = toDDMMYYYY(raw);
+    if (formatted) {
+      setInputText(formatted);
+      onChange(formatted);
+    }
+    if (onBlur) onBlur(formatted || raw);
+  };
 
   const handleNativeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const pickerVal = e.target.value;
     if (pickerVal) {
       const formatted = toDDMMYYYY(pickerVal);
+      setInputText(formatted);
       onChange(formatted);
       if (onBlur) onBlur(formatted);
     }
-  };
-
-  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange(e.target.value);
-  };
-
-  const handleTextBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    const formatted = toDDMMYYYY(e.target.value);
-    onChange(formatted);
-    if (onBlur) onBlur(formatted);
   };
 
   const openCalendar = (e: React.MouseEvent) => {
@@ -324,11 +333,13 @@ function DateInputDDMMYYYY({
     }
   };
 
+  const isoVal = toYYYYMMDD(inputText);
+
   return (
     <div className="relative flex items-center w-full">
       <input
         type="text"
-        value={displayVal}
+        value={inputText}
         onChange={handleTextChange}
         onBlur={handleTextBlur}
         placeholder="dd/mm/aaaa"
