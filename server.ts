@@ -125,7 +125,7 @@ async function callAIForJSON(prompt: string): Promise<string> {
 
   // 1. Try Gemini models cascade (if not in 60s rate-limit cooldown)
   if (now > _geminiCooldownUntil) {
-    const geminiModels = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
+    const geminiModels = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"];
     for (const model of geminiModels) {
       try {
         console.log(`[AI Call] Trying Gemini model: ${model}...`);
@@ -299,6 +299,10 @@ function getMockChatResponse(history: any[], initialData: any, message: string):
   if (message === "[INICIALIZAR_CHAT]") {
     return `¡Hola! Soy Teo, Analista de Negocio Senior. Para poder estructurar tu iniciativa, por favor describe la necesidad o el problema que deseas abordar en tus propias palabras.`;
   }
+
+  const isMediaAttachment = message.includes("[El usuario adjuntó") || message.includes("[Imagen adjunta]") || message.includes("[Video adjunto]") || message.includes("[Audio adjunto]") || message.includes("[Archivo multimedia adjunto");
+  const mediaAck = isMediaAttachment ? "Gracias por el archivo adjunto, se agregará como parte de las evidencias de tu iniciativa.\n\n" : "";
+
   const cleanHistory = history.filter(h => h.role === "user" && h.text !== "[INICIALIZAR_CHAT]");
   const hasLast = cleanHistory.some(h => h.text === message);
   const fullHistory = hasLast ? cleanHistory : [...cleanHistory, { role: "user", text: message }];
@@ -306,15 +310,15 @@ function getMockChatResponse(history: any[], initialData: any, message: string):
 
   if (count === 1) {
     const inst = initialData?.institucion || "la organización";
-    return `Basándome en la necesidad planteada, te propongo el siguiente Título y Objetivo para tu iniciativa:\n\n**Título:** Implementar un proceso escalable de depuración e integración API con e-Contact para la base de contactos de ${inst}\n\n**Objetivo:** Optimizar el rendimiento de las campañas comerciales outbound mediante la eliminación automatizada de números inalcanzables, reduciendo costos operativos y mejorando la tasa de contacto efectivo.\n\n¿Estás de acuerdo con esta propuesta o deseas realizar algún ajuste?`;
+    return `${mediaAck}Basándome en la necesidad planteada, te propongo el siguiente Título y Objetivo para tu iniciativa:\n\n**Título:** Implementar un proceso escalable de depuración e integración API con e-Contact para la base de contactos de ${inst}\n\n**Objetivo:** Optimizar el rendimiento de las campañas comerciales outbound mediante la eliminación automatizada de números inalcanzables, reduciendo costos operativos y mejorando la tasa de contacto efectivo.\n\n¿Estás de acuerdo con esta propuesta o deseas realizar algún ajuste?`;
   }
-  if (count === 2) return `¡Excelente! Título y Objetivo quedan registrados. ¿Para cuándo se requiere tener implementada esta solución en producción?`;
-  if (count === 3) return `Registrado. ¿Cuál sería el impacto en las operaciones si no se cuenta con la solución en esa fecha?`;
-  if (count === 4) return `¿Es un proceso completamente nuevo o una mejora a un proceso existente?`;
-  if (count === 5) return `¿Cuáles son los procesos y áreas directamente impactadas por esta iniciativa?`;
-  if (count === 6) return `¿A qué pilar estratégico se alinea esta iniciativa?`;
-  if (count === 7) return `¿Cuál es el beneficio cuantitativo anual estimado?`;
-  return `Excelente, he recopilado toda la información necesaria. Procederé a generar el resumen ejecutivo. [INFORMACION_COMPLETA]`;
+  if (count === 2) return `${mediaAck}¡Excelente! Título y Objetivo quedan registrados. ¿Para cuándo se requiere tener implementada esta solución en producción?`;
+  if (count === 3) return `${mediaAck}Registrado. ¿Cuál sería el impacto en las operaciones si no se cuenta con la solución en esa fecha?`;
+  if (count === 4) return `${mediaAck}¿Es un proceso completamente nuevo o una mejora a un proceso existente?`;
+  if (count === 5) return `${mediaAck}¿Cuáles son los procesos y áreas directamente impactadas por esta iniciativa?`;
+  if (count === 6) return `${mediaAck}¿A qué pilar estratégico se alinea esta iniciativa?`;
+  if (count === 7) return `${mediaAck}¿Cuál es el beneficio cuantitativo anual estimado?`;
+  return `${mediaAck}Excelente, he recopilado toda la información necesaria. Procederé a generar el resumen ejecutivo. [INFORMACION_COMPLETA]`;
 }
 
 function getMockOptions(history: any[], message: string): string[] {
@@ -916,14 +920,33 @@ Responde estrictamente en formato JSON:
 
     try {
       const { data: configData } = await supabase.from("ai_training_config").select("*").eq("layer", "settings");
-      const mime = req.file.mimetype;
+      const mime = req.file.mimetype || "";
       const name = req.file.originalname.toLowerCase();
 
       let typeKey = "txt";
-      if (mime === "application/pdf" || name.endsWith(".pdf")) typeKey = "pdf";
-      else if (mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || name.endsWith(".docx")) typeKey = "docx";
-      else if (mime.startsWith("image/")) typeKey = "image";
+      let category: 'image' | 'video' | 'audio' | 'document' = 'document';
 
+      if (mime.startsWith("image/") || name.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i)) {
+        typeKey = "image";
+        category = "image";
+      } else if (mime.startsWith("video/") || name.match(/\.(mp4|webm|mov|mkv|avi)$/i)) {
+        typeKey = "video";
+        category = "video";
+      } else if (mime.startsWith("audio/") || name.match(/\.(mp3|wav|ogg|m4a|aac)$/i)) {
+        typeKey = "audio";
+        category = "audio";
+      } else if (mime === "application/pdf" || name.endsWith(".pdf")) {
+        typeKey = "pdf";
+        category = "document";
+      } else if (mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || name.endsWith(".docx")) {
+        typeKey = "docx";
+        category = "document";
+      } else {
+        typeKey = "txt";
+        category = "document";
+      }
+
+      // Check if disabled in config (if setting exists)
       const enabledItem = configData?.find(e => e.title === `enable_${typeKey}`);
       const isEnabled = enabledItem ? enabledItem.content !== "false" : true;
       if (!isEnabled) {
@@ -931,7 +954,8 @@ Responde estrictamente en formato JSON:
       }
 
       const configItem = configData?.find(e => e.title === `max_size_${typeKey}`);
-      const maxMb = configItem ? parseFloat(configItem.content) : 1.0;
+      const defaultMaxMb = category === 'video' ? 10.0 : category === 'audio' ? 5.0 : 1.0;
+      const maxMb = configItem ? parseFloat(configItem.content) : defaultMaxMb;
       const maxSize = maxMb * 1024 * 1024;
 
       if (req.file.size > maxSize) {
@@ -940,29 +964,38 @@ Responde estrictamente en formato JSON:
 
       let content = "";
 
-      // Text-based documents - extract text for AI context
-      if (mime === "application/pdf" || name.endsWith(".pdf")) {
-        const parsed = await pdfParse(req.file.buffer);
-        content = parsed.text.trim();
-      } else if (
-        mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        name.endsWith(".docx")
-      ) {
-        const result = await mammoth.extractRawText({ buffer: req.file.buffer });
-        content = result.value.trim();
-      } else if (mime === "text/plain" || name.endsWith(".txt")) {
-        content = req.file.buffer.toString("utf-8").trim();
-      } else if (mime.startsWith("image/")) {
-        content = "[Imagen adjunta]";
+      // Content handling depending on media category
+      if (category === "image") {
+        content = `[Imagen adjunta: ${req.file.originalname}]`;
+      } else if (category === "video") {
+        content = `[Video adjunto como evidencia: ${req.file.originalname}]`;
+      } else if (category === "audio") {
+        content = `[Audio adjunto como evidencia: ${req.file.originalname}]`;
+      } else if (typeKey === "pdf") {
+        try {
+          const parsed = await pdfParse(req.file.buffer);
+          content = parsed.text.trim() || `[Documento PDF adjunto: ${req.file.originalname}]`;
+        } catch {
+          content = `[Documento PDF adjunto: ${req.file.originalname}]`;
+        }
+      } else if (typeKey === "docx") {
+        try {
+          const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+          content = result.value.trim() || `[Documento DOCX adjunto: ${req.file.originalname}]`;
+        } catch {
+          content = `[Documento DOCX adjunto: ${req.file.originalname}]`;
+        }
+      } else if (typeKey === "txt" || mime === "text/plain" || name.endsWith(".txt")) {
+        content = req.file.buffer.toString("utf-8").trim() || `[Archivo de texto adjunto: ${req.file.originalname}]`;
       } else {
-        return res.status(400).json({ error: "Formato no soportado. Usa PDF, DOCX, TXT o imagen (JPG/PNG/WEBP)." });
+        content = `[Documento de soporte adjunto: ${req.file.originalname}]`;
       }
 
       if (!content) {
-        return res.status(400).json({ error: "No se pudo extraer contenido del archivo. Verifica que no esté protegido." });
+        content = `[Archivo adjunto: ${req.file.originalname}]`;
       }
 
-      // ── Upload to Supabase Storage (instead of Base64) ──────────────────────
+      // ── Upload to Supabase Storage ─────────────────────────────────────────
       let fileUrl: string | null = null;
       const ext = req.file.originalname.split(".").pop() || "bin";
       const uniqueName = `uploads/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
@@ -970,14 +1003,14 @@ Responde estrictamente en formato JSON:
       const { error: uploadError } = await supabase.storage
         .from("iacs-attachments")
         .upload(uniqueName, req.file.buffer, {
-          contentType: mime,
+          contentType: mime || "application/octet-stream",
           upsert: false,
         });
 
       if (uploadError) {
         console.error("Supabase Storage upload error:", uploadError.message);
-        // Fallback: if storage fails, use Base64 for images only so functionality is preserved
-        if (mime.startsWith("image/") || mime === "application/pdf") {
+        // Fallback: if storage fails, use Base64 for images/audio so functionality is preserved
+        if (mime.startsWith("image/") || mime.startsWith("audio/") || mime === "application/pdf") {
           fileUrl = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
         }
       } else {
@@ -987,7 +1020,14 @@ Responde estrictamente en formato JSON:
         fileUrl = publicData?.publicUrl || null;
       }
 
-      res.json({ content, filename: req.file.originalname, type: mime, url: fileUrl });
+      res.json({
+        content,
+        filename: req.file.originalname,
+        type: mime,
+        url: fileUrl,
+        category,
+        size: req.file.size
+      });
     } catch (e: any) {
       console.error("Chat attach-file error:", e.message);
       res.status(500).json({ error: "Error al procesar el archivo: " + e.message });
@@ -1110,7 +1150,8 @@ REGLAS DE INTERACCIÓN (CUMPLE ESTRICTAMENTE LOS GUARDARRIELES CARGADOS EN EL SI
     : 'Si el usuario acepta la propuesta de título y objetivo, confirma brevemente y pasa al siguiente campo.'
 }
 4. SEGUIMIENTO DE GUARDARRIELES: Aplica estrictamente los Guardarrieles configurados arriba en la base de datos (respuestas directas y acotadas, sin repetir bloques de texto que el usuario ya respondió, proponiendo las opciones sugeridas para campos de selección, y convirtiendo trimestres a fechas exactas).
-5. CONTINUIDAD: Avanza paso a paso de forma fluida proponiendo o validando la información para los campos requeridos. Incluye la etiqueta '[INFORMACION_COMPLETA]' únicamente cuando se hayan recopilado o acordado los datos de todos los campos obligatorios.
+5. EVIDENCIAS Y ARCHIVOS MULTIMEDIA ADJUNTOS: Si el mensaje del usuario indica que adjuntó una imagen, video, audio o archivo multimedia (por ejemplo: contiene '[El usuario adjuntó', '[Imagen adjunta', '[Video adjunto' o '[Audio adjunto'), debes iniciar tu respuesta agradeciendo amablemente la evidencia de forma concisa: "Gracias por el archivo adjunto, se agregará como parte de las evidencias de tu iniciativa." y continuar de inmediato solicitando o validando el siguiente dato o campo pendiente sin interrumpir la conversación.
+6. CONTINUIDAD: Avanza paso a paso de forma fluida proponiendo o validando la información para los campos requeridos. Incluye la etiqueta '[INFORMACION_COMPLETA]' únicamente cuando se hayan recopilado o acordado los datos de todos los campos obligatorios.
 
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {

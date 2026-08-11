@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check, HelpCircle, Eye, Calendar } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check, HelpCircle, Eye, Calendar, Video as VideoIcon, Music as AudioIcon, Volume2 } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
@@ -210,40 +210,45 @@ function MultiSelectDropdown({ options, selected, onChange, disabled, placeholde
     <div ref={containerRef} className="relative w-full">
       <div
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2 text-sm text-[#1E293B] cursor-pointer min-h-[42px] flex items-center justify-between transition-colors focus:ring-2 focus:ring-[#4F5AF5] ${
-          isOpen ? "ring-2 ring-[#4F5AF5] border-[#4F5AF5]" : ""
-        } ${disabled ? "bg-[#F8FAFC] text-[#94A3B8] cursor-not-allowed" : ""}`}
+        className={`w-full border bg-white rounded-xl px-3.5 py-2 text-sm text-[#1E293B] cursor-pointer min-h-[44px] flex items-center justify-between transition-all duration-200 shadow-xs ${
+          isOpen
+            ? "border-[#EB5F46] ring-2 ring-[#EB5F46]/20 bg-white"
+            : "border-[#E2E8F0] hover:border-[#CBD5E1]"
+        } ${disabled ? "bg-[#F8FAFC] text-[#94A3B8] cursor-not-allowed opacity-60" : ""}`}
       >
-        <div className="flex flex-wrap gap-1.5 max-w-[90%]">
+        <div className="flex flex-wrap gap-1.5 max-w-[90%] items-center">
           {selected.length === 0 ? (
-            <span className="text-[#94A3B8] select-none text-xs">{placeholder}</span>
+            <span className="text-[#94A3B8] select-none text-xs font-normal">{placeholder}</span>
           ) : (
             selected.map(opt => (
               <span
                 key={opt}
-                className="flex items-center gap-1 bg-[#EEF2FF] border border-[#C7D2FE] text-[#4F5AF5] text-xs px-2 py-0.5 rounded-md font-semibold"
+                className="flex items-center gap-1.5 bg-[#FFF0ED] border border-[#FCD9D2] text-[#EB5F46] text-xs px-2.5 py-1 rounded-lg font-semibold shadow-xs animate-in zoom-in-95 duration-150"
               >
-                {opt}
+                <span>{opt}</span>
                 {!disabled && (
                   <button
                     type="button"
                     onClick={(e) => removeOption(e, opt)}
-                    className="hover:bg-blue-100 rounded-full p-0.5 text-[#4F5AF5] ml-0.5"
+                    className="hover:bg-[#EB5F46]/20 text-[#EB5F46] rounded-md p-0.5 transition-colors"
+                    title={`Remover ${opt}`}
                   >
-                    <X className="w-2.5 h-2.5" />
+                    <X className="w-3 h-3 stroke-[2.5]" />
                   </button>
                 )}
               </span>
             ))
           )}
         </div>
-        <ChevronDown className={`w-4 h-4 text-[#94A3B8] transition-transform shrink-0 ml-2 ${isOpen ? "rotate-180" : ""}`} />
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          <ChevronDown className={`w-4 h-4 text-[#94A3B8] transition-transform duration-200 ${isOpen ? "rotate-180 text-[#EB5F46]" : ""}`} />
+        </div>
       </div>
 
       {isOpen && (
-        <div className="absolute z-[100] left-0 right-0 mt-1.5 bg-white border border-[#E2E8F0] rounded-xl shadow-xl max-h-60 overflow-y-auto p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-100">
+        <div className="absolute z-[100] left-0 right-0 mt-2 bg-white/98 backdrop-blur-md border border-[#E2E8F0] rounded-2xl shadow-[0_12px_32px_rgba(15,23,42,0.14)] max-h-60 overflow-y-auto p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150">
           {options.length === 0 ? (
-            <div className="text-xs text-slate-400 p-3 text-center">No hay opciones disponibles</div>
+            <div className="text-xs text-[#94A3B8] p-4 text-center">No hay opciones disponibles</div>
           ) : (
             options.map(opt => {
               const isSelected = selected.includes(opt);
@@ -252,12 +257,20 @@ function MultiSelectDropdown({ options, selected, onChange, disabled, placeholde
                   key={opt}
                   type="button"
                   onClick={() => toggleOption(opt)}
-                  className={`flex items-center justify-between w-full px-3.5 py-2 text-sm rounded-lg hover:bg-[#F8FAFC] transition-colors text-left font-medium ${
-                    isSelected ? "text-[#4F5AF5] bg-[#EEF2FF]/40 font-semibold" : "text-[#475569]"
+                  className={`flex items-center justify-between w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl transition-all duration-150 text-left font-medium ${
+                    isSelected
+                      ? "text-[#EB5F46] bg-[#FFF0ED] font-semibold"
+                      : "text-[#334155] hover:bg-[#F8FAFC] hover:text-[#0F172A]"
                   }`}
                 >
                   <span>{opt}</span>
-                  {isSelected && <Check className="w-4 h-4 text-[#4F5AF5]" />}
+                  {isSelected ? (
+                    <div className="w-5 h-5 rounded-full bg-[#EB5F46] text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Check className="w-3 h-3 stroke-[3]" />
+                    </div>
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border border-[#CBD5E1] shrink-0" />
+                  )}
                 </button>
               );
             })
@@ -2219,11 +2232,17 @@ export default function InitiativeDetail() {
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {attachmentsToRender.map((file: any, fileIdx: number) => {
-                        const isImage = file.type?.startsWith('image/') || file.name.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+                        const isImage = file.type?.startsWith('image/') || file.name?.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i);
+                        const isVideo = file.type?.startsWith('video/') || file.name?.match(/\.(mp4|webm|mov)$/i);
+                        const isAudio = file.type?.startsWith('audio/') || file.name?.match(/\.(mp3|wav|ogg|m4a)$/i);
                         return (
                           <div key={fileIdx} className="flex items-center gap-2 bg-slate-50 border border-[#E2E8F0] rounded-xl p-3 shadow-sm">
                             {isImage ? (
                               <ImageIcon className="w-4 h-4 text-emerald-600 shrink-0" />
+                            ) : isVideo ? (
+                              <VideoIcon className="w-4 h-4 text-purple-600 shrink-0" />
+                            ) : isAudio ? (
+                              <AudioIcon className="w-4 h-4 text-amber-600 shrink-0" />
                             ) : (
                               <FileText className="w-4 h-4 text-blue-500 shrink-0" />
                             )}
@@ -2565,12 +2584,27 @@ export default function InitiativeDetail() {
             </div>
             {/* Content */}
             <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-50 min-h-[300px]">
-              {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+              {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i) ? (
                 <img
                   src={previewFile.url}
                   alt={previewFile.name}
                   className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-sm"
                 />
+              ) : previewFile.type?.startsWith('video/') || previewFile.name.match(/\.(mp4|webm|mov)$/i) ? (
+                <video
+                  src={previewFile.url}
+                  controls
+                  autoPlay
+                  className="max-w-full max-h-[70vh] rounded-lg shadow-sm"
+                />
+              ) : previewFile.type?.startsWith('audio/') || previewFile.name.match(/\.(mp3|wav|ogg|m4a)$/i) ? (
+                <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-lg border border-[#E2E8F0] text-center space-y-4">
+                  <div className="w-14 h-14 bg-indigo-50 text-[#4F5AF5] rounded-full flex items-center justify-center mx-auto">
+                    <Volume2 className="w-7 h-7" />
+                  </div>
+                  <p className="font-semibold text-sm text-[#1E293B] truncate" title={previewFile.name}>{previewFile.name}</p>
+                  <audio src={previewFile.url} controls autoPlay className="w-full" />
+                </div>
               ) : (
                 <div className="text-center p-8 max-w-md">
                   <div className="w-16 h-16 bg-[#EEF2FF] text-[#4F5AF5] rounded-full flex items-center justify-center mx-auto mb-4">

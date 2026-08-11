@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye, Calendar } from "lucide-react";
+import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye, Calendar, Trash2, Video as VideoIcon, Music as AudioIcon, Volume2 } from "lucide-react";
 import STTWorker from '../workers/stt.worker?worker';
 import { FieldDefinition } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
@@ -8,7 +8,7 @@ import { supabase } from "../lib/supabase";
 import ReactMarkdown from "react-markdown";
 
 // ─── Input styles ─────────────────────────────────────────────────────────────
-const inputCls = "w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2.5 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] focus:border-[#4F5AF5] transition-colors disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]";
+const inputCls = "w-full border border-[#E2E8F0] hover:border-[#CBD5E1] bg-white rounded-xl px-3.5 py-2.5 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#EB5F46]/20 focus:border-[#EB5F46] transition-all disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]";
 const labelCls = "block text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-1.5";
 
 // ─── MultiSelect Dropdown ───────────────────────────────────────────────────────
@@ -44,40 +44,45 @@ function MultiSelectDropdown({ options, selected, onChange, disabled, placeholde
     <div ref={containerRef} className="relative w-full">
       <div
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2 text-sm text-[#1E293B] cursor-pointer min-h-[42px] flex items-center justify-between transition-colors focus:ring-2 focus:ring-[#4F5AF5] ${
-          isOpen ? "ring-2 ring-[#4F5AF5] border-[#4F5AF5]" : ""
-        } ${disabled ? "bg-[#F8FAFC] text-[#94A3B8] cursor-not-allowed" : ""}`}
+        className={`w-full border bg-white rounded-xl px-3.5 py-2 text-sm text-[#1E293B] cursor-pointer min-h-[44px] flex items-center justify-between transition-all duration-200 shadow-xs ${
+          isOpen
+            ? "border-[#EB5F46] ring-2 ring-[#EB5F46]/20 bg-white"
+            : "border-[#E2E8F0] hover:border-[#CBD5E1]"
+        } ${disabled ? "bg-[#F8FAFC] text-[#94A3B8] cursor-not-allowed opacity-60" : ""}`}
       >
-        <div className="flex flex-wrap gap-1.5 max-w-[90%]">
+        <div className="flex flex-wrap gap-1.5 max-w-[90%] items-center">
           {selected.length === 0 ? (
-            <span className="text-[#94A3B8] select-none text-xs">{placeholder}</span>
+            <span className="text-[#94A3B8] select-none text-xs font-normal">{placeholder}</span>
           ) : (
             selected.map(opt => (
               <span
                 key={opt}
-                className="flex items-center gap-1 bg-[#EEF2FF] border border-[#C7D2FE] text-[#4F5AF5] text-xs px-2 py-0.5 rounded-md font-semibold"
+                className="flex items-center gap-1.5 bg-[#FFF0ED] border border-[#FCD9D2] text-[#EB5F46] text-xs px-2.5 py-1 rounded-lg font-semibold shadow-xs animate-in zoom-in-95 duration-150"
               >
-                {opt}
+                <span>{opt}</span>
                 {!disabled && (
                   <button
                     type="button"
                     onClick={(e) => removeOption(e, opt)}
-                    className="hover:bg-blue-100 rounded-full p-0.5 text-[#4F5AF5] ml-0.5"
+                    className="hover:bg-[#EB5F46]/20 text-[#EB5F46] rounded-md p-0.5 transition-colors"
+                    title={`Remover ${opt}`}
                   >
-                    <X className="w-2.5 h-2.5" />
+                    <X className="w-3 h-3 stroke-[2.5]" />
                   </button>
                 )}
               </span>
             ))
           )}
         </div>
-        <ChevronDown className={`w-4 h-4 text-[#94A3B8] transition-transform shrink-0 ml-2 ${isOpen ? "rotate-180" : ""}`} />
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          <ChevronDown className={`w-4 h-4 text-[#94A3B8] transition-transform duration-200 ${isOpen ? "rotate-180 text-[#EB5F46]" : ""}`} />
+        </div>
       </div>
 
       {isOpen && (
-        <div className="absolute z-[100] left-0 right-0 mt-1.5 bg-white border border-[#E2E8F0] rounded-xl shadow-xl max-h-60 overflow-y-auto p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-2 duration-100">
+        <div className="absolute z-[100] left-0 right-0 mt-2 bg-white/98 backdrop-blur-md border border-[#E2E8F0] rounded-2xl shadow-[0_12px_32px_rgba(15,23,42,0.14)] max-h-60 overflow-y-auto p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150">
           {options.length === 0 ? (
-            <div className="text-xs text-slate-400 p-3 text-center">No hay opciones disponibles</div>
+            <div className="text-xs text-[#94A3B8] p-4 text-center">No hay opciones disponibles</div>
           ) : (
             options.map(opt => {
               const isSelected = selected.includes(opt);
@@ -86,12 +91,20 @@ function MultiSelectDropdown({ options, selected, onChange, disabled, placeholde
                   key={opt}
                   type="button"
                   onClick={() => toggleOption(opt)}
-                  className={`flex items-center justify-between w-full px-3.5 py-2 text-sm rounded-lg hover:bg-[#F8FAFC] transition-colors text-left font-medium ${
-                    isSelected ? "text-[#4F5AF5] bg-[#EEF2FF]/40 font-semibold" : "text-[#475569]"
+                  className={`flex items-center justify-between w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl transition-all duration-150 text-left font-medium ${
+                    isSelected
+                      ? "text-[#EB5F46] bg-[#FFF0ED] font-semibold"
+                      : "text-[#334155] hover:bg-[#F8FAFC] hover:text-[#0F172A]"
                   }`}
                 >
                   <span>{opt}</span>
-                  {isSelected && <Check className="w-4 h-4 text-[#4F5AF5]" />}
+                  {isSelected ? (
+                    <div className="w-5 h-5 rounded-full bg-[#EB5F46] text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Check className="w-3 h-3 stroke-[3]" />
+                    </div>
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border border-[#CBD5E1] shrink-0" />
+                  )}
                 </button>
               );
             })
@@ -848,7 +861,25 @@ export default function InitiativeForm() {
   const [dbVps, setDbVps] = useState<any[]>([]);
   const [dbDirecciones, setDbDirecciones] = useState<any[]>([]);
 
-  const [chatHistory, setChatHistory] = useState<{ role: "user" | "model"; text: string; options?: string[]; attachment?: { name: string; type: string } }[]>([]);
+  const getMediaCategory = (type?: string, name?: string): 'image' | 'video' | 'audio' | 'document' => {
+    if (type?.startsWith('image/') || name?.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i)) return 'image';
+    if (type?.startsWith('video/') || name?.match(/\.(mp4|webm|mov|mkv|avi)$/i)) return 'video';
+    if (type?.startsWith('audio/') || name?.match(/\.(mp3|wav|ogg|m4a|aac)$/i)) return 'audio';
+    return 'document';
+  };
+
+  const [chatHistory, setChatHistory] = useState<{
+    role: "user" | "model";
+    text: string;
+    options?: string[];
+    attachment?: {
+      name: string;
+      type: string;
+      url?: string | null;
+      size?: number;
+      category?: 'image' | 'video' | 'audio' | 'document';
+    };
+  }[]>([]);
   const [currentMessage, setCurrentMessage] = useState("");
   const [isAiTyping, setIsAiTyping] = useState(false);
   const [summary, setSummary] = useState<any>(null);
@@ -863,6 +894,39 @@ export default function InitiativeForm() {
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'error') => {
     setToast({ message, type });
+  };
+
+  const deleteAttachmentFromChat = (fileName: string, historyIndex?: number) => {
+    // 1. Remove from formData.attachments
+    setFormData(prev => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter((f: any) => f.name !== fileName)
+    }));
+
+    // 2. Clear from current attached states if it was active
+    if (attachedFile?.name === fileName) {
+      setAttachedFile(null);
+      setAttachedFileContent(null);
+    }
+
+    // 3. Update chatHistory if historyIndex is given
+    if (historyIndex !== undefined && historyIndex >= 0) {
+      setChatHistory(prev => {
+        const updated = [...prev];
+        if (updated[historyIndex]) {
+          const oldText = updated[historyIndex].text;
+          const isOnlyAttachment = oldText === `[Adjunto: ${fileName}]` || oldText.startsWith('[Adjunto:');
+          updated[historyIndex] = {
+            ...updated[historyIndex],
+            attachment: undefined,
+            text: isOnlyAttachment ? '[Evidencia eliminada]' : oldText
+          };
+        }
+        return updated;
+      });
+    }
+
+    showToast(`Evidencia "${fileName}" eliminada de la iniciativa.`, 'warning');
   };
 
   useEffect(() => {
@@ -1279,13 +1343,13 @@ export default function InitiativeForm() {
 
     let typeKey: 'pdf' | 'docx' | 'txt' | 'image' = 'txt';
     const name = file.name.toLowerCase();
-    const mime = file.type;
+    const mime = file.type || '';
 
     if (mime === 'application/pdf' || name.endsWith('.pdf')) typeKey = 'pdf';
     else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')) typeKey = 'docx';
-    else if (mime.startsWith('image/')) typeKey = 'image';
+    else if (mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/') || name.match(/\.(jpg|jpeg|png|webp|gif|svg|mp4|webm|mov|mp3|wav|ogg|m4a)$/i)) typeKey = 'image';
 
-    const typeConfig = fileTypes[typeKey];
+    const typeConfig = fileTypes[typeKey] || { enabled: true, maxMb: 1.0 };
     if (!typeConfig.enabled) {
       const errorMsg = `La subida de archivos de tipo ${typeKey.toUpperCase()} está deshabilitada.`;
       setAttachError(errorMsg);
@@ -1302,9 +1366,25 @@ export default function InitiativeForm() {
       showToast(errorMsg, 'error');
       return;
     }
-    const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'image/jpeg', 'image/png', 'image/webp'];
-    if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i)) {
-      const errorMsg = 'Formato no soportado. Usa PDF, DOCX, TXT o imagen.';
+    const allowed = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+      'image/svg+xml',
+      'video/mp4',
+      'video/webm',
+      'video/quicktime',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/ogg',
+      'audio/mp4'
+    ];
+    if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|txt|jpg|jpeg|png|webp|gif|svg|mp4|webm|mov|mp3|wav|ogg|m4a)$/i)) {
+      const errorMsg = 'Formato no soportado. Usa PDF, DOCX, TXT, imagen, video o audio.';
       setAttachError(errorMsg);
       showToast(errorMsg, 'error');
       return;
@@ -1320,24 +1400,28 @@ export default function InitiativeForm() {
       if (data.error) throw new Error(data.error);
       setAttachedFileContent(data.content);
 
+      const category = data.category || getMediaCategory(file.type, file.name);
+      const attachmentMeta = {
+        name: file.name,
+        content: data.content,
+        url: data.url,
+        size: file.size,
+        type: file.type,
+        category
+      };
+
       setFormData(prev => {
         const current = prev.attachments || [];
         if (current.some((f: any) => f.name === file.name)) return prev;
         return {
           ...prev,
-          attachments: [...current, {
-            name: file.name,
-            content: data.content,
-            url: data.url,
-            size: file.size,
-            type: file.type
-          }]
+          attachments: [...current, attachmentMeta]
         };
       });
 
       if (context === 'chat' && step >= 2 && selectedPath === 'unstructured') {
         setTimeout(() => {
-          submitMessage(`He subido un archivo de soporte llamado: ${file.name}. Por favor analízalo.`);
+          submitMessage('', attachmentMeta);
         }, 100);
       } else {
         setAttachedFile(null);
@@ -1520,19 +1604,33 @@ export default function InitiativeForm() {
     setIsAiTyping(false);
   };
 
-  const submitMessage = async (userText: string) => {
-    if (!userText.trim() && !attachedFile) return;
+  const submitMessage = async (userText: string, customAttachment?: any) => {
+    const activeAttached = customAttachment || (attachedFile ? {
+      name: attachedFile.name,
+      type: attachedFile.type,
+      url: (formData.attachments || []).find((a: any) => a.name === attachedFile.name)?.url || null,
+      size: attachedFile.size,
+      category: getMediaCategory(attachedFile.type, attachedFile.name)
+    } : undefined);
+
+    if (!userText.trim() && !activeAttached) return;
 
     // Build the actual text to display in chat
-    const displayText = userText.trim() || (attachedFile ? `[Adjunto: ${attachedFile.name}]` : '');
+    const displayText = userText.trim() || (activeAttached ? `[Adjunto: ${activeAttached.name}]` : '');
 
-    // Build the message sent to the AI (include file content if any)
+    // Build the message sent to the AI (include file content or media indicator)
     let aiMessage = userText.trim();
-    if (attachedFileContent && attachedFile) {
-      aiMessage = `[El usuario adjuntó el archivo: ${attachedFile.name}]\n---\n${attachedFileContent}\n---\n${aiMessage ? 'Mensaje del usuario: ' + aiMessage : 'Por favor analiza este archivo en el contexto de la iniciativa.'}`;
+    if (activeAttached) {
+      const isMedia = activeAttached.category === 'image' || activeAttached.category === 'video' || activeAttached.category === 'audio' || activeAttached.type?.startsWith('image/') || activeAttached.type?.startsWith('video/') || activeAttached.type?.startsWith('audio/');
+      if (isMedia) {
+        aiMessage = `[El usuario adjuntó el archivo multimedia: ${activeAttached.name} (${activeAttached.type || activeAttached.category})]\n${aiMessage ? 'Mensaje del usuario: ' + aiMessage : ''}`.trim();
+      } else if (attachedFileContent || activeAttached.content) {
+        const fileText = attachedFileContent || activeAttached.content;
+        aiMessage = `[El usuario adjuntó el archivo: ${activeAttached.name}]\n---\n${fileText}\n---\n${aiMessage ? 'Mensaje del usuario: ' + aiMessage : 'Por favor analiza este archivo en el contexto de la iniciativa.'}`;
+      }
     }
 
-    const attachment = attachedFile ? { name: attachedFile.name, type: attachedFile.type } : undefined;
+    const attachment = activeAttached;
     const newHistory = [...chatHistory, { role: "user" as const, text: displayText, attachment }];
     setChatHistory(newHistory);
     setCurrentMessage("");
@@ -2267,8 +2365,12 @@ export default function InitiativeForm() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {(formData.attachments || []).map((file: any, fileIdx: number) => (
                           <div key={fileIdx} onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded-xl p-3 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200">
-                            {file.type?.startsWith('image/') ? (
+                            {file.type?.startsWith('image/') || file.name?.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i) ? (
                               <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                            ) : file.type?.startsWith('video/') || file.name?.match(/\.(mp4|webm|mov)$/i) ? (
+                              <VideoIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                            ) : file.type?.startsWith('audio/') || file.name?.match(/\.(mp3|wav|ogg|m4a)$/i) ? (
+                              <AudioIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
                             ) : (
                               <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
                             )}
@@ -2498,15 +2600,119 @@ export default function InitiativeForm() {
 
                   {/* Bubble Container */}
                   <div className="flex flex-col gap-2 min-w-0">
-                    {/* File attachment badge */}
+                    {/* File attachment preview & action card */}
                     {msg.attachment && (
-                      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border ${
+                      <div className={`rounded-2xl border p-2.5 shadow-sm transition-all ${
                         msg.role === 'user'
-                          ? 'bg-blue-400/20 border-blue-300/30 text-blue-100 self-end'
-                          : 'bg-slate-100 border-[#E2E8F0] text-[#64748B]'
+                          ? 'bg-[#3F49E0]/40 border-blue-300/40 text-white self-end max-w-sm w-full'
+                          : 'bg-slate-100 border-[#E2E8F0] text-[#1E293B] self-start max-w-sm w-full'
                       }`}>
-                        {msg.attachment.type.startsWith('image/') ? <ImageIcon className="w-3.5 h-3.5 shrink-0" /> : <FileText className="w-3.5 h-3.5 shrink-0" />}
-                        <span className="truncate max-w-[140px]">{msg.attachment.name}</span>
+                        {/* Image Preview / Thumbnail */}
+                        {(msg.attachment.category === 'image' || msg.attachment.type.startsWith('image/') || msg.attachment.name.match(/\.(jpg|jpeg|png|webp|gif)$/i)) && (
+                          <div className="relative group rounded-xl overflow-hidden mb-2 bg-black/20">
+                            {msg.attachment.url ? (
+                              <img
+                                src={msg.attachment.url}
+                                alt={msg.attachment.name}
+                                onClick={() => setPreviewFile({ url: msg.attachment!.url!, name: msg.attachment!.name, type: msg.attachment!.type })}
+                                className="w-full max-h-48 object-cover rounded-xl cursor-pointer hover:opacity-95 transition-opacity"
+                              />
+                            ) : (
+                              <div className="h-32 flex items-center justify-center bg-slate-200/50 rounded-xl text-xs text-slate-500">
+                                <ImageIcon className="w-8 h-8 opacity-50" />
+                              </div>
+                            )}
+                            {msg.attachment.url && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewFile({ url: msg.attachment!.url!, name: msg.attachment!.name, type: msg.attachment!.type })}
+                                className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 text-white p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px] font-semibold backdrop-blur-sm"
+                                title="Ver en grande"
+                              >
+                                <Eye className="w-3.5 h-3.5" /> Ampliar
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Video Preview */}
+                        {(msg.attachment.category === 'video' || msg.attachment.type.startsWith('video/') || msg.attachment.name.match(/\.(mp4|webm|mov)$/i)) && (
+                          <div className="rounded-xl overflow-hidden mb-2 bg-black">
+                            {msg.attachment.url ? (
+                              <video
+                                src={msg.attachment.url}
+                                controls
+                                className="w-full max-h-44 rounded-xl"
+                              />
+                            ) : (
+                              <div className="h-32 flex items-center justify-center bg-slate-800 text-white text-xs">
+                                <VideoIcon className="w-8 h-8 opacity-50" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Audio Preview */}
+                        {(msg.attachment.category === 'audio' || msg.attachment.type.startsWith('audio/') || msg.attachment.name.match(/\.(mp3|wav|ogg|m4a)$/i)) && (
+                          <div className="mb-2">
+                            {msg.attachment.url ? (
+                              <audio
+                                src={msg.attachment.url}
+                                controls
+                                className="w-full h-9 rounded-lg"
+                              />
+                            ) : (
+                              <div className="p-2 bg-slate-200 rounded-lg flex items-center gap-2 text-xs">
+                                <AudioIcon className="w-4 h-4" /> <span>Audio adjunto</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Meta info & Action row */}
+                        <div className="flex items-center justify-between gap-2 pt-0.5">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            {msg.attachment.category === 'image' || msg.attachment.type.startsWith('image/') ? (
+                              <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-90" />
+                            ) : msg.attachment.category === 'video' || msg.attachment.type.startsWith('video/') ? (
+                              <VideoIcon className="w-3.5 h-3.5 shrink-0 opacity-90" />
+                            ) : msg.attachment.category === 'audio' || msg.attachment.type.startsWith('audio/') ? (
+                              <AudioIcon className="w-3.5 h-3.5 shrink-0 opacity-90" />
+                            ) : (
+                              <FileText className="w-3.5 h-3.5 shrink-0 opacity-90" />
+                            )}
+                            <span className="text-xs font-semibold truncate" title={msg.attachment.name}>
+                              {msg.attachment.name}
+                            </span>
+                            {msg.attachment.size ? (
+                              <span className="text-[10px] opacity-75 shrink-0">
+                                ({(msg.attachment.size / 1024).toFixed(0)} KB)
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {/* Action buttons: Preview & Delete */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {msg.attachment.url && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewFile({ url: msg.attachment!.url!, name: msg.attachment!.name, type: msg.attachment!.type })}
+                                className="p-1 rounded hover:bg-white/20 text-inherit transition-colors"
+                                title="Ver vista previa"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => deleteAttachmentFromChat(msg.attachment!.name, i)}
+                              className="p-1 rounded hover:bg-red-500/30 text-red-200 hover:text-white transition-colors"
+                              title="Eliminar evidencia"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                     <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
@@ -2592,15 +2798,28 @@ export default function InitiativeForm() {
             {/* File preview strip */}
             {attachedFile && (
               <div className="flex items-center gap-2 bg-[#EEF2FF] border border-[#C7D2FE] rounded-xl px-3 py-2">
-                {attachedFile.type.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" /> : <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />}
-                <span className="text-xs font-semibold text-[#4F5AF5] flex-1 truncate">{attachedFile.name}</span>
-                <span className="text-[10px] text-[#64748B] shrink-0">{(attachedFile.size / 1024).toFixed(0)} KB</span>
+                {attachedFile.type.startsWith('image/') ? (
+                  <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                ) : attachedFile.type.startsWith('video/') ? (
+                  <VideoIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                ) : attachedFile.type.startsWith('audio/') ? (
+                  <AudioIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                ) : (
+                  <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                )}
+                <div className="flex flex-col min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-[#4F5AF5] truncate">{attachedFile.name}</span>
+                    <span className="text-[10px] text-[#64748B] shrink-0">({(attachedFile.size / 1024).toFixed(0)} KB)</span>
+                  </div>
+                  <span className="text-[9.5px] text-[#64748B]">Se adjuntará como evidencia de soporte documental</span>
+                </div>
                 {isProcessingFile ? (
                   <span className="text-[10px] text-[#94A3B8] shrink-0 animate-pulse">Procesando...</span>
                 ) : (
                   <span className="text-[10px] text-emerald-600 font-semibold shrink-0">✓ Listo</span>
                 )}
-                <button onClick={() => removeAttachment()} className="text-[#94A3B8] hover:text-red-500 transition-colors ml-1">
+                <button onClick={() => removeAttachment()} className="text-[#94A3B8] hover:text-red-500 transition-colors ml-1" title="Quitar archivo">
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -2743,10 +2962,10 @@ export default function InitiativeForm() {
                   type="button"
                   onClick={isRecording ? stopRecording : startRecording}
                   disabled={isAiTyping || isTranscribing}
-                  title={isRecording ? 'Detener grabación y transcribir' : 'Grabar mensaje de voz'}
-                  className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all shrink-0 ${
+                  title={isRecording ? "Detener grabación" : "Grabar por voz"}
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shrink-0 relative ${
                     isRecording
-                      ? 'bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-200'
+                      ? 'bg-red-500 text-white shadow-md shadow-red-500/20 animate-pulse'
                       : isTranscribing
                         ? 'bg-violet-100 text-violet-500 border border-violet-200'
                         : 'border border-[#E2E8F0] text-[#94A3B8] hover:bg-[#F8FAFC] hover:text-[#4F5AF5]'
@@ -2779,22 +2998,28 @@ export default function InitiativeForm() {
               </button>
             </form>
 
-            {/* Voice hint */}
-            <p className="text-[10px] text-[#94A3B8] text-center">
-              {(() => {
-                const parts: string[] = [];
-                if (useMic) parts.push("🎙️ Voz local");
-                if (useAttachments) {
-                  const enabledTypes: string[] = [];
-                  if (fileTypes.pdf.enabled) enabledTypes.push(`PDF (máx. ${fileTypes.pdf.maxMb} MB)`);
-                  if (fileTypes.docx.enabled) enabledTypes.push(`DOCX (máx. ${fileTypes.docx.maxMb} MB)`);
-                  if (fileTypes.txt.enabled) enabledTypes.push(`TXT (máx. ${fileTypes.txt.maxMb} MB)`);
-                  if (fileTypes.image.enabled) enabledTypes.push(`imagen (máx. ${fileTypes.image.maxMb} MB)`);
-                  if (enabledTypes.length > 0) parts.push(`📎 ${enabledTypes.join(", ")}`);
-                }
-                return parts.join("  ·  ");
-              })()}
-            </p>
+            {/* Disclaimer & formats hint */}
+            <div className="space-y-1 text-center pt-0.5">
+              <p className="text-[10.5px] text-[#475569] flex items-center justify-center gap-1.5 font-medium bg-slate-50 border border-slate-200/60 rounded-lg py-1 px-2.5">
+                <span className="text-blue-500">ℹ️</span>
+                <span>Los archivos multimedia se adjuntan como <strong>evidencias de soporte</strong> y no son leídos por la IA.</span>
+              </p>
+              <p className="text-[10px] text-[#94A3B8]">
+                {(() => {
+                  const parts: string[] = [];
+                  if (useMic) parts.push("🎙️ Voz local");
+                  if (useAttachments) {
+                    const enabledTypes: string[] = [];
+                    if (fileTypes.pdf?.enabled) enabledTypes.push(`PDF (máx. ${fileTypes.pdf.maxMb} MB)`);
+                    if (fileTypes.docx?.enabled) enabledTypes.push(`DOCX (máx. ${fileTypes.docx.maxMb} MB)`);
+                    if (fileTypes.txt?.enabled) enabledTypes.push(`TXT (máx. ${fileTypes.txt.maxMb} MB)`);
+                    if (fileTypes.image?.enabled) enabledTypes.push(`Multimedia/Imágenes (máx. ${fileTypes.image.maxMb} MB)`);
+                    if (enabledTypes.length > 0) parts.push(`📎 ${enabledTypes.join(", ")}`);
+                  }
+                  return parts.join("  ·  ");
+                })()}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -2946,8 +3171,12 @@ export default function InitiativeForm() {
             {/* Header */}
             <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center justify-between bg-[#F8FAFC]">
               <div className="flex items-center gap-2 min-w-0">
-                {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+                {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i) ? (
                   <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                ) : previewFile.type?.startsWith('video/') || previewFile.name.match(/\.(mp4|webm|mov)$/i) ? (
+                  <VideoIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+                ) : previewFile.type?.startsWith('audio/') || previewFile.name.match(/\.(mp3|wav|ogg|m4a)$/i) ? (
+                  <AudioIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
                 ) : (
                   <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
                 )}
@@ -2975,12 +3204,27 @@ export default function InitiativeForm() {
             </div>
             {/* Content */}
             <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-50 min-h-[300px]">
-              {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+              {previewFile.type?.startsWith('image/') || previewFile.name.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i) ? (
                 <img
                   src={previewFile.url}
                   alt={previewFile.name}
                   className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-sm"
                 />
+              ) : previewFile.type?.startsWith('video/') || previewFile.name.match(/\.(mp4|webm|mov)$/i) ? (
+                <video
+                  src={previewFile.url}
+                  controls
+                  autoPlay
+                  className="max-w-full max-h-[70vh] rounded-lg shadow-sm"
+                />
+              ) : previewFile.type?.startsWith('audio/') || previewFile.name.match(/\.(mp3|wav|ogg|m4a)$/i) ? (
+                <div className="w-full max-w-md p-8 bg-white rounded-2xl shadow-lg border border-[#E2E8F0] text-center space-y-4">
+                  <div className="w-14 h-14 bg-indigo-50 text-[#4F5AF5] rounded-full flex items-center justify-center mx-auto">
+                    <Volume2 className="w-7 h-7" />
+                  </div>
+                  <p className="font-semibold text-sm text-[#1E293B] truncate" title={previewFile.name}>{previewFile.name}</p>
+                  <audio src={previewFile.url} controls autoPlay className="w-full" />
+                </div>
               ) : (
                 <div className="text-center p-8 max-w-md">
                   <div className="w-16 h-16 bg-[#EEF2FF] text-[#4F5AF5] rounded-full flex items-center justify-center mx-auto mb-4">
