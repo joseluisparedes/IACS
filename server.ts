@@ -363,11 +363,24 @@ function getMockSummaryResponse(initialData: any) {
 
 // ─── Server ───────────────────────────────────────────────────────────────────
 
+function cleanExtractedValue(val: any): any {
+  if (typeof val !== 'string') return val;
+  return val
+    .replace(/\[Archivo:.*?\]/gi, "")
+    .replace(/\[Imagen adjunta:.*?\]/gi, "")
+    .replace(/\[El usuario adjuntó.*?\]/gi, "")
+    .replace(/\[Contenido del documento:.*?\]/gi, "")
+    .replace(/\[Mensaje del usuario\]:?/gi, "")
+    .replace(/\[Requerimiento del usuario\]:?/gi, "")
+    .replace(/---/g, "")
+    .trim();
+}
+
 function extractLocalUnstructured(text: string, fields: any[], vps: string[], dirs: string[]) {
   const values: Record<string, any> = {};
   const warnings: Record<string, string> = {};
 
-  const cleanText = (text || "").trim();
+  const cleanText = cleanExtractedValue(text || "");
   const lowerText = cleanText.toLowerCase();
 
   // 1. TÍTULO inteligente (con verbo en infinitivo, completo sin cortar palabras)
@@ -619,6 +632,15 @@ Responde estrictamente en formato JSON con la siguiente estructura:
       if (!parsed || !parsed.values) {
         console.log("[AI Analyze] Remote AI unavailable/saturated. Executing local smart extraction fallback.");
         parsed = extractLocalUnstructured(text, fields, vps, dirs);
+      }
+
+      // Sanitize all extracted values to remove any residual metadata wrappers
+      if (parsed && parsed.values) {
+        Object.keys(parsed.values).forEach(k => {
+          if (typeof parsed.values[k] === 'string') {
+            parsed.values[k] = cleanExtractedValue(parsed.values[k]);
+          }
+        });
       }
 
       // Automatically purge warnings for any field that has a valid value assigned

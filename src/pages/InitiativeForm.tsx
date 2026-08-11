@@ -1466,13 +1466,16 @@ export default function InitiativeForm() {
     setIsAnalyzing(true);
     setError("");
     try {
-      let textToAnalyze = unstructuredText;
+      let textToAnalyze = unstructuredText.trim();
       const attachments = formData.attachments || [];
-      if (attachments.length > 0) {
-        const fileContents = attachments
-          .map((f: any) => `[Archivo: ${f.name}]\n---\n${f.content || 'Sin contenido'}\n---`)
+      const docAttachments = attachments.filter((f: any) => 
+        f.content && !f.type?.startsWith('image/') && !f.type?.startsWith('video/') && !f.type?.startsWith('audio/') && !f.name?.match(/\.(png|jpg|jpeg|webp|gif|mp4|webm|mov|mp3|wav|ogg)$/i)
+      );
+      if (docAttachments.length > 0) {
+        const fileContents = docAttachments
+          .map((f: any) => `[Documento adjunto: ${f.name}]\n${f.content}`)
           .join('\n\n');
-        textToAnalyze = `${fileContents}\n\n[Mensaje del usuario]: ${textToAnalyze}`;
+        textToAnalyze = `${fileContents}\n\n${textToAnalyze}`;
       }
 
       const res = await fetch("/api/fields/analyze-unstructured", {
@@ -1503,7 +1506,7 @@ export default function InitiativeForm() {
       const summaryObj = {
         titulo: updatedFormData.titulo || updatedFormData.titulo_de_la_necesidad || "Iniciativa de TI",
         objetivo: updatedFormData.objetivo || "Optimizar procesos de negocio",
-        descripcion_de_la_necesidad: updatedFormData.descripcion_de_la_necesidad || unstructuredText,
+        descripcion_de_la_necesidad: updatedFormData.descripcion_de_la_necesidad || unstructuredText.trim(),
         fecha_requerida: updatedFormData.fecha_requerida || "",
         vicepresidencia: updatedFormData.vicepresidencia || "",
         direccion: updatedFormData.direccion || "",
