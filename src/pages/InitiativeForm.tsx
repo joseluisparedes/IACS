@@ -1419,7 +1419,7 @@ export default function InitiativeForm() {
         };
       });
 
-      if (context === 'chat' && step >= 2 && selectedPath === 'unstructured') {
+      if (context === 'chat' && step === 2 && selectedPath === 'direct') {
         setTimeout(() => {
           submitMessage('', attachmentMeta);
         }, 100);
@@ -1441,7 +1441,7 @@ export default function InitiativeForm() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const ctx = (step >= 2 && selectedPath === 'unstructured') ? 'chat' : 'support';
+    const ctx = (step === 2 && selectedPath === 'direct') ? 'chat' : 'support';
     await processFile(file, ctx);
   };
 
