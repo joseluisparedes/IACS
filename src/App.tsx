@@ -774,6 +774,16 @@ function RegistradorRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { profile, loading } = useAuth();
+  if (loading) return null;
+  const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   const basename = (import.meta as any).env.BASE_URL || '/';
   return (
@@ -788,16 +798,16 @@ export default function App() {
           <Route path="/nueva/:id" element={<ProtectedRoute><RegistradorRoute><InitiativeForm /></RegistradorRoute></ProtectedRoute>} />
           <Route path="/bandeja" element={<ProtectedRoute><ApprovalBoard /></ProtectedRoute>} />
           <Route path="/iniciativa/:id" element={<ProtectedRoute><InitiativeDetail /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute><AdminFields /></ProtectedRoute>} />
-          <Route path="/admin/pdf-template" element={<ProtectedRoute><AdminPDFTemplate /></ProtectedRoute>} />
-          <Route path="/admin/estructura" element={<ProtectedRoute><VPManagement /></ProtectedRoute>} />
-          <Route path="/admin/agentes" element={<ProtectedRoute><AgentBoard /></ProtectedRoute>} />
-          <Route path="/admin/usuarios" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
-          <Route path="/admin/ia-training" element={<ProtectedRoute><AITraining /></ProtectedRoute>} />
-          <Route path="/admin/correos" element={<ProtectedRoute><EmailLogs /></ProtectedRoute>} />
-          <Route path="/admin/cargas-masivas" element={<ProtectedRoute><BulkUpload /></ProtectedRoute>} />
-          <Route path="/admin/flujo-estados" element={<ProtectedRoute><StateFlow /></ProtectedRoute>} />
-          <Route path="/admin/arquitectura" element={<ProtectedRoute><C4Architecture /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute><AdminRoute><AdminFields /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/pdf-template" element={<ProtectedRoute><AdminRoute><AdminPDFTemplate /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/estructura" element={<ProtectedRoute><AdminRoute><VPManagement /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/agentes" element={<ProtectedRoute><AdminRoute><AgentBoard /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/usuarios" element={<ProtectedRoute><AdminRoute><UserManagement /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/ia-training" element={<ProtectedRoute><AdminRoute><AITraining /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/correos" element={<ProtectedRoute><AdminRoute><EmailLogs /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/cargas-masivas" element={<ProtectedRoute><AdminRoute><BulkUpload /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/flujo-estados" element={<ProtectedRoute><AdminRoute><StateFlow /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/arquitectura" element={<ProtectedRoute><AdminRoute><C4Architecture /></AdminRoute></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

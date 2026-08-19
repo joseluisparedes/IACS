@@ -1065,7 +1065,31 @@ export default function InitiativeForm() {
           setSelectedPath(fData.selectedPath || 'direct');
           try { localStorage.removeItem(localKey); } catch (_) {}
         } else {
-          // No backend draft — check localStorage for a local backup
+          // No backend draft — check localStorage for a local backup.
+          // First, purge any stale iacs_draft_* entries that belong to OTHER sessions
+          // to prevent residual data from contaminating this fresh form.
+          if (!id) {
+            try {
+              const keysToRemove: string[] = [];
+              for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith('iacs_draft_') && k !== localKey) {
+                  try {
+                    const stale = JSON.parse(localStorage.getItem(k) || '{}');
+                    // Remove if the draft's own recorded ID differs from localKey's suffix
+                    // (i.e., it was an orphan from a previous unfinished session)
+                    if (stale.id && stale.id !== draftIdRef.current) {
+                      keysToRemove.push(k);
+                    }
+                  } catch (_) {
+                    keysToRemove.push(k); // malformed entry — also remove
+                  }
+                }
+              }
+              keysToRemove.forEach(k => localStorage.removeItem(k));
+            } catch (_) {}
+          }
+
           let restored = false;
           try {
             const local = localStorage.getItem(localKey);
