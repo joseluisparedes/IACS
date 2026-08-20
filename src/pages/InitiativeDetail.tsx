@@ -999,12 +999,25 @@ export default function InitiativeDetail() {
         form_data: nextFormData 
       };
 
-      const res = await fetch(`/api/initiatives/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
+      let updated = false;
+      try {
+        const res = await fetch(`/api/initiatives/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) updated = true;
+      } catch (apiErr) {
+        console.warn("API update failed, attempting Supabase direct fallback:", apiErr);
+      }
+
+      if (!updated) {
+        // Direct Supabase update fallback
+        const { error: sbErr } = await supabase.from('initiatives').update(payload).eq('id', id);
+        if (!sbErr) updated = true;
+      }
+
+      if (updated) {
         setInitiative((prev: any) => ({ ...prev, ...payload }));
         setIsEditMode(false);
       }

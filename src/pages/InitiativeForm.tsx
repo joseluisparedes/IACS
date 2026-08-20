@@ -1832,33 +1832,48 @@ export default function InitiativeForm() {
   const handleSave = async (status: "Borrador" | "Pendiente de aprobación") => {
     if (isSaving) return;
     setIsSaving(true);
+    const initiativePayload = { 
+      id: draftIdRef.current, 
+      form_data: { 
+        ...formData, 
+        _director_declaration_accepted: disclaimerAccepted 
+      }, 
+      chat_history: chatHistory, 
+      summary, 
+      status, 
+      confirmed_fields: confirmedFields, 
+      unstructured_text: unstructuredText,
+      user_id: profile?.id ?? null,
+      updated_at: new Date().toISOString()
+    };
     try {
-      const res = await fetch("/api/initiatives/draft", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          id: draftIdRef.current, 
-          form_data: { 
-            ...formData, 
-            _director_declaration_accepted: disclaimerAccepted 
-          }, 
-          chat_history: chatHistory, 
-          summary, 
-          status, 
-          confirmed_fields: confirmedFields, 
-          unstructured_text: unstructuredText 
-        }),
-      });
-      if (res.ok) {
-        // Clear the local backup now that it's safely on the server
+      let saved = false;
+      try {
+        const res = await fetch("/api/initiatives/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(initiativePayload),
+        });
+        if (res.ok) saved = true;
+      } catch (apiErr) {
+        console.warn("API draft save failed, attempting Supabase direct fallback:", apiErr);
+      }
+
+      if (!saved) {
+        // Direct Supabase upsert fallback
+        const { error: sbErr } = await supabase.from('initiatives').upsert([initiativePayload]);
+        if (!sbErr) saved = true;
+      }
+
+      if (saved) {
         try { localStorage.removeItem(localKey); } catch (_) {}
         navigate("/bandeja");
       } else {
-        const err = await res.json().catch(() => ({}));
-        showToast(`Error al guardar: ${err.error || res.statusText || 'Error desconocido'}`, 'error');
+        showToast('Error al guardar la iniciativa. Por favor intenta nuevamente.', 'error');
       }
     } catch (e: any) {
       console.error(e);
-      showToast('Error de red al guardar. El servidor puede estar despertando, por favor intenta de nuevo en unos segundos.', 'error');
+      showToast('Error al guardar. Por favor verifica tu conexión.', 'error');
     } finally {
       setIsSaving(false);
     }

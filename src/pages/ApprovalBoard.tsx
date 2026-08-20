@@ -271,24 +271,44 @@ export default function ApprovalBoard() {
         _observation_history: [...history, newHistoryEntry]
       };
 
-      const response = await fetch(`/api/initiatives/${initiativeId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          status: newStatus,
-          form_data: updatedFormData
-        }),
-      });
-      if (!response.ok) {
-        throw new Error("Error al actualizar el estado");
+      let updated = false;
+      try {
+        const response = await fetch(`/api/initiatives/${initiativeId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ 
+            status: newStatus,
+            form_data: updatedFormData
+          }),
+        });
+        if (response.ok) {
+          const updatedData = await response.json();
+          setInitiatives(prev => prev.map(i => i.id === initiativeId ? { ...i, status: updatedData.status, form_data: updatedData.form_data } : i));
+          updated = true;
+        }
+      } catch (apiErr) {
+        console.warn("API status update failed, attempting Supabase direct fallback:", apiErr);
       }
-      const updatedData = await response.json();
-      setInitiatives(prev => prev.map(i => i.id === initiativeId ? { ...i, status: updatedData.status, form_data: updatedData.form_data } : i));
-    } catch (error) {
-      console.error(error);
-      alert("No se pudo actualizar el estado de la iniciativa.");
+
+      if (!updated) {
+        // Direct Supabase update fallback
+        const { data: dbUpdated, error: sbErr } = await supabase
+          .from('initiatives')
+          .update({ status: newStatus, form_data: updatedFormData })
+          .eq('id', initiativeId)
+          .select()
+          .single();
+        if (!sbErr && dbUpdated) {
+          setInitiatives(prev => prev.map(i => i.id === initiativeId ? dbUpdated : i));
+          updated = true;
+        }
+      }
+
+      if (!updated) {
+        alert("No se pudo actualizar el estado de la iniciativa.");
+      }
     } finally {
       setEditingStatusId(null);
     }
