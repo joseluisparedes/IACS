@@ -1002,7 +1002,20 @@ export default function InitiativeForm() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/fields").then(r => r.json()),
+      fetch("/api/fields")
+        .then(async r => {
+          if (!r.ok) throw new Error(`API status ${r.status}`);
+          const json = await r.json();
+          if (!Array.isArray(json)) throw new Error("Invalid format");
+          return json;
+        })
+        .catch(async () => {
+          const { data: dbFields } = await supabase
+            .from('initiative_fields')
+            .select('*')
+            .order('sort_order', { ascending: true });
+          return dbFields || [];
+        }),
       supabase.from('vps').select('id, name'),
       supabase.from('direcciones').select('id, name, vp_id'),
       id ? supabase.from('initiatives').select('*').eq('id', id).single() : Promise.resolve({ data: null }),

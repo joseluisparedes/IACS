@@ -562,29 +562,17 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-  // ── CORS Configuration (Cyber Neo Security Hardening) ─────────────────────
-  const defaultAllowedOrigins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://localhost:4173",
-    "https://iacs-3v3f.onrender.com"
-  ];
-  const envAllowedOrigins = process.env.ALLOWED_ORIGINS 
-    ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
-    : [];
-  const allowedOrigins = Array.from(new Set([...defaultAllowedOrigins, ...envAllowedOrigins]));
-
+  // ── CORS Configuration (Universal SPA & GitHub Pages Compatibility) ─────────
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin) {
-      if (allowedOrigins.includes(origin) || allowedOrigins.includes("*") || origin.startsWith("http://localhost:")) {
-        res.header("Access-Control-Allow-Origin", origin);
-      }
+      res.header("Access-Control-Allow-Origin", origin);
     } else {
       res.header("Access-Control-Allow-Origin", "*");
     }
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Test-Suite");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Test-Suite, Cache-Control");
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.header("Access-Control-Max-Age", "86400");
     if (req.method === "OPTIONS") {
       return res.sendStatus(200);
     }

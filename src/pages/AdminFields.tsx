@@ -172,10 +172,21 @@ export default function AdminFields() {
 
   const fetchFields = async () => {
     setLoading(true);
-    const res = await fetch("/api/fields");
-    const data = await res.json();
-    setFields(Array.isArray(data) ? data : []);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/fields");
+      if (!res.ok) throw new Error(`API status ${res.status}`);
+      const data = await res.json();
+      setFields(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.warn("Fallback to direct Supabase fields:", e);
+      const { data } = await supabase
+        .from('initiative_fields')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      setFields(data || []);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchFields(); }, []);

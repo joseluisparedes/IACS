@@ -907,15 +907,43 @@ export default function InitiativeDetail() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/initiatives").then(r => r.json()),
-      fetch("/api/fields").then(r => r.json()),
+      fetch("/api/initiatives")
+        .then(async r => {
+          if (!r.ok) throw new Error(`API status ${r.status}`);
+          const json = await r.json();
+          if (!Array.isArray(json)) throw new Error("Invalid format");
+          return json;
+        })
+        .catch(async () => {
+          const { data: inits } = await supabase.from('initiatives').select('*');
+          return inits || [];
+        }),
+      fetch("/api/fields")
+        .then(async r => {
+          if (!r.ok) throw new Error(`API status ${r.status}`);
+          const json = await r.json();
+          if (!Array.isArray(json)) throw new Error("Invalid format");
+          return json;
+        })
+        .catch(async () => {
+          const { data: dbFields } = await supabase
+            .from('initiative_fields')
+            .select('*')
+            .order('sort_order', { ascending: true });
+          return dbFields || [];
+        }),
       supabase.from('vps').select('id, name'),
       supabase.from('direcciones').select('id, name, vp_id'),
       supabase.from('allowed_users').select('name, user_roles_whitelist(*)'),
       supabase.from('site_settings').select('pdf_template').eq('id', 1).single()
     ])
-      .then(([data, fieldsData, vpsRes, dirRes, usersRes, settingsRes]) => {
-        const found = Array.isArray(data) ? data.find((i: any) => i.id === id) : null;
+      .then(async ([data, fieldsData, vpsRes, dirRes, usersRes, settingsRes]) => {
+        let found = Array.isArray(data) ? data.find((i: any) => i.id === id) : null;
+        if (!found && id) {
+          // Direct fallback by ID
+          const singleRes = await supabase.from('initiatives').select('*').eq('id', id).single();
+          if (singleRes.data) found = singleRes.data;
+        }
         setInitiative(found ?? null);
         if (settingsRes.data?.pdf_template) {
           setPdfTemplate(settingsRes.data.pdf_template);

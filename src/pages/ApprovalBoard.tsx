@@ -230,7 +230,16 @@ export default function ApprovalBoard() {
     });
 
     fetch('/api/initiatives')
-      .then(res => res.json())
+      .then(async res => {
+        if (!res.ok) throw new Error(`API status ${res.status}`);
+        const data = await res.json();
+        if (!Array.isArray(data)) throw new Error("Invalid format");
+        return data;
+      })
+      .catch(async () => {
+        const { data: inits } = await supabase.from('initiatives').select('*').order('created_at', { ascending: false });
+        return inits || [];
+      })
       .then(data => {
         setInitiatives(Array.isArray(data) ? data : []);
         setLoading(false);

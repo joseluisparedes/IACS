@@ -387,7 +387,17 @@ export default function Dashboard() {
     setSlowLoad(false);
     const slowTimer = setTimeout(() => setSlowLoad(true), 4000);
     const [initRes, vpRes, dirRes] = await Promise.all([
-      fetch("/api/initiatives").then(r => r.json()),
+      fetch("/api/initiatives")
+        .then(async r => {
+          if (!r.ok) throw new Error(`API status ${r.status}`);
+          const json = await r.json();
+          if (!Array.isArray(json)) throw new Error("Invalid format");
+          return json;
+        })
+        .catch(async () => {
+          const { data: inits } = await supabase.from("initiatives").select("*").order("created_at", { ascending: false });
+          return inits || [];
+        }),
       supabase.from("vps").select("*").order("name"),
       supabase.from("direcciones").select("*").order("name"),
     ]);

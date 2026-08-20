@@ -209,8 +209,35 @@ export default function AITraining() {
   const loadAll = async () => {
     setLoading(true);
     const [trainRes, fbRes] = await Promise.all([
-      fetch('/api/ai-training').then(r => r.json()),
-      fetch('/api/ai-feedback').then(r => r.json()),
+      fetch('/api/ai-training')
+        .then(async r => {
+          if (!r.ok) throw new Error(`API status ${r.status}`);
+          const json = await r.json();
+          if (!Array.isArray(json)) throw new Error("Invalid format");
+          return json;
+        })
+        .catch(async () => {
+          const { data } = await supabase
+            .from('ai_training_config')
+            .select('*')
+            .order('layer')
+            .order('sort_order', { ascending: true });
+          return data || [];
+        }),
+      fetch('/api/ai-feedback')
+        .then(async r => {
+          if (!r.ok) throw new Error(`API status ${r.status}`);
+          const json = await r.json();
+          if (!Array.isArray(json)) throw new Error("Invalid format");
+          return json;
+        })
+        .catch(async () => {
+          const { data } = await supabase
+            .from('ai_feedback')
+            .select('*')
+            .order('created_at', { ascending: false });
+          return data || [];
+        }),
     ]);
     setEntries(Array.isArray(trainRes) ? trainRes : []);
     setFeedback(Array.isArray(fbRes) ? fbRes : []);
