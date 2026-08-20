@@ -156,7 +156,7 @@ async function callAIForJSON(prompt: string): Promise<string> {
   if (now > _groqCooldownUntil) {
     const groq = getGroq();
     if (groq) {
-      const groqModels = ["llama-3.3-70b-versatile"];
+      const groqModels = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b", "groq/compound"];
       const jsonPrompt = prompt.includes("JSON") ? prompt : `${prompt}\nResponde estrictamente en formato JSON.`;
       for (const model of groqModels) {
         try {
@@ -297,11 +297,11 @@ function isApiKeyConfigured(): boolean {
 
 function getMockChatResponse(history: any[], initialData: any, message: string): string {
   if (message === "[INICIALIZAR_CHAT]") {
-    return `¡Hola! Soy Teo, Analista de Negocio Senior. Para poder estructurar tu iniciativa, por favor describe la necesidad o el problema que deseas abordar en tus propias palabras.`;
+    return `¡Hola! Soy Teo, tu consultor y analista de TI. Cuéntame con total confianza qué problema, dolor de cabeza o necesidad estás teniendo en tu día a día o en tu área. Estoy aquí para acompañarte a darle forma a una solución clara y sólida.`;
   }
 
   const isMediaAttachment = message.includes("[El usuario adjuntó") || message.includes("[Imagen adjunta]") || message.includes("[Video adjunto]") || message.includes("[Audio adjunto]") || message.includes("[Archivo multimedia adjunto");
-  const mediaAck = isMediaAttachment ? "Gracias por el archivo adjunto, se agregará como parte de las evidencias de tu iniciativa.\n\n" : "";
+  const mediaAck = isMediaAttachment ? "¡Excelente! He recibido el archivo adjunto y lo sumaré como evidencia del requerimiento.\n\n" : "";
 
   const cleanHistory = history.filter(h => h.role === "user" && h.text !== "[INICIALIZAR_CHAT]");
   const hasLast = cleanHistory.some(h => h.text === message);
@@ -309,19 +309,19 @@ function getMockChatResponse(history: any[], initialData: any, message: string):
   const count = fullHistory.length;
 
   if (count === 1) {
-    const inst = Array.isArray(initialData?.institucion) ? initialData.institucion.join(", ") : (initialData?.institucion || "la organización");
+    const inst = Array.isArray(initialData?.institucion) ? initialData.institucion.join(", ") : (initialData?.institucion || "la institución");
     const extracted = extractLocalUnstructured(message, [], [], []);
-    const dynamicTitle = extracted.values?.titulo || `Implementar solución tecnológica para ${inst}`;
-    const dynamicObjetivo = extracted.values?.objetivo || `Optimizar el rendimiento y la eficiencia operativa mediante la solución tecnológica planteada.`;
-    return `${mediaAck}Basándome en la necesidad planteada, te propongo el siguiente Título y Objetivo para tu iniciativa:\n\n**Título:** ${dynamicTitle}\n\n**Objetivo:** ${dynamicObjetivo}\n\n¿Estás de acuerdo con esta propuesta o deseas realizar algún ajuste?`;
+    const dynamicTitle = extracted.values?.titulo || `Implementar solución de optimización operativa para ${inst}`;
+    const dynamicObjetivo = extracted.values?.objetivo || `Optimizar el proceso operativo para reducir tiempos de atención y mejorar la experiencia de los usuarios.`;
+    return `${mediaAck}Entiendo perfectamente el contexto y la necesidad de optimizar este proceso. Para formalizarlo de manera clara ante el comité, te propongo lo siguiente:\n\n**Título:** ${dynamicTitle}\n\n**Objetivo:** ${dynamicObjetivo}\n\n¿Te parece bien este planteamiento o deseas que ajustemos algún punto?`;
   }
-  if (count === 2) return `${mediaAck}¡Excelente! Título y Objetivo quedan registrados. ¿Para cuándo se requiere tener implementada esta solución en producción?`;
-  if (count === 3) return `${mediaAck}Registrado. ¿Cuál sería el impacto en las operaciones si no se cuenta con la solución en esa fecha?`;
-  if (count === 4) return `${mediaAck}¿Es un proceso completamente nuevo o una mejora a un proceso existente?`;
-  if (count === 5) return `${mediaAck}¿Cuáles son los procesos y áreas directamente impactadas por esta iniciativa?`;
-  if (count === 6) return `${mediaAck}¿A qué pilar estratégico se alinea esta iniciativa?`;
-  if (count === 7) return `${mediaAck}¿Cuál es el beneficio cuantitativo anual estimado?`;
-  return `${mediaAck}Excelente, he recopilado toda la información necesaria. Procederé a generar el resumen ejecutivo. [INFORMACION_COMPLETA]`;
+  if (count === 2) return `${mediaAck}¡Excelente! El título y objetivo quedan definidos. Para coordinar el despliegue con el equipo de TI: ¿para qué fecha aproximada sería ideal tener esto operando en producción?`;
+  if (count === 3) return `${mediaAck}Entendido. Para sustentar la prioridad de la iniciativa: si llegáramos a esa fecha sin la solución lista, ¿cuál sería el impacto o riesgo operativo más crítico que enfrentaríamos?`;
+  if (count === 4) return `${mediaAck}Queda clarísimo el impacto. Pensando en el alcance de la solución: ¿esto reemplaza/mejora un proceso actual, o se trata de una forma de trabajo completamente nueva?`;
+  if (count === 5) return `${mediaAck}Comprendido. Además de tu equipo inmediato, ¿qué otros procesos o áreas de la institución se verían directamente beneficiados con este cambio?`;
+  if (count === 6) return `${mediaAck}Perfecto. Pensando en el beneficio directo: una vez en marcha, ¿cuánto tiempo u horas de trabajo manual calculas que se ahorraría el área cada mes?`;
+  if (count === 7) return `${mediaAck}Excelente visión. Por último, para asegurar que la solución sea robusta: ¿qué escenario crítico o situación clave debemos poner a prueba sí o sí antes del lanzamiento?`;
+  return `${mediaAck}¡Excelente! Hemos recopilado toda la información necesaria de forma clara y sólida para el expediente. Procederé a estructurar el resumen ejecutivo. [INFORMACION_COMPLETA]`;
 }
 
 function getMockOptions(history: any[], message: string): string[] {
@@ -332,12 +332,12 @@ function getMockOptions(history: any[], message: string): string[] {
   const count = fullHistory.length;
 
   if (count === 1) return ["Sí, estoy de acuerdo", "Quiero ajustarlo"];
-  if (count === 2) return ["Inmediatamente", "Próximo mes", "Dentro de los próximos 3 meses", "Para fin de año"];
-  if (count === 3) return ["Impacto en metas comerciales", "Pérdida de ingresos por admisión", "Aumento de costos operativos"];
-  if (count === 4) return ["Sí, es un proceso nuevo", "No, es una mejora a un proceso existente"];
-  if (count === 5) return ["Central de Admisión y Telemarketing Outbound", "TI y Operaciones", "Toda la organización"];
-  if (count === 6) return ["Excelencia operativa", "Crecimiento escalable", "Experiencia"];
-  if (count === 7) return ["Entre S/100,000.00 y S/500,000.00", "Mayor a S/500,000.00", "No cuantificado o S/0"];
+  if (count === 2) return ["Dentro de los próximos 3 meses", "Próximo mes", "Para fin de año", "Inmediatamente"];
+  if (count === 3) return ["Riesgo en metas comerciales y de admisión", "Sobrecarga operativa y quejas de usuarios", "Retraso en procesos académicos"];
+  if (count === 4) return ["Es una mejora a un proceso existente", "Es un proceso completamente nuevo"];
+  if (count === 5) return ["Admisiones y Operaciones", "TI y Soporte al Estudiante", "Toda la comunidad institucional"];
+  if (count === 6) return ["Ahorro de más de 20 hrs/semana", "Ahorro moderado (5 a 10 hrs/semana)", "Aún no cuantificado"];
+  if (count === 7) return ["Validación con alta concurrencia de alumnos", "Integración y conciliación de pagos", "Manejo de casos con errores o datos incompletos"];
   return ["Generar resumen"];
 }
 
