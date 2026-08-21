@@ -1449,6 +1449,20 @@ export default function InitiativeDetail() {
       voboFileObj = JSON.parse(rawVoboStr);
     } catch (e) {}
   }
+
+  const chatHistory = useMemo(() => {
+    if (Array.isArray(initiative?.chat_history) && initiative.chat_history.length > 0) {
+      return initiative.chat_history;
+    }
+    if (Array.isArray(fd?.chat_history) && fd.chat_history.length > 0) {
+      return fd.chat_history;
+    }
+    return [];
+  }, [initiative?.chat_history, fd?.chat_history]);
+
+  const unstructuredText = useMemo(() => {
+    return initiative?.unstructured_text || fd?.unstructured_text || "";
+  }, [initiative?.unstructured_text, fd?.unstructured_text]);
   
   const suggestedChanges = fd._suggested_changes || { form_data: {}, summary: {} };
   const hasSuggestedChanges = Object.keys(suggestedChanges.form_data).length > 0 || Object.keys(suggestedChanges.summary).length > 0;
