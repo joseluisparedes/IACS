@@ -1,0 +1,31 @@
+﻿name: Render Keep-Alive Ping
+
+on:
+  schedule:
+    # Runs every 10 minutes to prevent Render Free tier from sleeping (15 min limit)
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Backend
+        run: |
+          echo "Pinging Render Health Check Endpoint..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://iacs-3v3f.onrender.com/api/health")
+          echo "Response HTTP Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "✅ Render backend is awake and healthy!"
+          else
+            echo "⚠️ Unexpected status code: $HTTP_STATUS. Retrying in 5 seconds..."
+            sleep 5
+            RETRY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 45 "https://iacs-3v3f.onrender.com/api/health")
+            echo "Retry response: $RETRY_STATUS"
+            if [ "$RETRY_STATUS" -eq 200 ]; then
+              echo "✅ Render backend is now awake!"
+            else
+              echo "❌ Backend ping returned $RETRY_STATUS"
+              exit 1
+            fi
+          fi
