@@ -1862,14 +1862,14 @@ export default function InitiativeDetail() {
 
       {/* Origin & Organization Metadata Card */}
       <div className="bg-white rounded-2xl border border-[#E2E8F0] p-5 shadow-sm">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[#4F5AF5] shrink-0 mt-0.5">
               <Building2 className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block">Vicepresidencia</span>
-              <p className="text-sm font-semibold text-[#1E293B] truncate" title={fd.vicepresidencia || "No especificada"}>
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block mb-0.5">Vicepresidencia</span>
+              <p className="text-sm font-semibold text-[#1E293B] leading-snug break-words">
                 {fd.vicepresidencia || "No especificada"}
               </p>
             </div>
@@ -1879,9 +1879,9 @@ export default function InitiativeDetail() {
             <div className="w-9 h-9 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 shrink-0 mt-0.5">
               <MapPin className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block">Dirección</span>
-              <p className="text-sm font-semibold text-[#1E293B] truncate" title={fd.direccion || "No especificada"}>
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block mb-0.5">Dirección</span>
+              <p className="text-sm font-semibold text-[#1E293B] leading-snug break-words">
                 {fd.direccion || "No especificada"}
               </p>
             </div>
@@ -1891,13 +1891,13 @@ export default function InitiativeDetail() {
             <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 mt-0.5">
               <User className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block">Key User / Solicitante</span>
-              <p className="text-sm font-semibold text-[#1E293B] truncate" title={fd.registrador || fd.solicitante || "No especificado"}>
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block mb-0.5">Key User / Solicitante</span>
+              <p className="text-sm font-semibold text-[#1E293B] leading-snug break-words">
                 {fd.registrador || fd.solicitante || "No especificado"}
               </p>
               {fd.registrador_email && (
-                <p className="text-[11px] text-[#64748B] truncate">{fd.registrador_email}</p>
+                <p className="text-[11px] text-[#64748B] break-all mt-0.5">{fd.registrador_email}</p>
               )}
             </div>
           </div>
@@ -1906,9 +1906,9 @@ export default function InitiativeDetail() {
             <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0 mt-0.5">
               <Building className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block">Institución</span>
-              <p className="text-sm font-semibold text-[#1E293B] truncate">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block mb-0.5">Institución</span>
+              <p className="text-sm font-semibold text-[#1E293B] leading-snug break-words">
                 {Array.isArray(fd.institucion) ? fd.institucion.join(", ") : (fd.institucion || "UPN")}
               </p>
             </div>
