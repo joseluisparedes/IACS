@@ -1,8 +1,72 @@
 
+function addSafeMonths(baseDate: Date, months: number): Date {
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const day = baseDate.getDate();
+  
+  const target = new Date(year, month + months, 1);
+  const maxDays = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, maxDays));
+  return target;
+}
+
+function getDateContextSection(): string {
+  const now = new Date();
+  const d = String(now.getDate()).padStart(2, '0');
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const y = now.getFullYear();
+  const todayStr = `${d}/${m}/${y}`;
+
+  const monthNames = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+  ];
+  const todayReadable = `${now.getDate()} de ${monthNames[now.getMonth()]} de ${y}`;
+
+  const formatOffset = (months: number): string => {
+    const target = addSafeMonths(now, months);
+    const td = String(target.getDate()).padStart(2, '0');
+    const tm = String(target.getMonth() + 1).padStart(2, '0');
+    const ty = target.getFullYear();
+    return `${td}/${tm}/${ty}`;
+  };
+
+  const endOfMonth = (monthsAhead: number = 0): string => {
+    const target = new Date(now.getFullYear(), now.getMonth() + monthsAhead + 1, 0);
+    const td = String(target.getDate()).padStart(2, '0');
+    const tm = String(target.getMonth() + 1).padStart(2, '0');
+    const ty = target.getFullYear();
+    return `${td}/${tm}/${ty}`;
+  };
+
+  const endOfYear = `31/12/${y}`;
+
+  return `
+## Contexto Temporal del Sistema (CRÍTICO PARA CÁLCULO DE FECHAS)
+- **Fecha actual del sistema (HOY)**: ${todayStr} (${todayReadable})
+- **Año actual**: ${y}
+- **Referencias precalculadas de plazos exactos desde hoy (${todayStr})**:
+  * En 1 mes: ${formatOffset(1)} (o fin de mes: ${endOfMonth(1)})
+  * En 2 meses: ${formatOffset(2)}
+  * En 3 meses: ${formatOffset(3)}
+  * En 4 meses: ${formatOffset(4)}
+  * En 6 meses: ${formatOffset(6)}
+  * Fin de este mes: ${endOfMonth(0)}
+  * Fin de año actual: ${endOfYear}
+- **REGLAS ESTRICTAS PARA EL CÁLCULO Y SUGERENCIA DE FECHAS**:
+  1. Si el usuario o el objetivo menciona un plazo relativo (ej. "en los próximos 3 meses", "en 2 meses", "el próximo mes", "en 60 días", "a fin de año"), DEBES calcular la fecha tentativa sumando exactamente dicho plazo a la **Fecha actual de hoy (${todayStr})**.
+  2. NUNCA calcules una fecha en el pasado o en un mes menor al plazo mencionado (ejemplo: si hoy es ${todayStr}, "en 3 meses" es **${formatOffset(3)}**, NUNCA sugieras fechas erróneas como un mes antes o pocos días después).
+  3. Propón siempre la fecha estimada en formato **DD/MM/AAAA** para que el usuario la valide o confirme.
+`.trim();
+}
+
 function normalizeDateStr(val: any): string {
   if (!val || typeof val !== 'string') return '';
   const trimmed = val.trim();
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) return trimmed;
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+    const parts = trimmed.split('/');
+    return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+  }
 
   const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
   if (ymd) return `${ymd[3].padStart(2, '0')}/${ymd[2].padStart(2, '0')}/${ymd[1]}`;
@@ -25,6 +89,10 @@ function normalizeDateStr(val: any): string {
     if (cleanStr.includes(mName)) {
       const yMatch = cleanStr.match(/\d{4}/);
       const year = yMatch ? yMatch[0] : new Date().getFullYear().toString();
+      const dayMatch = cleanStr.match(new RegExp(`(?:^|[^\\d])(\\d{1,2})\\s*(?:DE\\s+)?${mName}`));
+      if (dayMatch) {
+        return `${dayMatch[1].padStart(2, '0')}/${mNum}/${year}`;
+      }
       const lastDay = new Date(parseInt(year, 10), parseInt(mNum, 10), 0).getDate();
       return String(lastDay).padStart(2, '0') + '/' + mNum + '/' + year;
     }
@@ -32,7 +100,7 @@ function normalizeDateStr(val: any): string {
 
   const now = new Date();
 
-  if (cleanStr.includes('INMEDIATAMENTE') || cleanStr.includes('HOY') || cleanStr.includes('ASAP') || cleanStr.includes('ANTES POSIBLE')) {
+  if (cleanStr.includes('INMEDIATAMENTE') || cleanStr.includes('HOY') || cleanStr.includes('ASAP') || cleanStr.includes('ANTES POSIBLE') || cleanStr.includes('URGENTE')) {
     return String(now.getDate()).padStart(2, '0') + '/' + String(now.getMonth() + 1).padStart(2, '0') + '/' + now.getFullYear();
   }
 
@@ -43,7 +111,7 @@ function normalizeDateStr(val: any): string {
   }
 
   if (cleanStr.includes('PROXIMO MES') || cleanStr.includes('MES SIGUIENTE')) {
-    const targetDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    const targetDate = addSafeMonths(now, 1);
     return String(targetDate.getDate()).padStart(2, '0') + '/' + String(targetDate.getMonth() + 1).padStart(2, '0') + '/' + targetDate.getFullYear();
   }
 
@@ -55,7 +123,7 @@ function normalizeDateStr(val: any): string {
   const mMatch = cleanStr.match(/(?:DENTRO DE|EN|PROXIMOS)\s+(?:LOS\s+)?(\d{1,2})\s+MESES?/);
   if (mMatch) {
     const numMonths = parseInt(mMatch[1], 10);
-    const targetDate = new Date(now.getFullYear(), now.getMonth() + numMonths, now.getDate());
+    const targetDate = addSafeMonths(now, numMonths);
     return String(targetDate.getDate()).padStart(2, '0') + '/' + String(targetDate.getMonth() + 1).padStart(2, '0') + '/' + targetDate.getFullYear();
   }
 
@@ -66,7 +134,7 @@ function normalizeDateStr(val: any): string {
     return String(targetDate.getDate()).padStart(2, '0') + '/' + String(targetDate.getMonth() + 1).padStart(2, '0') + '/' + targetDate.getFullYear();
   }
 
-  const fallback = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+  const fallback = addSafeMonths(now, 3);
   return String(fallback.getDate()).padStart(2, '0') + '/' + String(fallback.getMonth() + 1).padStart(2, '0') + '/' + fallback.getFullYear();
 }
 import express from "express";
@@ -125,7 +193,7 @@ async function callAIForJSON(prompt: string): Promise<string> {
 
   // 1. Try Gemini models cascade (if not in 60s rate-limit cooldown)
   if (now > _geminiCooldownUntil) {
-    const geminiModels = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"];
+    const geminiModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
     for (const model of geminiModels) {
       try {
         console.log(`[AI Call] Trying Gemini model: ${model}...`);
@@ -272,6 +340,8 @@ function buildSystemPrompt(training: any[]): string {
 
   const identity = training.find(t => t.layer === "identity")?.content ?? DEFAULT_IDENTITY;
 
+  const dateSection = `\n\n${getDateContextSection()}`;
+
   const contextItems = training.filter(t => t.layer === "context");
   const contextSection = contextItems.length > 0
     ? `\n## Contexto Institucional\n${contextItems.map(t => `### ${t.title}\n${t.content}`).join("\n\n")}`
@@ -287,7 +357,7 @@ function buildSystemPrompt(training: any[]): string {
     ? `\n## Restricciones Absolutas (DEBES cumplir siempre)\n${guardrailItems.map(t => `- ${t.content}`).join("\n")}`
     : "";
 
-  return `${identity}${contextSection}${examplesSection}${guardrailsSection}`.trim();
+  return `${identity}${dateSection}${contextSection}${examplesSection}${guardrailsSection}`.trim();
 }
 
 function isApiKeyConfigured(): boolean {
@@ -384,12 +454,20 @@ function getMockSummaryResponse(history: any[], initialData: any) {
   if (!extractedObjetivo) extractedObjetivo = `Optimizar el rendimiento operativo y la efectividad del proceso de negocio.`;
 
   // 3. Extraer fecha si se mencionó en el chat
-  let fecha = initialData?.fecha_requerida || "31/12/2026";
+  let fecha = initialData?.fecha_requerida || "";
   for (const h of safeHistory) {
     if (h.role === 'user' && h.text) {
       const dMatch = h.text.match(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/);
-      if (dMatch) fecha = dMatch[0];
+      if (dMatch) {
+        fecha = dMatch[0];
+      } else {
+        const norm = normalizeDateStr(h.text);
+        if (norm) fecha = norm;
+      }
     }
+  }
+  if (!fecha) {
+    fecha = normalizeDateStr("3 meses");
   }
 
   // 4. Extraer beneficio cuantitativo si se mencionó en el chat
@@ -516,15 +594,8 @@ function extractLocalUnstructured(text: string, fields: any[], vps: string[], di
   }
 
   // 6. FECHA REQUERIDA & CONSECUENCIA
-  if (lowerText.includes("inmediat") || lowerText.includes("urgente")) {
-    values["fecha_requerida"] = "31/08/2026";
-  } else if (lowerText.includes("q3") || lowerText.includes("septiembre")) {
-    values["fecha_requerida"] = "30/09/2026";
-  } else if (lowerText.includes("q4") || lowerText.includes("diciembre")) {
-    values["fecha_requerida"] = "31/12/2026";
-  } else {
-    values["fecha_requerida"] = "31/12/2026";
-  }
+  const extractedDate = normalizeDateStr(cleanText);
+  values["fecha_requerida"] = extractedDate || normalizeDateStr("3 meses");
   values["qu_pasa_si_no_lo_tenemos_en_esta_fecha"] = "Riesgo de retraso en metas operativas y sobrecostos por gestión manual.";
 
   // 7. PROCESO Y ÁREAS IMPACTADAS

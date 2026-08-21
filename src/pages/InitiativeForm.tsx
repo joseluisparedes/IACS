@@ -155,6 +155,16 @@ function validateTitleQuality(title: string | undefined | null): { isValid: bool
 }
 
 // ─── Date Parsing Helper ──────────────────────────────────────────────────────
+const addSafeMonthsClient = (baseDate: Date, months: number): Date => {
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const day = baseDate.getDate();
+  const target = new Date(year, month + months, 1);
+  const maxDays = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, maxDays));
+  return target;
+};
+
 const parseQuarterDate = (val: string): string | null => {
   if (!val) return null;
   const trimmed = val.trim().toUpperCase();
@@ -175,7 +185,7 @@ const parseQuarterDate = (val: string): string | null => {
     return quarterEndDates[q] || null;
   }
 
-  // 2. Month + Year (e.g. Diciembre 2026)
+  // 2. Month + Year (e.g. Diciembre 2026, 15 de Septiembre 2026)
   const months: Record<string, string> = {
     ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
     JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12'
@@ -184,6 +194,10 @@ const parseQuarterDate = (val: string): string | null => {
     if (cleanStr.includes(mName)) {
       const yMatch = cleanStr.match(/\d{4}/);
       const year = yMatch ? yMatch[0] : new Date().getFullYear().toString();
+      const dayMatch = cleanStr.match(new RegExp(`(?:^|[^\\d])(\\d{1,2})\\s*(?:DE\\s+)?${mName}`));
+      if (dayMatch) {
+        return `${dayMatch[1].padStart(2, '0')}/${mNum}/${year}`;
+      }
       const lastDay = new Date(parseInt(year, 10), parseInt(mNum, 10), 0).getDate();
       return `${String(lastDay).padStart(2, '0')}/${mNum}/${year}`;
     }
@@ -191,8 +205,8 @@ const parseQuarterDate = (val: string): string | null => {
 
   const now = new Date();
 
-  // 3. "INMEDIATAMENTE", "HOY", "ASAP", "LO ANTES POSIBLE"
-  if (cleanStr.includes('INMEDIATAMENTE') || cleanStr.includes('HOY') || cleanStr.includes('ASAP') || cleanStr.includes('ANTES POSIBLE')) {
+  // 3. "INMEDIATAMENTE", "HOY", "ASAP", "LO ANTES POSIBLE", "URGENTE"
+  if (cleanStr.includes('INMEDIATAMENTE') || cleanStr.includes('HOY') || cleanStr.includes('ASAP') || cleanStr.includes('ANTES POSIBLE') || cleanStr.includes('URGENTE')) {
     const day = String(now.getDate()).padStart(2, '0');
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const year = now.getFullYear();
@@ -208,7 +222,7 @@ const parseQuarterDate = (val: string): string | null => {
 
   // 5. "PROXIMO MES", "MES SIGUIENTE"
   if (cleanStr.includes('PROXIMO MES') || cleanStr.includes('MES SIGUIENTE')) {
-    const targetDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    const targetDate = addSafeMonthsClient(now, 1);
     const day = String(targetDate.getDate()).padStart(2, '0');
     const month = String(targetDate.getMonth() + 1).padStart(2, '0');
     const year = targetDate.getFullYear();
@@ -228,7 +242,7 @@ const parseQuarterDate = (val: string): string | null => {
   const mMatch = cleanStr.match(/(?:DENTRO DE|EN|PROXIMOS)\s+(?:LOS\s+)?(\d{1,2})\s+MESES?/);
   if (mMatch) {
     const numMonths = parseInt(mMatch[1], 10);
-    const targetDate = new Date(now.getFullYear(), now.getMonth() + numMonths, now.getDate());
+    const targetDate = addSafeMonthsClient(now, numMonths);
     const day = String(targetDate.getDate()).padStart(2, '0');
     const month = String(targetDate.getMonth() + 1).padStart(2, '0');
     const year = targetDate.getFullYear();
