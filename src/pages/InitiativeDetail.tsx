@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check, HelpCircle, Eye, Calendar, Video as VideoIcon, Music as AudioIcon, Volume2 } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, Check, HelpCircle, Eye, Calendar, Video as VideoIcon, Music as AudioIcon, Volume2, Building2, Building, MapPin, User, MessageSquare } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
@@ -845,6 +845,7 @@ export default function InitiativeDetail() {
   const [isVoboPreviewOpen, setIsVoboPreviewOpen] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type?: string } | null>(null);
   const [editedConfirmedFields, setEditedConfirmedFields] = useState<Record<string, boolean>>({});
+  const [showChatModal, setShowChatModal] = useState(false);
 
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
@@ -1572,7 +1573,20 @@ export default function InitiativeDetail() {
           </div>
 
           {/* Action buttons */}
-          <div className="flex gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* View AI Chat / Unstructured Input Button */}
+            {(chatHistory.length > 0 || (unstructuredText && unstructuredText.trim().length > 0)) && (
+              <button
+                type="button"
+                onClick={() => setShowChatModal(true)}
+                className="flex items-center gap-2 border border-[#4F5AF5]/30 bg-[#EEF2FF] hover:bg-[#E0E7FF] text-[#4F5AF5] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-xs"
+                title={chatHistory.length > 0 ? "Ver conversación completa con el asistente Teo" : "Ver texto original ingresado"}
+              >
+                <MessageSquare className="w-4 h-4" />
+                {chatHistory.length > 0 ? "Ver conversación con Teo" : "Ver texto original"}
+              </button>
+            )}
+
             {isBorrador && isAdmin && !isEditMode && (
               <>
                 <button
@@ -1836,6 +1850,62 @@ export default function InitiativeDetail() {
                 </button>
               </>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Origin & Organization Metadata Card */}
+      <div className="bg-white rounded-2xl border border-[#E2E8F0] p-5 shadow-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[#4F5AF5] shrink-0 mt-0.5">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block">Vicepresidencia</span>
+              <p className="text-sm font-semibold text-[#1E293B] truncate" title={fd.vicepresidencia || "No especificada"}>
+                {fd.vicepresidencia || "No especificada"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 shrink-0 mt-0.5">
+              <MapPin className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block">Dirección</span>
+              <p className="text-sm font-semibold text-[#1E293B] truncate" title={fd.direccion || "No especificada"}>
+                {fd.direccion || "No especificada"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 mt-0.5">
+              <User className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block">Key User / Solicitante</span>
+              <p className="text-sm font-semibold text-[#1E293B] truncate" title={fd.registrador || fd.solicitante || "No especificado"}>
+                {fd.registrador || fd.solicitante || "No especificado"}
+              </p>
+              {fd.registrador_email && (
+                <p className="text-[11px] text-[#64748B] truncate">{fd.registrador_email}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0 mt-0.5">
+              <Building className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] block">Institución</span>
+              <p className="text-sm font-semibold text-[#1E293B] truncate">
+                {Array.isArray(fd.institucion) ? fd.institucion.join(", ") : (fd.institucion || "UPN")}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -2343,13 +2413,23 @@ export default function InitiativeDetail() {
           )}
 
           {/* Declaración de Responsabilidad */}
-          {fd._director_declaration_accepted && (
+          {(fd._director_declaration_accepted || fd.declaracion_responsabilidad) ? (
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex gap-3 shadow-sm shadow-emerald-500/5">
               <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Declaración de Responsabilidad</h4>
+                <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Declaración de Responsabilidad (Consentimiento)</h4>
                 <p className="text-xs text-emerald-700 leading-relaxed font-semibold">
-                  El solicitante declaró su conformidad con la información mostrada, siendo consciente de lo que ha registrado y aceptado.
+                  El solicitante declaró su plena conformidad con la información registrada, siendo consciente y responsable de lo solicitado con conocimiento de su Director / VP.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3 shadow-sm">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Declaración de Responsabilidad</h4>
+                <p className="text-xs text-amber-700 leading-relaxed">
+                  Pendiente de confirmación de consentimiento por parte del solicitante.
                 </p>
               </div>
             </div>
@@ -2663,6 +2743,89 @@ export default function InitiativeDetail() {
                   </a>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Read-only Chat History Modal ────────────────────────────────────── */}
+      {showChatModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowChatModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-[#F1F5F9] bg-[#F8FAFC] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[#EEF2FF] flex items-center justify-center">
+                  <span className="text-[#4F5AF5] text-sm">💬</span>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#1E293B]">Historial de Conversación con IA</h3>
+                  <p className="text-[10px] text-[#94A3B8]">Consulta las respuestas y contexto que dieron origen a esta iniciativa.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowChatModal(false)} 
+                className="text-[#94A3B8] hover:text-[#475569] p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Conversations */}
+            <div className="p-6 overflow-y-auto space-y-4 bg-slate-50 flex-grow">
+              {chatHistory.length === 0 && (!unstructuredText || unstructuredText.trim() === "") ? (
+                <div className="text-center py-10 text-[#94A3B8]">
+                  No hay mensajes ni texto registrados en esta conversación.
+                </div>
+              ) : chatHistory.length === 0 && unstructuredText ? (
+                <div className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-sm space-y-2">
+                  <span className="text-[11px] font-bold text-[#4F5AF5] uppercase tracking-wider block">Texto original ingresado por el solicitante:</span>
+                  <p className="text-xs text-[#334155] leading-relaxed whitespace-pre-wrap">{unstructuredText}</p>
+                </div>
+              ) : (
+                chatHistory.map((msg: any, i: number) => (
+                  <div 
+                    key={i} 
+                    className={`flex flex-col max-w-[85%] ${
+                      msg.role === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
+                    }`}
+                  >
+                    <span className="text-[10px] font-semibold text-[#94A3B8] mb-1 px-1">
+                      {msg.role === 'user' ? (fd.registrador || 'Key user') : 'Teo (IA)'}
+                    </span>
+                    <div 
+                      className={`p-3.5 rounded-2xl shadow-sm text-xs leading-relaxed ${
+                        msg.role === 'user' 
+                          ? 'bg-[#4F5AF5] text-white rounded-tr-none' 
+                          : 'bg-white text-[#334155] border border-[#E2E8F0] rounded-tl-none'
+                      }`}
+                    >
+                      {msg.attachment && (
+                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold mb-2 w-fit ${
+                          msg.role === 'user' 
+                            ? 'bg-white/20 text-white' 
+                            : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          <Paperclip className="w-3.5 h-3.5" />
+                          <span>Archivo adjunto: {msg.attachment.name}</span>
+                        </div>
+                      )}
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-end">
+              <button
+                onClick={() => setShowChatModal(false)}
+                className="bg-white border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+              >
+                Cerrar vista
+              </button>
             </div>
           </div>
         </div>

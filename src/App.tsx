@@ -373,7 +373,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                               className="group flex items-center justify-between p-2 rounded-lg hover:bg-[#f7f8fc] transition-colors border border-transparent hover:border-[#e4e6ea] mb-1"
                             >
                               <Link
-                                to={d.form_data?.selectedPath === 'unstructured' ? `/iniciativa/${d.id}` : `/nueva/${d.id}`}
+                                to={`/nueva/${d.id}`}
                                 onClick={() => setDraftsOpen(false)}
                                 className="flex-1 min-w-0 pr-2"
                               >

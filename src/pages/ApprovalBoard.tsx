@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Filter, Eye, ChevronRight, User, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, X, FileText } from "lucide-react";
+import { Filter, Eye, ChevronRight, User, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, X, FileText, MessageSquare, Paperclip, Building2 } from "lucide-react";
 import { Initiative } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -194,6 +194,7 @@ export default function ApprovalBoard() {
   // PDF Generation State
   const [pdfInitiative, setPdfInitiative] = useState<any>(null);
   const [pdfTemplate, setPdfTemplate] = useState<string>("");
+  const [chatViewInitiative, setChatViewInitiative] = useState<any | null>(null);
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = useReactToPrint({
@@ -708,8 +709,20 @@ export default function ApprovalBoard() {
                   return (
                     <tr key={i.id} className="hover:bg-[#F8FAFC] transition-colors">
                       <td className="px-6 py-4">
-                        <p className="font-semibold text-[#1E293B] text-sm leading-snug max-w-[280px] truncate">{title}</p>
-                        <p className="text-[11px] font-mono text-[#94A3B8] mt-0.5">{i.id}</p>
+                        <p className="font-semibold text-[#1E293B] text-sm leading-snug max-w-[300px] truncate">{title}</p>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          <span className="text-[10px] font-mono text-[#94A3B8] bg-[#F1F5F9] px-1.5 py-0.5 rounded font-medium">{i.id}</span>
+                          {i.form_data?.vicepresidencia && (
+                            <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100/60 px-1.5 py-0.5 rounded truncate max-w-[140px]" title={`VP: ${i.form_data.vicepresidencia}`}>
+                              VP: {i.form_data.vicepresidencia}
+                            </span>
+                          )}
+                          {i.form_data?.direccion && (
+                            <span className="text-[10px] font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded truncate max-w-[140px]" title={`Dirección: ${i.form_data.direccion}`}>
+                              {i.form_data.direccion}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <p className="text-sm text-[#1E293B]">{formatDate(i.created_at)}</p>
@@ -720,8 +733,13 @@ export default function ApprovalBoard() {
                           <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#4F5AF5] to-violet-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0 uppercase">
                             {initials}
                           </div>
-                          <div>
-                            <p className="text-sm text-[#1E293B] font-medium">{registrador}</p>
+                          <div className="min-w-0">
+                            <p className="text-sm text-[#1E293B] font-medium truncate" title={registrador}>{registrador}</p>
+                            {i.form_data?.institucion && (
+                              <p className="text-[10px] text-[#64748B] font-medium truncate">
+                                {Array.isArray(i.form_data.institucion) ? i.form_data.institucion.join(", ") : i.form_data.institucion}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -780,14 +798,26 @@ export default function ApprovalBoard() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                           <Link
                             to={`/iniciativa/${i.id}`}
                             className="inline-flex items-center gap-1.5 text-[#4F5AF5] hover:text-[#3F49E0] text-xs font-semibold transition-colors whitespace-nowrap"
                           >
                             <Eye className="w-3.5 h-3.5" />
-                            Revisar solicitud
+                            Revisar
                           </Link>
+
+                          {((Array.isArray(i.chat_history) && i.chat_history.length > 0) || i.unstructured_text || (Array.isArray(i.form_data?.chat_history) && i.form_data.chat_history.length > 0)) && (
+                            <button
+                              type="button"
+                              onClick={() => setChatViewInitiative(i)}
+                              className="inline-flex items-center gap-1 text-[#4F5AF5] bg-[#EEF2FF] hover:bg-[#E0E7FF] px-2 py-1 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap"
+                              title="Ver conversación con Teo / Texto inicial"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              Chat IA
+                            </button>
+                          )}
 
                           {/* Botón Generar PDF (Disponible para solicitudes En demanda) */}
                           {(tabKey === "demand" || i.status === "En demanda") && (
@@ -798,7 +828,7 @@ export default function ApprovalBoard() {
                               title="Generar e imprimir informe ejecutivo PDF"
                             >
                               <FileText className="w-3.5 h-3.5 text-rose-600" />
-                              Generar PDF
+                              PDF
                             </button>
                           )}
                         </div>
@@ -811,6 +841,104 @@ export default function ApprovalBoard() {
           )}
         </div>
       </div>
+
+      {/* Read-only Chat History Modal */}
+      {chatViewInitiative && (() => {
+        const hist = (Array.isArray(chatViewInitiative.chat_history) && chatViewInitiative.chat_history.length > 0)
+          ? chatViewInitiative.chat_history
+          : (Array.isArray(chatViewInitiative.form_data?.chat_history) ? chatViewInitiative.form_data.chat_history : []);
+        const rawText = chatViewInitiative.unstructured_text || chatViewInitiative.form_data?.unstructured_text || "";
+        const regName = chatViewInitiative.form_data?.registrador || chatViewInitiative.form_data?.solicitante || "Key user";
+
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setChatViewInitiative(null)} />
+            <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-[#F1F5F9] bg-[#F8FAFC] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-[#EEF2FF] flex items-center justify-center">
+                    <span className="text-[#4F5AF5] text-sm">💬</span>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-[#1E293B]">Historial de Conversación con IA</h3>
+                    <p className="text-[10px] text-[#94A3B8]">Iniciativa: {chatViewInitiative.id}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setChatViewInitiative(null)} 
+                  className="text-[#94A3B8] hover:text-[#475569] p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Body: Conversations */}
+              <div className="p-6 overflow-y-auto space-y-4 bg-slate-50 flex-grow">
+                {hist.length === 0 && (!rawText || rawText.trim() === "") ? (
+                  <div className="text-center py-10 text-[#94A3B8]">
+                    No hay mensajes ni texto registrados en esta conversación.
+                  </div>
+                ) : hist.length === 0 && rawText ? (
+                  <div className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-sm space-y-2">
+                    <span className="text-[11px] font-bold text-[#4F5AF5] uppercase tracking-wider block">Texto original ingresado por el solicitante:</span>
+                    <p className="text-xs text-[#334155] leading-relaxed whitespace-pre-wrap">{rawText}</p>
+                  </div>
+                ) : (
+                  hist.map((msg: any, idx: number) => (
+                    <div 
+                      key={idx} 
+                      className={`flex flex-col max-w-[85%] ${
+                        msg.role === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
+                      }`}
+                    >
+                      <span className="text-[10px] font-semibold text-[#94A3B8] mb-1 px-1">
+                        {msg.role === 'user' ? regName : 'Teo (IA)'}
+                      </span>
+                      <div 
+                        className={`p-3.5 rounded-2xl shadow-sm text-xs leading-relaxed ${
+                          msg.role === 'user' 
+                            ? 'bg-[#4F5AF5] text-white rounded-tr-none' 
+                            : 'bg-white text-[#334155] border border-[#E2E8F0] rounded-tl-none'
+                        }`}
+                      >
+                        {msg.attachment && (
+                          <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold mb-2 w-fit ${
+                            msg.role === 'user' 
+                              ? 'bg-white/20 text-white' 
+                              : 'bg-slate-100 text-slate-700'
+                          }`}>
+                            <Paperclip className="w-3.5 h-3.5" />
+                            <span>Archivo adjunto: {msg.attachment.name}</span>
+                          </div>
+                        )}
+                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-between items-center">
+                <Link
+                  to={`/iniciativa/${chatViewInitiative.id}`}
+                  onClick={() => setChatViewInitiative(null)}
+                  className="text-xs font-semibold text-[#4F5AF5] hover:underline"
+                >
+                  Abrir expediente completo →
+                </Link>
+                <button
+                  onClick={() => setChatViewInitiative(null)}
+                  className="bg-white border border-[#E2E8F0] hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Componente Oculto para Generación e Impresión PDF */}
       <div className="hidden">

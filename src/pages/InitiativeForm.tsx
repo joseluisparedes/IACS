@@ -1086,10 +1086,12 @@ export default function InitiativeForm() {
           setUnstructuredText(draft.unstructured_text || "");
           setChatHistory(draft.chat_history || []);
           setSummary(draft.summary || null);
+          setDisclaimerAccepted(Boolean(rawFData._director_declaration_accepted || rawFData.declaracion_responsabilidad));
           if (draft.summary) setStep(3);
           else if (draft.chat_history && draft.chat_history.length > 0) setStep(2);
+          else if (draft.unstructured_text) setStep(3);
           else setStep(1);
-          setSelectedPath(fData.selectedPath || 'direct');
+          setSelectedPath(fData.selectedPath || (draft.unstructured_text ? 'unstructured' : 'direct'));
           try { localStorage.removeItem(localKey); } catch (_) {}
         } else {
           // No backend draft — check localStorage for a local backup.
@@ -1128,6 +1130,7 @@ export default function InitiativeForm() {
                   ? mergeAISummary(rawFData, parsed.summary)
                   : rawFData;
                 setFormData(fData);
+                setDisclaimerAccepted(Boolean(rawFData._director_declaration_accepted || rawFData.declaracion_responsabilidad));
                 setSelectedPath(fData.selectedPath || 'direct');
               }
               if (parsed.confirmed_fields) {
@@ -2542,7 +2545,7 @@ export default function InitiativeForm() {
             )}
 
             {/* Disclaimer and Checkbox */}
-            {((selectedPath === 'unstructured' && step >= 2) || (selectedPath === 'direct' && step === 3) || step === 3) && (
+            {(step >= 2 || selectedPath === 'unstructured' || selectedPath === 'direct' || step === 3) && (
               <div id="consent-disclaimer-section" className="px-8 py-5 border-t border-[#F1F5F9] bg-[#FFFBEB]/30">
                 <div className={`flex items-start gap-3 p-4 rounded-xl border transition-all ${disclaimerAccepted ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-400/30'}`}>
                   <input
@@ -2562,15 +2565,15 @@ export default function InitiativeForm() {
             <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex flex-wrap justify-between items-center gap-3">
               {/* Left side actions */}
               <div>
-                {(selectedPath === 'unstructured' || step === 3) && chatHistory.length > 0 && (
+                {(chatHistory.length > 0 || (unstructuredText && unstructuredText.trim().length > 0)) && (
                   <button
                     type="button"
                     onClick={() => setShowChatModal(true)}
                     className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-                    title="Ver el historial de chat con la IA"
+                    title={chatHistory.length > 0 ? "Ver el historial de chat con la IA" : "Ver el texto original ingresado"}
                   >
                     <MessageSquare className="w-4 h-4" />
-                    Ver conversación
+                    {chatHistory.length > 0 ? "Ver conversación" : "Ver texto original"}
                   </button>
                 )}
               </div>
@@ -3141,9 +3144,14 @@ export default function InitiativeForm() {
 
             {/* Modal Body: Conversations */}
             <div className="p-6 overflow-y-auto space-y-4 bg-slate-50 flex-grow">
-              {chatHistory.length === 0 ? (
+              {chatHistory.length === 0 && (!unstructuredText || unstructuredText.trim() === "") ? (
                 <div className="text-center py-10 text-[#94A3B8]">
-                  No hay mensajes registrados en esta conversación.
+                  No hay mensajes ni texto registrados en esta conversación.
+                </div>
+              ) : chatHistory.length === 0 && unstructuredText ? (
+                <div className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-sm space-y-2">
+                  <span className="text-[11px] font-bold text-[#4F5AF5] uppercase tracking-wider block">Texto original ingresado por el solicitante:</span>
+                  <p className="text-xs text-[#334155] leading-relaxed whitespace-pre-wrap">{unstructuredText}</p>
                 </div>
               ) : (
                 chatHistory.map((msg, i) => (
