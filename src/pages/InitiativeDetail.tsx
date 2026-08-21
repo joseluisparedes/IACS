@@ -1384,6 +1384,15 @@ export default function InitiativeDetail() {
       return;
     }
 
+    const isDisclaimerAccepted = Boolean(
+      initiative.form_data?._director_declaration_accepted || 
+      initiative.form_data?.declaracion_responsabilidad
+    );
+    if (!isDisclaimerAccepted) {
+      showToast("Debes aceptar la Declaración de Responsabilidad (Consentimiento) antes de enviar la iniciativa a aprobación.", "warning");
+      return;
+    }
+
     confirmAction(
       "Enviar a Aprobación",
       (
@@ -1593,8 +1602,16 @@ export default function InitiativeDetail() {
               </button>
             )}
 
-            {isBorrador && isAdmin && !isEditMode && (
+            {isBorrador && !isEditMode && (
               <>
+                <Link
+                  to={`/nueva/${initiative.id}`}
+                  className="flex items-center gap-2 border border-[#4F5AF5] bg-[#EEF2FF] hover:bg-[#E0E7FF] text-[#4F5AF5] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                  title="Abrir y completar en el asistente de registro"
+                >
+                  <Pencil className="w-4 h-4" />
+                  Editar en Asistente
+                </Link>
                 <button
                   onClick={startEditMode}
                   className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
@@ -1616,15 +1633,17 @@ export default function InitiativeDetail() {
                   <Send className="w-4 h-4" />
                   Enviar a BP
                 </button>
-                <button
-                  onClick={handleApprove}
-                  disabled={validationErrors.length > 0}
-                  title={validationErrors.length > 0 ? `Requisitos pendientes:\n${validationErrors.join('\n')}` : "Aprobar iniciativa"}
-                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  Aprobar
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={handleApprove}
+                    disabled={validationErrors.length > 0}
+                    title={validationErrors.length > 0 ? `Requisitos pendientes:\n${validationErrors.join('\n')}` : "Aprobar iniciativa"}
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed disabled:shadow-none text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-emerald-500/20"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Aprobar
+                  </button>
+                )}
               </>
             )}
 
@@ -1834,25 +1853,6 @@ export default function InitiativeDetail() {
                 >
                   <Send className="w-4 h-4" />
                   Reenviar a Aprobación
-                </button>
-              </>
-            )}
-
-            {isRegistrador && isMine && !isAdmin && initiative.status === "Borrador" && !isEditMode && (
-              <>
-                <button
-                  onClick={startEditMode}
-                  className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-                >
-                  <Pencil className="w-4 h-4" />
-                  Editar Borrador
-                </button>
-                <button
-                  onClick={handleEnviarAprobacion}
-                  className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
-                >
-                  <Send className="w-4 h-4" />
-                  Enviar a BP
                 </button>
               </>
             )}
@@ -2418,8 +2418,58 @@ export default function InitiativeDetail() {
             </div>
           )}
 
-          {/* Declaración de Responsabilidad */}
-          {(fd._director_declaration_accepted || fd.declaracion_responsabilidad) ? (
+          {/* Declaración de Responsabilidad (Consentimiento) */}
+          {(isBorrador || isEditMode) ? (
+            <div className={`rounded-2xl p-5 border transition-all ${
+              Boolean(isEditMode ? editedFormData._director_declaration_accepted : (fd._director_declaration_accepted || fd.declaracion_responsabilidad))
+                ? 'bg-emerald-50 border-emerald-300 ring-1 ring-emerald-500/20'
+                : 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/30'
+            }`}>
+              <label className="flex items-start gap-3.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={Boolean(isEditMode ? editedFormData._director_declaration_accepted : (fd._director_declaration_accepted || fd.declaracion_responsabilidad))}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    if (isEditMode) {
+                      setEditedFormData({
+                        ...editedFormData,
+                        _director_declaration_accepted: checked,
+                        declaracion_responsabilidad: checked
+                      });
+                    } else {
+                      const nextFd = {
+                        ...(initiative.form_data || {}),
+                        _director_declaration_accepted: checked,
+                        declaracion_responsabilidad: checked
+                      };
+                      updateInitiativeData(initiative.status, { form_data: nextFd });
+                    }
+                  }}
+                  className="mt-1 w-5 h-5 rounded border-slate-300 text-[#4F5AF5] focus:ring-[#4F5AF5] shrink-0 cursor-pointer"
+                />
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Declaración de Responsabilidad (Consentimiento)
+                    </h4>
+                    {Boolean(isEditMode ? editedFormData._director_declaration_accepted : (fd._director_declaration_accepted || fd.declaracion_responsabilidad)) ? (
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        ✓ Consentimiento Aceptado
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full">
+                        Pendiente de Aceptar
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                    Declaro bajo responsabilidad que toda la información ingresada es fidedigna, cuenta con la debida conformidad y conocimiento de mi Director / VP, y asumo la titularidad de lo registrado.
+                  </p>
+                </div>
+              </label>
+            </div>
+          ) : (fd._director_declaration_accepted || fd.declaracion_responsabilidad) ? (
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex gap-3 shadow-sm shadow-emerald-500/5">
               <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
               <div className="space-y-1">
