@@ -151,6 +151,7 @@ const pdfParse = localRequire("pdf-parse") as (buffer: Buffer) => Promise<{ text
 import "dotenv/config";
 import { processEmailNotifications } from "./src/lib/emailService";
 import XLSX from "xlsx";
+import { validateTransition, invalidateWorkflowCache } from "./src/lib/workflowEngine";
 
 // ─── Supabase Client (backend - service role) ────────────────────────────────
 const supabase = createClient(
@@ -1064,9 +1065,31 @@ Responde estrictamente en formato JSON:
     const { data: currentInit } = await supabase.from("initiatives").select("*").eq("id", id).single();
     const oldStatus = currentInit ? currentInit.status : 'Borrador';
 
+    const STATUS_TO_NODE_ID: Record<string, string> = {
+      'Borrador': 'borrador',
+      'Pendiente de aprobación': 'pendiente',
+      'Observada': 'observada',
+      'En demanda': 'demanda',
+      'Desestimada': 'desestimada',
+    };
+
+    const updatePayload = { ...req.body };
+    if (req.body.status && STATUS_TO_NODE_ID[req.body.status]) {
+      updatePayload.current_node_id = STATUS_TO_NODE_ID[req.body.status];
+    }
+
+    if (currentInit && !currentInit.workflow_version) {
+      const { data: activeWf } = await supabase
+        .from('workflow_definitions')
+        .select('id')
+        .eq('status', 'published')
+        .maybeSingle();
+      if (activeWf) updatePayload.workflow_version = activeWf.id;
+    }
+
     const { data, error } = await supabase
       .from("initiatives")
-      .update(req.body)
+      .update(updatePayload)
       .eq("id", id)
       .select()
       .single();
@@ -1564,20 +1587,95 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       else if (mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || originalName.endsWith(".docx")) typeKey = "docx";
       else if (mime.startsWith("image/")) typeKey = "image";
 
-      const enabledItem = configData?.find(e => e.title === `enable_${typeKey}`);
-      const isEnabled = enabledItem ? enabledItem.content !== "false" : true;
-      if (!isEnabled) {
-        return res.status(400).json({ error: `La subida de archivos de tipo ${typeKey.toUpperCase()} está deshabilitada.` });
-      }
-
-      const configItem = configData?.find(e => e.title === `max_size_${typeKey}`);
-      const maxMb = configItem ? parseFloat(configItem.content) : 1.0;
+      // ── Generous 25MB limit for admin knowledge uploads ──
+      const maxMb = 25.0;
       const maxSize = maxMb * 1024 * 1024;
 
       if (req.file.size > maxSize) {
-        return res.status(400).json({ error: `El archivo supera el límite permitido de ${maxMb} MB para este tipo.` });
+        return res.status(400).json({ error: `El archivo supera el límite permitido de ${maxMb} MB.` });
       }
 
+      // ── If it's an image (architecture diagram, flowchart BPMN, chart, organigram) ──
+      if (typeKey === "image") {
+        if (!isApiKeyConfigured()) {
+          return res.status(400).json({ error: "Se requiere GEMINI_API_KEY configurada para analizar diagramas e imágenes con IA." });
+        }
+
+        const base64Data = req.file.buffer.toString("base64");
+        const visionPrompt = `Eres un Arquitecto de Software y Analista de Negocio Senior de TI experto en analizar diagramas técnicos, flujos de procesos (BPMN), diagramas de arquitectura de software/cloud, organigramas y esquemas de decisión.
+Analiza minuciosamente la imagen adjunta y genera una Ficha de Conocimiento técnica, clara y estructurada para la base de conocimiento institucional de TEO.
+
+Debes responder estrictamente en formato JSON con la siguiente estructura:
+{
+  "chunks": [
+    {
+      "title": "Diagrama: [Título descriptivo y conciso del proceso o arquitectura]",
+      "content": "### 1. Tipo y Propósito del Gráfico\\n[Tipo: Diagrama de Arquitectura / Flujo BPMN / Organigrama / etc. y qué representa]\\n\\n### 2. Componentes y Entidades Clave\\n[Lista de sistemas, capas, roles o componentes identificados]\\n\\n### 3. Flujo Paso a Paso / Interacciones\\n[Secuencia detallada de datos o proceso secuencial]\\n\\n### 4. Reglas de Negocio y Restricciones Técnicas\\n[Políticas, condiciones 'si/entonces', decisiones o límites]\\n\\n### 5. Criterios de Cuestionamiento para TEO\\n[Preguntas o validaciones obligatorias que TEO debe hacer al solicitante si propone iniciativas sobre este flujo]"
+    }
+  ],
+  "totalChunks": 1
+}`;
+
+        const genAI = getGenAI();
+        const visionModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+        let visionResponseText = "";
+
+        for (const model of visionModels) {
+          try {
+            console.log(`[AI Vision] Analyzing diagram with ${model}...`);
+            const response = await withTimeout(
+              genAI.models.generateContent({
+                model,
+                contents: [
+                  {
+                    role: "user",
+                    parts: [
+                      { text: visionPrompt },
+                      {
+                        inlineData: {
+                          mimeType: mime || "image/png",
+                          data: base64Data
+                        }
+                      }
+                    ]
+                  }
+                ],
+                config: { responseMimeType: "application/json" }
+              }),
+              20000 // 20s timeout for vision analysis
+            );
+            if (response && response.text) {
+              visionResponseText = response.text;
+              break;
+            }
+          } catch (vErr: any) {
+            console.warn(`[AI Vision] Model ${model} failed:`, vErr?.message || vErr);
+          }
+        }
+
+        if (!visionResponseText) {
+          return res.status(500).json({ error: "No se pudo interpretar el diagrama con los modelos de visión de IA. Verifica tu API Key o la legibilidad de la imagen." });
+        }
+
+        let parsedChunks: any = null;
+        try {
+          parsedChunks = JSON.parse(visionResponseText);
+        } catch {
+          parsedChunks = {
+            chunks: [
+              {
+                title: `Diagrama: ${req.file.originalname}`,
+                content: visionResponseText
+              }
+            ],
+            totalChunks: 1
+          };
+        }
+
+        return res.json(parsedChunks);
+      }
+
+      // ── Text Documents (PDF, DOCX, TXT) ──
       let fullText = "";
 
       if (mime === "application/pdf" || originalName.endsWith(".pdf")) {
@@ -1592,26 +1690,83 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       } else if (mime === "text/plain" || originalName.endsWith(".txt")) {
         fullText = req.file.buffer.toString("utf-8");
       } else {
-        return res.status(400).json({ error: "Formato no soportado. Usa PDF, DOCX o TXT." });
+        return res.status(400).json({ error: "Formato no soportado. Usa PDF, DOCX, TXT o imágenes (PNG, JPG, WEBP)." });
       }
 
-      // Split into chunks of ~500 words
-      const paragraphs = fullText.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 50);
-      const chunks: { title: string; content: string }[] = [];
-      let current = "";
-      let chunkIndex = 1;
+      // ── Semantic AI Chunking with Gemini (Preserves complete sections and real titles) ──
+      if (isApiKeyConfigured() && fullText.trim().length > 80) {
+        try {
+          const genAI = getGenAI();
+          const chunkingPrompt = `Eres un Arquitecto de Información y Analista de Negocio Senior de TI experto en estructuración de bases de conocimiento.
+Analiza el siguiente texto extraído del documento institucional "${req.file.originalname}" y organízalo en Fichas de Conocimiento temáticas, autónomas y coherentes para la memoria de un asistente de IA (TEO).
 
-      for (const para of paragraphs) {
-        const combined = current ? current + "\n\n" + para : para;
-        const wordCount = combined.split(/\s+/).length;
-        if (wordCount > 500 && current) {
-          chunks.push({ title: `${req.file.originalname} — Sección ${chunkIndex++}`, content: current });
-          current = para;
-        } else {
-          current = combined;
+REGLAS OBLIGATORIAS:
+1. INTEGRIDAD CONCEPTUAL: NUNCA cortes una política, regla, sección o idea por la mitad. Cada ficha debe ser completa y comprensible por sí sola de principio a fin.
+2. TÍTULOS TEMÁTICOS REALES: Asígnale a cada ficha un título descriptivo y claro basado en su contenido real (ej: "Política de Pasarelas de Pago", "Estándar de Integración Banner", "Criterio de Viabilidad de Ahorro", etc.). NUNCA uses "Sección 1" ni títulos genéricos.
+3. GRANULARIDAD: Si el documento tiene varios temas, políticas o módulos independientes, sepáralos en fichas distintas (entre 1 y 6 fichas). Si el texto es de un solo tema continuo, genera 1 sola ficha bien estructurada.
+4. FORMATO: El contenido de cada ficha debe estar en Markdown limpio, con viñetas o subtítulos claros donde aplique.
+
+Texto del documento:
+"""
+${fullText.slice(0, 30000)}
+"""
+
+Responde estrictamente en formato JSON con la siguiente estructura:
+{
+  "chunks": [
+    {
+      "title": "[Título temático de la ficha]",
+      "content": "[Contenido completo, coherente y formateado en Markdown]"
+    }
+  ],
+  "totalChunks": 2
+}`;
+
+          const chunkingModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+          for (const model of chunkingModels) {
+            try {
+              console.log(`[AI Chunking] Structuring document with ${model}...`);
+              const response = await withTimeout(
+                genAI.models.generateContent({
+                  model,
+                  contents: [{ role: "user", parts: [{ text: chunkingPrompt }] }],
+                  config: { responseMimeType: "application/json" }
+                }),
+                20000
+              );
+              if (response && response.text) {
+                const parsed = JSON.parse(response.text);
+                if (parsed.chunks && parsed.chunks.length > 0) {
+                  return res.json(parsed);
+                }
+              }
+            } catch (err: any) {
+              console.warn(`[AI Chunking] Model ${model} failed:`, err?.message || err);
+            }
+          }
+        } catch (aiErr: any) {
+          console.warn("[AI Chunking] AI extraction failed, falling back to smart delimiter splitter:", aiErr?.message);
         }
       }
-      if (current) chunks.push({ title: `${req.file.originalname} — Sección ${chunkIndex}`, content: current });
+
+      // ── Smart Fallback Splitter (Heading & Boundary Aware) ──
+      // If AI fails or is not configured, split by natural headings / blocks without cutting mid-policy
+      const rawBlocks = fullText
+        .split(/(?=(?:^|\n)[ \t]*(?:📌|[#]{1,3}|\d+\.|\bTítulo:|\bPolítica|\bEstándar|\bCriterio)\s+)/im)
+        .map(b => b.trim())
+        .filter(b => b.length > 50);
+      
+      const chunks: { title: string; content: string }[] = [];
+      if (rawBlocks.length > 0) {
+        for (let i = 0; i < rawBlocks.length; i++) {
+          const block = rawBlocks[i];
+          const firstLine = block.split("\n")[0].replace(/^[#📌•\d+\.\s]+/, "").trim();
+          const title = firstLine.length > 5 && firstLine.length < 80 ? firstLine : `${req.file.originalname} — Parte ${i + 1}`;
+          chunks.push({ title, content: block });
+        }
+      } else {
+        chunks.push({ title: req.file.originalname, content: fullText.trim() });
+      }
 
       res.json({ chunks, totalChunks: chunks.length });
     } catch (e: any) {
@@ -2076,6 +2231,546 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
     }
   });
 
+  // ============================================================================
+  // ===== WORKFLOW ENGINE API ==================================================
+  // ============================================================================
+
+  // GET /api/workflow/active
+  app.get("/api/workflow/active", async (_req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("workflow_definitions")
+        .select("*, workflow_node_roles(*), workflow_transitions(*)")
+        .eq("status", "published")
+        .maybeSingle();
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ data: data || null });
+    } catch (err: any) {
+      console.error("Error in /api/workflow/active:", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/workflow/definitions
+  app.get("/api/workflow/definitions", requireAdminAuth, async (_req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("workflow_definitions")
+        .select("id, name, version, status, description, created_at, updated_at, published_at")
+        .order("created_at", { ascending: false });
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/workflow/definitions
+  app.post("/api/workflow/definitions", requireAdminAuth, async (req, res) => {
+    try {
+      const { name, description, clone_from } = req.body;
+      if (!name?.trim()) {
+        return res.status(400).json({ error: "El nombre es requerido", code: "VALIDATION_ERROR" });
+      }
+
+      let graph_json = { nodes: [], edges: [] };
+      let node_roles: any[] = [];
+      let transitions: any[] = [];
+
+      if (clone_from) {
+        const { data: source } = await supabase
+          .from("workflow_definitions")
+          .select("*, workflow_node_roles(*), workflow_transitions(*)")
+          .eq("id", clone_from)
+          .single();
+
+        if (source) {
+          graph_json = source.graph_json;
+          node_roles = source.workflow_node_roles || [];
+          transitions = source.workflow_transitions || [];
+        }
+      }
+
+      const userId = (req as any).user?.id || null;
+      const { data: newWf, error: wfErr } = await supabase
+        .from("workflow_definitions")
+        .insert({
+          name: name.trim(),
+          description: description || null,
+          graph_json,
+          created_by: userId,
+          status: "draft",
+          version: 1,
+        })
+        .select()
+        .single();
+
+      if (wfErr) return res.status(500).json({ error: wfErr.message });
+
+      // Clone child records if any
+      if (node_roles.length > 0) {
+        const rolesToInsert = node_roles.map((r) => {
+          const { id, created_at, ...rest } = r;
+          return { ...rest, workflow_id: newWf.id };
+        });
+        await supabase.from("workflow_node_roles").insert(rolesToInsert);
+      }
+
+      if (transitions.length > 0) {
+        const transitionsToInsert = transitions.map((t) => {
+          const { id, created_at, ...rest } = t;
+          return { ...rest, workflow_id: newWf.id };
+        });
+        await supabase.from("workflow_transitions").insert(transitionsToInsert);
+      }
+
+      return res.status(201).json({ data: newWf });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/workflow/definitions/:id
+  app.get("/api/workflow/definitions/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("workflow_definitions")
+        .select("*, workflow_node_roles(*), workflow_transitions(*)")
+        .eq("id", req.params.id)
+        .single();
+
+      if (error || !data) {
+        return res.status(404).json({ error: "Flujo no encontrado", code: "NOT_FOUND" });
+      }
+      return res.json({ data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/workflow/definitions/:id
+  app.patch("/api/workflow/definitions/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const { graph_json, name, description, node_roles, transitions } = req.body;
+      const updates: any = { updated_at: new Date().toISOString() };
+      if (graph_json !== undefined) updates.graph_json = graph_json;
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+
+      const { data, error } = await supabase
+        .from("workflow_definitions")
+        .update(updates)
+        .eq("id", req.params.id)
+        .select()
+        .single();
+
+      if (error || !data) {
+        return res.status(404).json({
+          error: "No se encontró el flujo especificado",
+          code: "NOT_FOUND",
+        });
+      }
+
+      // Sync node_roles if provided
+      if (Array.isArray(node_roles)) {
+        await supabase.from("workflow_node_roles").delete().eq("workflow_id", req.params.id);
+        if (node_roles.length > 0) {
+          const rolesToInsert = node_roles.map((r: any) => ({
+            workflow_id: req.params.id,
+            node_id: r.node_id,
+            role_name: r.role_name,
+            can_edit: !!r.can_edit,
+            can_approve: !!r.can_approve,
+            can_reject: !!r.can_reject,
+            required_fields: Array.isArray(r.required_fields) ? r.required_fields : [],
+          }));
+          await supabase.from("workflow_node_roles").insert(rolesToInsert);
+        }
+      }
+
+      // Sync transitions if provided
+      if (Array.isArray(transitions)) {
+        await supabase.from("workflow_transitions").delete().eq("workflow_id", req.params.id);
+        if (transitions.length > 0) {
+          const transToInsert = transitions.map((t: any) => ({
+            workflow_id: req.params.id,
+            edge_id: t.edge_id || t.id,
+            label: t.label || "",
+            source_node_id: t.source_node_id || t.source,
+            target_node_id: t.target_node_id || t.target,
+            condition_type: t.condition_type || "always",
+            condition_config: t.condition_config || {},
+          }));
+          await supabase.from("workflow_transitions").insert(transToInsert);
+        }
+      }
+
+      invalidateWorkflowCache();
+      return res.json({ data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/workflow/definitions/:id/publish
+  app.post("/api/workflow/definitions/:id/publish", requireAdminAuth, async (req, res) => {
+    try {
+      const { confirm } = req.body;
+      if (!confirm) {
+        return res.status(400).json({
+          error: "Se requiere confirmación explícita para publicar el flujo",
+          code: "VALIDATION_ERROR",
+        });
+      }
+
+      const { data: wf, error: fetchErr } = await supabase
+        .from("workflow_definitions")
+        .select("*")
+        .eq("id", req.params.id)
+        .single();
+
+      if (fetchErr || !wf) {
+        return res.status(404).json({
+          error: "El flujo no existe",
+          code: "NOT_FOUND",
+        });
+      }
+
+      // Validar topología mínima
+      const nodes: any[] = wf.graph_json?.nodes || [];
+      const hasStateOrStart = nodes.some((n) => n.type === "state" || n.type === "start");
+      const hasEnd = nodes.some((n) => n.type === "end" || n.type === "state");
+
+      if (!hasStateOrStart || !hasEnd) {
+        return res.status(400).json({
+          error: "El flujo debe contener al menos un nodo de inicio/estado y un nodo de fin",
+          code: "VALIDATION_ERROR",
+        });
+      }
+
+      // Archivar cualquier otro publicado
+      await supabase
+        .from("workflow_definitions")
+        .update({ status: "archived" })
+        .eq("status", "published")
+        .neq("id", req.params.id);
+
+      // Publicar el nuevo
+      const { data: published, error: pubErr } = await supabase
+        .from("workflow_definitions")
+        .update({
+          status: "published",
+          published_at: new Date().toISOString(),
+          version: (wf.version || 1) + 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", req.params.id)
+        .select()
+        .single();
+
+      if (pubErr) return res.status(500).json({ error: pubErr.message });
+
+      // Audit log
+      const actorId = (req as any).user?.id || null;
+      await supabase.from("workflow_audit_log").insert({
+        workflow_id: req.params.id,
+        actor_id: actorId,
+        action: "publish",
+        details: { version: published.version, name: published.name },
+      });
+
+      invalidateWorkflowCache();
+      return res.json({ data: published });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/workflow/definitions/:id/roles
+  app.post("/api/workflow/definitions/:id/roles", requireAdminAuth, async (req, res) => {
+    try {
+      const { roles } = req.body;
+      if (!Array.isArray(roles)) {
+        return res.status(400).json({ error: "roles debe ser un arreglo", code: "VALIDATION_ERROR" });
+      }
+
+      await supabase.from("workflow_node_roles").delete().eq("workflow_id", req.params.id);
+
+      if (roles.length > 0) {
+        const inserts = roles.map((r: any) => ({
+          workflow_id: req.params.id,
+          node_id: r.node_id,
+          role_name: r.role_name,
+          can_edit: !!r.can_edit,
+          can_approve: !!r.can_approve,
+          can_reject: !!r.can_reject,
+          required_fields: Array.isArray(r.required_fields) ? r.required_fields : [],
+        }));
+        const { error } = await supabase.from("workflow_node_roles").insert(inserts);
+        if (error) return res.status(500).json({ error: error.message });
+      }
+
+      invalidateWorkflowCache();
+      return res.json({ data: { updated: roles.length } });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/workflow/definitions/:id/assignments
+  app.get("/api/workflow/definitions/:id/assignments", requireAdminAuth, async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("workflow_role_assignments")
+        .select("*, profiles(id, name, email)")
+        .eq("workflow_id", req.params.id);
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ data: data || [] });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/workflow/definitions/:id/assignments
+  app.post("/api/workflow/definitions/:id/assignments", requireAdminAuth, async (req, res) => {
+    try {
+      const { user_id, role_name } = req.body;
+      if (!user_id || !role_name) {
+        return res.status(400).json({
+          error: "user_id y role_name son obligatorios",
+          code: "VALIDATION_ERROR",
+        });
+      }
+
+      const assignedBy = (req as any).user?.id || null;
+      const { data, error } = await supabase
+        .from("workflow_role_assignments")
+        .upsert(
+          {
+            workflow_id: req.params.id,
+            user_id,
+            role_name: role_name.trim(),
+            assigned_by: assignedBy,
+          },
+          { onConflict: "workflow_id,user_id,role_name" }
+        )
+        .select("*, profiles(id, name, email)")
+        .single();
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(201).json({ data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/workflow/definitions/:id/assignments/:assignmentId
+  app.delete("/api/workflow/definitions/:id/assignments/:assignmentId", requireAdminAuth, async (req, res) => {
+    try {
+      const { error } = await supabase
+        .from("workflow_role_assignments")
+        .delete()
+        .eq("id", req.params.assignmentId)
+        .eq("workflow_id", req.params.id);
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(204).send();
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/workflow/definitions/:id/assignments/bulk
+  app.post("/api/workflow/definitions/:id/assignments/bulk", requireAdminAuth, upload.single("file"), async (req, res) => {
+    try {
+      let rows: Array<{ email: string; role_name: string }> = [];
+
+      if (req.file) {
+        const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawData: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        rows = rawData.map((r) => ({
+          email: String(r.email || r.Email || r.correo || "").trim().toLowerCase(),
+          role_name: String(r.role_name || r.rol || r.Rol || r.role || "").trim(),
+        }));
+      } else if (Array.isArray(req.body.assignments)) {
+        rows = req.body.assignments.map((r: any) => ({
+          email: String(r.email || "").trim().toLowerCase(),
+          role_name: String(r.role_name || "").trim(),
+        }));
+      } else {
+        return res.status(400).json({ error: "Se requiere archivo Excel o lista JSON de asignaciones" });
+      }
+
+      const validRows = rows.filter((r) => r.email && r.role_name);
+      if (validRows.length === 0) {
+        return res.status(400).json({ error: "No se encontraron filas válidas con email y rol" });
+      }
+
+      const emails = Array.from(new Set(validRows.map((r) => r.email)));
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, email, name")
+        .in("email", emails);
+
+      const profileMap = new Map((profiles || []).map((p: any) => [p.email.toLowerCase(), p]));
+      const assignedBy = (req as any).user?.id || null;
+
+      let inserted = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+
+      for (const item of validRows) {
+        const prof = profileMap.get(item.email);
+        if (!prof) {
+          skipped++;
+          errors.push(`Usuario con email '${item.email}' no registrado en perfiles`);
+          continue;
+        }
+
+        const { error } = await supabase
+          .from("workflow_role_assignments")
+          .upsert(
+            {
+              workflow_id: req.params.id,
+              user_id: prof.id,
+              role_name: item.role_name,
+              assigned_by: assignedBy,
+            },
+            { onConflict: "workflow_id,user_id,role_name" }
+          );
+
+        if (error) {
+          skipped++;
+          errors.push(`Error asignando '${item.email}': ${error.message}`);
+        } else {
+          inserted++;
+        }
+      }
+
+      return res.json({ success: true, inserted, skipped, errors });
+    } catch (err: any) {
+      console.error("Bulk assignments error:", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/workflow/simulate
+  app.post("/api/workflow/simulate", requireAdminAuth, async (req, res) => {
+    try {
+      const { workflow_id, current_node_id, user_role, form_data, transition_label } = req.body;
+      if (!workflow_id || !current_node_id || !user_role || !transition_label) {
+        return res.status(400).json({
+          error: "Parámetros incompletos para simulación",
+          code: "VALIDATION_ERROR",
+        });
+      }
+
+      const { data: wf, error } = await supabase
+        .from("workflow_definitions")
+        .select("*, workflow_node_roles(*), workflow_transitions(*)")
+        .eq("id", workflow_id)
+        .single();
+
+      if (error || !wf) {
+        return res.status(404).json({ error: "Flujo no encontrado", code: "NOT_FOUND" });
+      }
+
+      const transition = wf.workflow_transitions?.find(
+        (t: any) =>
+          t.source_node_id === current_node_id &&
+          (t.label === transition_label || t.label?.toLowerCase() === transition_label?.toLowerCase())
+      );
+
+      if (!transition) {
+        return res.json({
+          data: {
+            allowed: false,
+            reason: `Transición '${transition_label}' no definida desde el nodo actual en este flujo`,
+          },
+        });
+      }
+
+      const nodeRole = wf.workflow_node_roles?.find(
+        (r: any) => r.node_id === current_node_id && r.role_name?.toLowerCase() === user_role?.toLowerCase()
+      );
+
+      if (transition_label !== "Guardar" && transition_label !== "Borrador") {
+        if (!nodeRole?.can_approve && !nodeRole?.can_reject) {
+          return res.json({
+            data: {
+              allowed: false,
+              reason: `El rol '${user_role}' no tiene permiso para '${transition_label}' en este nodo`,
+            },
+          });
+        }
+      }
+
+      if (transition.condition_type === "field_required") {
+        const required: string[] = Array.isArray(nodeRole?.required_fields) ? nodeRole.required_fields : [];
+        const dataMap = form_data || {};
+        const missing = required.filter((f: string) => !dataMap[f]?.toString().trim());
+        if (missing.length > 0) {
+          return res.json({
+            data: {
+              allowed: false,
+              reason: "Faltan campos obligatorios para transicionar",
+              missing_fields: missing,
+            },
+          });
+        }
+      }
+
+      if (transition.condition_type === "vobo_check") {
+        if (form_data?._vobo_status && form_data._vobo_status !== "correcto") {
+          return res.json({
+            data: {
+              allowed: false,
+              reason: "El VoBo VP debe estar validado como correcto",
+            },
+          });
+        }
+      }
+
+      const targetNode = wf.graph_json?.nodes?.find((n: any) => n.id === transition.target_node_id);
+      return res.json({
+        data: {
+          allowed: true,
+          next_node_id: transition.target_node_id,
+          next_node_label: targetNode?.data?.label || transition.target_node_id,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/workflow/validate-transition
+  app.get("/api/workflow/validate-transition", async (req, res) => {
+    try {
+      const { current_node_id, user_role, transition_label, form_data } = req.query;
+      let parsedFormData = {};
+      try {
+        if (typeof form_data === "string") parsedFormData = JSON.parse(form_data);
+      } catch {
+        parsedFormData = {};
+      }
+
+      const result = await validateTransition({
+        currentNodeId: (current_node_id as string) || null,
+        userRole: (user_role as string) || "registrador",
+        formData: parsedFormData,
+        transitionLabel: (transition_label as string) || "",
+      });
+
+      return res.json({ data: result });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
 
   // ── Vite / Static ────────────────────────────────────────────────────────────
   if (process.env.NODE_ENV !== "production") {

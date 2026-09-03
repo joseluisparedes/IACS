@@ -4,9 +4,10 @@ import {
   ThumbsUp, Bot, Send, RefreshCw, Plus, Trash2, GripVertical,
   ToggleLeft, ToggleRight, Upload, FileText, CheckCircle, X,
   ChevronDown, ChevronUp, Pencil, Save, AlertCircle, Loader2,
-  Mic, MicOff, Paperclip, Image as ImageIcon
+  Mic, MicOff, Paperclip, Image as ImageIcon, HelpCircle, Sparkles
 } from 'lucide-react';
 import STTWorker from '../workers/stt.worker?worker';
+import { supabase } from '../lib/supabase';
 import {
   DndContext,
   closestCenter,
@@ -741,7 +742,10 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
   const [showUpload, setShowUpload] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [extracted, setExtracted] = useState<{ title: string; content: string }[]>([]);
+  const [showGuide, setShowGuide] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [deletingEntry, setDeletingEntry] = useState<TrainingEntry | null>(null);
 
   const openNew = () => { setForm({ title: '', content: '' }); setEditing(null); setShowForm(true); };
   const openEdit = (e: TrainingEntry) => { setForm({ title: e.title, content: e.content }); setEditing(e); setShowForm(true); };
@@ -757,6 +761,13 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
     setEditing(null);
   };
 
+  const [toast, setToast] = useState<{ type: 'error' | 'success' | 'info'; message: string } | null>(null);
+
+  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4500);
+  };
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -766,10 +777,15 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
     try {
       const res = await fetch('/api/ai-training/upload-document', { method: 'POST', body: fd });
       const data = await res.json();
-      setExtracted(data.chunks || []);
-      setShowUpload(true);
+      if (!res.ok) {
+        showToast(data.error || 'Error al procesar el archivo', 'error');
+      } else {
+        setExtracted(data.chunks || []);
+        setShowUpload(true);
+        showToast(`Se extrajeron ${data.chunks?.length || 1} fichas con éxito. Revisa y aprueba para guardar.`, 'info');
+      }
     } catch {
-      alert('Error al procesar el documento');
+      showToast('Error de conexión al procesar el archivo o diagrama.', 'error');
     }
     setUploading(false);
     e.target.value = '';
@@ -778,6 +794,22 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
   const approveChunk = async (chunk: { title: string; content: string }) => {
     await onCreate({ layer: 'context', ...chunk, is_active: true, sort_order: entries.length, source: 'document' });
     setExtracted(prev => prev.filter(c => c.title !== chunk.title));
+    showToast(`Ficha "${chunk.title}" agregada a la Base de Conocimiento`, 'success');
+  };
+
+  const [editingChunkIdx, setEditingChunkIdx] = useState<number | null>(null);
+  const [expandedChunkIdxs, setExpandedChunkIdxs] = useState<Record<number, boolean>>({});
+
+  const updateChunk = (index: number, field: 'title' | 'content', value: string) => {
+    setExtracted(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const toggleExpandChunk = (index: number) => {
+    setExpandedChunkIdxs(prev => ({ ...prev, [index]: !prev[index] }));
   };
 
   return (
@@ -785,54 +817,273 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
       {/* Upload doc modal */}
       {showUpload && extracted.length > 0 && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowUpload(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
-            <div className="px-6 py-4 border-b border-[#E2E8F0] flex items-center justify-between">
-              <h3 className="font-bold text-[#1E293B]">Fichas extraídas del documento</h3>
-              <button onClick={() => setShowUpload(false)} className="text-[#94A3B8] hover:text-[#1E293B]"><X className="w-5 h-5" /></button>
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs" onClick={() => setShowUpload(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden border border-[#E2E8F0] animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-[#E2E8F0] flex items-center justify-between bg-white">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[#4F5AF5]">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-[#1E293B]">Preliminar de Fichas Extraídas</h3>
+                  <p className="text-xs text-[#64748B]">Revisa, edita o afina el contenido antes de integrarlo a la Base de Conocimiento.</p>
+                </div>
+              </div>
+              <button onClick={() => setShowUpload(false)} className="text-[#94A3B8] hover:text-[#1E293B] p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-3">
+
+            {/* ── Leyenda explicativa de qué pasa al agregar ── */}
+            <div className="mx-6 mt-4 p-3.5 bg-gradient-to-r from-blue-50/90 to-indigo-50/90 border border-blue-200/80 rounded-xl flex items-start gap-3 text-xs text-[#1E293B] shadow-2xs">
+              <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center shrink-0 text-blue-600 mt-0.5">
+                <Sparkles className="w-3.5 h-3.5" />
+              </div>
+              <div className="leading-relaxed">
+                <p className="font-bold text-[#1E293B] mb-0.5">¿Qué sucederá al hacer clic en "Agregar"?</p>
+                <p className="text-[#475569]">
+                  La ficha se registrará inmediatamente en la <strong>Base de Conocimiento activa de TEO</strong> (con la etiqueta <em>Doc</em>). A partir de ese momento, TEO utilizará esta información para contrastar, validar y guiar las preguntas en las iniciativas de los usuarios. Puedes hacer clic en <strong>"Editar"</strong> para ajustar el título o pulir el texto antes de confirmar.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {extracted.map((chunk, i) => (
-                <div key={i} className="border border-[#E2E8F0] rounded-xl p-4 flex gap-3">
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-[#1E293B] mb-1">{chunk.title}</p>
-                    <p className="text-xs text-[#64748B] line-clamp-3">{chunk.content}</p>
-                  </div>
-                  <button onClick={() => approveChunk(chunk)} className="flex items-center gap-1 text-emerald-600 hover:text-emerald-700 text-xs font-semibold shrink-0">
-                    <CheckCircle className="w-4 h-4" /> Agregar
-                  </button>
+                <div key={i} className="border border-[#E2E8F0] bg-white rounded-xl p-4 shadow-2xs hover:border-[#4F5AF5]/40 transition-all space-y-3">
+                  {editingChunkIdx === i ? (
+                    /* ── Modo Edición ── */
+                    <div className="space-y-3 animate-in fade-in duration-150">
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">Título de la Ficha</label>
+                        <input
+                          type="text"
+                          value={chunk.title}
+                          onChange={e => updateChunk(i, 'title', e.target.value)}
+                          className="w-full border border-[#CBD5E1] rounded-lg px-3 py-2 text-sm font-semibold text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
+                          placeholder="Título descriptivo de la ficha..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">Contenido que leerá TEO</label>
+                        <textarea
+                          rows={6}
+                          value={chunk.content}
+                          onChange={e => updateChunk(i, 'content', e.target.value)}
+                          className="w-full border border-[#CBD5E1] rounded-lg px-3 py-2 text-xs font-mono text-[#334155] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] leading-relaxed resize-y"
+                          placeholder="Escribe o afina el contenido..."
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingChunkIdx(null)}
+                          className="px-4 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Listo</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ── Modo Preliminar / Lectura ── */
+                    <div>
+                      <div className="flex items-start justify-between gap-3 mb-2.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-[#1E293B]">{chunk.title}</span>
+                            <span className="text-[10px] bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded-full border border-indigo-100">
+                              Preliminar
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setEditingChunkIdx(i)}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-[#4F5AF5] bg-slate-50 hover:bg-indigo-50 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-indigo-200 transition-colors cursor-pointer"
+                            title="Editar título y contenido antes de registrar"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            <span>Editar</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => approveChunk(chunk)}
+                            className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 px-4 py-1.5 rounded-xl shadow-xs transition-all cursor-pointer"
+                            title="Registrar en la base de conocimiento"
+                          >
+                            <CheckCircle className="w-4 h-4 stroke-[2.5]" />
+                            <span>Agregar</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Contenido expandible */}
+                      <div className="text-xs text-[#475569] bg-slate-50 border border-slate-100 rounded-lg p-3 whitespace-pre-wrap leading-relaxed font-sans">
+                        {expandedChunkIdxs[i] || chunk.content.length <= 220 ? (
+                          chunk.content
+                        ) : (
+                          <>
+                            {chunk.content.slice(0, 220)}...
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandChunk(i)}
+                              className="ml-2 font-bold text-[#4F5AF5] hover:underline cursor-pointer"
+                            >
+                              Ver texto completo
+                            </button>
+                          </>
+                        )}
+                        {expandedChunkIdxs[i] && chunk.content.length > 220 && (
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandChunk(i)}
+                            className="block mt-2 font-bold text-[#4F5AF5] hover:underline cursor-pointer"
+                          >
+                            Mostrar menos
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
               {extracted.length === 0 && <p className="text-center text-sm text-[#94A3B8] py-8">Todas las fichas han sido procesadas.</p>}
             </div>
-            <div className="px-6 py-4 border-t border-[#E2E8F0] flex justify-end">
-              <button onClick={() => setShowUpload(false)} className="bg-[#4F5AF5] text-white px-4 py-2 rounded-lg text-sm font-semibold">Cerrar</button>
+
+            {/* Footer con opción de agregar todas */}
+            <div className="px-6 py-3.5 border-t border-[#E2E8F0] bg-slate-50/70 flex items-center justify-between">
+              <span className="text-xs text-[#64748B]">
+                {extracted.length} {extracted.length === 1 ? 'ficha pendiente de revisión' : 'fichas pendientes de revisión'}
+              </span>
+              <div className="flex items-center gap-2.5">
+                {extracted.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      for (const c of extracted) {
+                        await onCreate({ layer: 'context', ...c, is_active: true, sort_order: entries.length, source: 'document' });
+                      }
+                      setExtracted([]);
+                      setShowUpload(false);
+                      showToast(`Se agregaron todas las fichas (${extracted.length}) a la Base de Conocimiento.`, 'success');
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>Agregar todas ({extracted.length})</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowUpload(false)}
+                  className="bg-white border border-[#CBD5E1] text-[#475569] hover:bg-slate-100 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-[#E2E8F0] p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="font-bold text-[#1E293B]">Contexto del Negocio</h2>
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <h2 className="font-bold text-[#1E293B]">Contexto del Negocio</h2>
+              <button
+                type="button"
+                onClick={() => setShowGuide(prev => !prev)}
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EEF2FF] text-[#4F5AF5] hover:bg-[#E0E7FF] transition-colors border border-[#4F5AF5]/20 shadow-xs cursor-pointer"
+                title="Ver tipos de archivos permitidos y cómo los interpreta Teo"
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+                <span>{showGuide ? 'Ocultar Guía' : '¿Qué puedo subir?'}</span>
+              </button>
+            </div>
             <p className="text-xs text-[#64748B] mt-0.5">Fichas de conocimiento que el agente usa como referencia en cada conversación.</p>
           </div>
-          <div className="flex gap-2">
-            <input ref={fileRef} type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={handleFile} />
+          <div className="flex items-center gap-2.5 shrink-0">
+            <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" className="hidden" onChange={handleFile} />
             <button
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-2 border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#64748B] px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+              className="flex items-center gap-2 border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#64748B] px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+              title="Sube documentos (.pdf, .docx, .txt) o imágenes de diagramas (.png, .jpg)"
             >
               {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              Subir Documento
+              {uploading ? 'Analizando...' : 'Subir Documento'}
             </button>
-            <button onClick={openNew} className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors">
+            <button
+              onClick={openNew}
+              className="flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+            >
               <Plus className="w-4 h-4" /> Nueva Ficha
             </button>
           </div>
         </div>
+
+        {/* ── Leyenda / Guía Desplegable de Formatos e Interpretación ── */}
+        {showGuide && (
+          <div className="mb-5 bg-gradient-to-br from-[#F8FAFC] via-[#F1F5F9] to-[#EEF2FF] border border-[#E2E8F0] rounded-xl p-4 text-xs text-[#334155] shadow-xs">
+            <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-[#E2E8F0]">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#4F5AF5]" />
+                <span className="font-bold text-sm text-[#1E293B]">Guía de Archivos y Cómo los Interpreta TEO</span>
+              </div>
+              <button
+                onClick={() => setShowGuide(false)}
+                className="text-[#94A3B8] hover:text-[#1E293B] p-1 rounded-md hover:bg-slate-200/60 transition-colors"
+                title="Cerrar guía"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {/* Bloque 1: Documentos */}
+              <div className="bg-white rounded-xl p-3 border border-[#E2E8F0] shadow-2xs space-y-1.5">
+                <div className="flex items-center gap-2 text-[#1E293B] font-bold">
+                  <FileText className="w-4 h-4 text-blue-600" />
+                  <span>Documentos de Texto</span>
+                  <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono font-medium">.pdf, .docx, .txt</span>
+                </div>
+                <p className="text-[#64748B] leading-relaxed">
+                  <strong className="text-[#334155]">Cómo se procesa:</strong> Se extrae el texto íntegro y se divide automáticamente en fragmentos de ~500 palabras para que apruebes cuáles sumar.
+                </p>
+                <p className="text-[#64748B] leading-relaxed">
+                  <strong className="text-[#334155]">Uso ideal:</strong> Glosarios, políticas de TI, catálogos de sistemas vigentes y manuales normativos.
+                </p>
+              </div>
+
+              {/* Bloque 2: Diagramas */}
+              <div className="bg-white rounded-xl p-3 border border-[#E2E8F0] shadow-2xs space-y-1.5">
+                <div className="flex items-center gap-2 text-[#1E293B] font-bold">
+                  <ImageIcon className="w-4 h-4 text-purple-600" />
+                  <span>Diagramas y Gráficos (IA Vision)</span>
+                  <span className="text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-mono font-medium">.png, .jpg, .webp</span>
+                </div>
+                <p className="text-[#64748B] leading-relaxed">
+                  <strong className="text-[#334155]">Cómo se procesa:</strong> Gemini Vision inspecciona cajas, flechas y decisiones, y redacta una ficha técnica con flujo secuencial y reglas.
+                </p>
+                <p className="text-[#64748B] leading-relaxed">
+                  <strong className="text-[#334155]">Uso ideal:</strong> Diagramas de arquitectura (C4/Cloud), flujos de proceso BPMN, organigramas y esquemas de decisión.
+                </p>
+              </div>
+            </div>
+
+            {/* Bloque 3: Interpretación de Teo */}
+            <div className="mt-3 pt-2.5 border-t border-[#E2E8F0] flex items-start gap-2 text-[11px] text-[#475569]">
+              <Bot className="w-4 h-4 text-[#4F5AF5] shrink-0 mt-0.5" />
+              <p className="leading-normal">
+                <strong className="text-[#1E293B]">¿Cómo lo interpreta TEO en las iniciativas?</strong> Cada ficha activa se inyecta como memoria institucional en el chat. TEO la utiliza para detectar sistemas duplicados, validar estándares de arquitectura y exigir justificaciones cuantitativas a los solicitantes.
+              </p>
+            </div>
+          </div>
+        )}
 
         {showForm && (
           <div className="mb-4 border border-[#4F5AF5]/30 bg-[#EEF2FF] rounded-xl p-4 space-y-3">
@@ -853,10 +1104,79 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
             </div>
           )}
           {entries.map(e => (
-            <ContextCard key={e.id} entry={e} onEdit={() => openEdit(e)} onToggle={() => onToggle(e.id)} onDelete={() => onDelete(e.id)} />
+            <ContextCard key={e.id} entry={e} onEdit={() => openEdit(e)} onToggle={() => onToggle(e.id)} onDelete={() => setDeletingEntry(e)} />
           ))}
         </div>
       </div>
+
+      {/* ── Modal de Confirmación para Eliminar Ficha ── */}
+      {deletingEntry && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setDeletingEntry(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 overflow-hidden border border-[#E2E8F0] animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0 text-rose-600 shadow-xs">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-base text-[#1E293B]">¿Eliminar ficha de conocimiento?</h3>
+                <p className="text-xs text-[#64748B] mt-1.5 leading-relaxed">
+                  ¿Estás seguro de que deseas eliminar la ficha <strong className="text-[#1E293B]">"{deletingEntry.title}"</strong>?
+                </p>
+                <div className="mt-3 bg-rose-50/80 border border-rose-100 rounded-xl p-3 text-[11px] text-rose-700 leading-relaxed">
+                  ⚠️ <strong>Esta acción no se puede deshacer.</strong> El asistente TEO dejará de usar esta información como contexto de referencia en las conversaciones.
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-[#F1F5F9]">
+              <button
+                type="button"
+                onClick={() => setDeletingEntry(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#64748B] hover:bg-slate-100 border border-[#E2E8F0] transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const title = deletingEntry.title;
+                  onDelete(deletingEntry.id);
+                  showToast(`Ficha "${title}" eliminada correctamente.`, 'info');
+                  setDeletingEntry(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Sí, eliminar ficha
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast de Notificación Flotante ── */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border backdrop-blur-md transition-all animate-in slide-in-from-bottom-3 duration-200 ${
+          toast.type === 'error'
+            ? 'bg-rose-50 border-rose-200 text-rose-800'
+            : toast.type === 'success'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            : 'bg-indigo-50 border-indigo-200 text-indigo-900'
+        }`}>
+          {toast.type === 'error' && <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />}
+          {toast.type === 'success' && <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />}
+          {toast.type === 'info' && <Sparkles className="w-5 h-5 text-indigo-600 shrink-0" />}
+          <span className="text-sm font-medium">{toast.message}</span>
+          <button
+            onClick={() => setToast(null)}
+            className="ml-2 text-current opacity-60 hover:opacity-100 p-0.5 rounded-md hover:bg-black/5"
+            title="Cerrar notificación"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

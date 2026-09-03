@@ -994,8 +994,55 @@ export default function InitiativeDetail() {
         ];
       }
 
-      const payload = { 
+      const STATUS_TO_NODE: Record<string, string> = {
+        'Borrador': 'borrador',
+        'Pendiente de aprobación': 'pendiente',
+        'Observada': 'observada',
+        'En demanda': 'demanda',
+        'Desestimada': 'desestimada',
+      };
+
+      if (status !== initiative.status) {
+        let actionLabel = 'Guardar';
+        if (status === 'En demanda' && initiative.status === 'Desestimada') {
+          actionLabel = 'Rescatar -> Demanda';
+        } else if (status === 'En demanda') {
+          actionLabel = 'Aprobar';
+        } else if (status === 'Observada') {
+          actionLabel = 'Observar';
+        } else if (status === 'Desestimada') {
+          actionLabel = 'Desestimar';
+        } else if (status === 'Pendiente de aprobación') {
+          if (initiative.status === 'Borrador') actionLabel = 'Enviar a aprobacion';
+          else if (initiative.status === 'Observada') actionLabel = 'Reenviar (Key user)';
+          else if (initiative.status === 'Desestimada') actionLabel = 'Rescatar -> Nueva';
+        }
+
+        const currentNodeId = (initiative as any)?.current_node_id || STATUS_TO_NODE[initiative?.status] || 'borrador';
+        let uRole = 'registrador';
+        if (isAdmin) uRole = 'admin';
+        else if (isBP) uRole = 'bp_ti';
+        else if (isRegistrador) uRole = 'registrador';
+
+        try {
+          const valRes = await fetch(
+            `/api/workflow/validate-transition?current_node_id=${encodeURIComponent(currentNodeId)}&user_role=${encodeURIComponent(uRole)}&transition_label=${encodeURIComponent(actionLabel)}&form_data=${encodeURIComponent(JSON.stringify(nextFormData))}`
+          );
+          if (valRes.ok) {
+            const valJson = await valRes.json();
+            if (valJson.data && !valJson.data.allowed) {
+              alert(valJson.data.reason || 'Acción no permitida por las reglas del flujo de trabajo.');
+              return;
+            }
+          }
+        } catch (valErr) {
+          console.warn("Workflow validation fallback:", valErr);
+        }
+      }
+
+      const payload: any = { 
         status, 
+        current_node_id: STATUS_TO_NODE[status] || 'borrador',
         ...extraUpdates,
         form_data: nextFormData 
       };

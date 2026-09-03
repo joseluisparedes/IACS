@@ -1,0 +1,51 @@
+{
+  "name": "Flujo IACS v1_legacy",
+  "description": "Flujo canonico original de IACS: Registro -> Evaluacion BP TI -> Demanda / Rescate",
+  "graph_json": {
+    "nodes": [
+      { "id": "start", "type": "start", "position": { "x": 50, "y": 200 }, "data": { "label": "Inicio", "nodeType": "start" } },
+      { "id": "borrador", "type": "state", "position": { "x": 240, "y": 140 }, "data": { "label": "Borrador", "nodeType": "state", "description": "Iniciativa en edicion. Solo visible para creador y admins." } },
+      { "id": "ai_chat", "type": "ai_agent", "position": { "x": 240, "y": 280 }, "data": { "label": "Asistente IA (Chat)", "nodeType": "ai_agent", "description": "Chat interactivo que guia al registrador para completar campos." } },
+      { "id": "ai_text", "type": "ai_text", "position": { "x": 240, "y": 400 }, "data": { "label": "Extraccion de Texto IA", "nodeType": "ai_text", "description": "Extrae campos del formulario desde texto libre o documentos." } },
+      { "id": "pendiente", "type": "state", "position": { "x": 520, "y": 140 }, "data": { "label": "Pendiente de aprobacion", "nodeType": "state", "description": "Visible para BP TI asignado. Esperando evaluacion tecnica." } },
+      { "id": "gw_vobo", "type": "gateway", "position": { "x": 740, "y": 140 }, "data": { "label": "¿VoBo VP adjunto?", "nodeType": "gateway" } },
+      { "id": "observada", "type": "state", "position": { "x": 740, "y": 300 }, "data": { "label": "Observada", "nodeType": "state", "description": "BP TI solicito correcciones. Key user puede editar y reenviar." } },
+      { "id": "demanda", "type": "state", "position": { "x": 980, "y": 80 }, "data": { "label": "En demanda", "nodeType": "state", "description": "Aprobada. Solo lectura para todos. Registrada en backlog de TI." } },
+      { "id": "desestimada", "type": "state", "position": { "x": 980, "y": 300 }, "data": { "label": "Desestimada", "nodeType": "state", "description": "Archivada logicamente. Rescatable por BP TI o Admin." } },
+      { "id": "end", "type": "end", "position": { "x": 1180, "y": 180 }, "data": { "label": "Fin", "nodeType": "end" } }
+    ],
+    "edges": [
+      { "id": "e-start-borrador", "source": "start", "target": "borrador", "sourceHandle": "right", "targetHandle": "left", "label": "Crear iniciativa", "type": "workflow" },
+      { "id": "e-borrador-ai_chat", "source": "borrador", "target": "ai_chat", "label": "Asistir con IA (chat)", "animated": true, "type": "workflow" },
+      { "id": "e-borrador-ai_text", "source": "borrador", "target": "ai_text", "label": "Extraer de texto", "animated": true, "type": "workflow" },
+      { "id": "e-borrador-pendiente", "source": "borrador", "target": "pendiente", "sourceHandle": "right", "targetHandle": "left", "label": "Enviar a aprobacion", "type": "workflow" },
+      { "id": "e-pendiente-gw_vobo", "source": "pendiente", "target": "gw_vobo", "sourceHandle": "right", "targetHandle": "left", "label": "Evaluar", "type": "workflow" },
+      { "id": "e-gw_vobo-demanda", "source": "gw_vobo", "target": "demanda", "label": "Aprobar (sin VoBo o VoBo correcto)", "type": "workflow" },
+      { "id": "e-gw_vobo-observada", "source": "gw_vobo", "target": "observada", "label": "Observar / VoBo incorrecto", "type": "workflow" },
+      { "id": "e-gw_vobo-desestimada", "source": "gw_vobo", "target": "desestimada", "label": "Desestimar", "type": "workflow" },
+      { "id": "e-observada-pendiente", "source": "observada", "target": "pendiente", "label": "Reenviar (Key user)", "type": "workflow" },
+      { "id": "e-desestimada-pendiente", "source": "desestimada", "target": "pendiente", "label": "Rescatar -> Nueva", "type": "workflow" },
+      { "id": "e-desestimada-demanda", "source": "desestimada", "target": "demanda", "label": "Rescatar -> Demanda", "type": "workflow" },
+      { "id": "e-demanda-end", "source": "demanda", "target": "end", "label": "", "type": "workflow" }
+    ]
+  },
+  "node_roles": [
+    { "node_id": "borrador", "role_name": "registrador", "can_edit": true, "can_approve": true, "can_reject": false, "required_fields": ["descripcion", "pilar_estrategico", "institucion"] },
+    { "node_id": "borrador", "role_name": "admin", "can_edit": true, "can_approve": true, "can_reject": false, "required_fields": [] },
+    { "node_id": "pendiente", "role_name": "bp_ti", "can_edit": false, "can_approve": true, "can_reject": true, "required_fields": [] },
+    { "node_id": "pendiente", "role_name": "admin", "can_edit": false, "can_approve": true, "can_reject": true, "required_fields": [] },
+    { "node_id": "observada", "role_name": "registrador", "can_edit": true, "can_approve": true, "can_reject": false, "required_fields": [] },
+    { "node_id": "observada", "role_name": "bp_ti", "can_edit": true, "can_approve": false, "can_reject": false, "required_fields": [] },
+    { "node_id": "desestimada", "role_name": "bp_ti", "can_edit": false, "can_approve": true, "can_reject": false, "required_fields": [] },
+    { "node_id": "desestimada", "role_name": "admin", "can_edit": false, "can_approve": true, "can_reject": false, "required_fields": [] }
+  ],
+  "transitions": [
+    { "edge_id": "e-borrador-pendiente", "label": "Enviar a aprobacion", "source_node_id": "borrador", "target_node_id": "pendiente", "condition_type": "field_required", "condition_config": {} },
+    { "edge_id": "e-gw_vobo-demanda", "label": "Aprobar (sin VoBo o VoBo correcto)", "source_node_id": "gw_vobo", "target_node_id": "demanda", "condition_type": "vobo_check", "condition_config": {} },
+    { "edge_id": "e-gw_vobo-observada", "label": "Observar / VoBo incorrecto", "source_node_id": "gw_vobo", "target_node_id": "observada", "condition_type": "always", "condition_config": {} },
+    { "edge_id": "e-gw_vobo-desestimada", "label": "Desestimar", "source_node_id": "gw_vobo", "target_node_id": "desestimada", "condition_type": "role_only", "condition_config": {} },
+    { "edge_id": "e-observada-pendiente", "label": "Reenviar (Key user)", "source_node_id": "observada", "target_node_id": "pendiente", "condition_type": "always", "condition_config": {} },
+    { "edge_id": "e-desestimada-pendiente", "label": "Rescatar -> Nueva", "source_node_id": "desestimada", "target_node_id": "pendiente", "condition_type": "always", "condition_config": {} },
+    { "edge_id": "e-desestimada-demanda", "label": "Rescatar -> Demanda", "source_node_id": "desestimada", "target_node_id": "demanda", "condition_type": "always", "condition_config": {} }
+  ]
+}

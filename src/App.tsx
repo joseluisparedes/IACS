@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2, FileText, Network, Building2 } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2, FileText, Network, Building2, Workflow, Play } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
@@ -16,11 +16,13 @@ import EmailLogs from './pages/EmailLogs';
 import BulkUpload from './pages/BulkUpload';
 import StateFlow from './pages/StateFlow';
 import C4Architecture from './pages/C4Architecture';
+import WorkflowEditor from './pages/WorkflowEditor';
+import WorkflowSimulator from './pages/WorkflowSimulator';
 import MaintenanceScreen from './components/MaintenanceScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
 
-const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura', '/admin/pdf-template'];
+const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura', '/admin/pdf-template', '/admin/workflow-editor', '/admin/workflow-simulator'];
 
 function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -174,6 +176,8 @@ function Layout({ children }: { children: React.ReactNode }) {
     {
       name: 'Personalización de Datos',
       items: [
+        { name: 'Editor de Flujos', path: '/admin/workflow-editor', icon: Workflow },
+        { name: 'Simulador de Flujos', path: '/admin/workflow-simulator', icon: Play },
         { name: 'Flujo de Estados', path: '/admin/flujo-estados', icon: GitBranch },
         { name: 'Campos del Formulario', path: '/admin', icon: Settings2 },
         { name: 'Plantilla PDF', path: '/admin/pdf-template', icon: FileText },
@@ -807,6 +811,9 @@ export default function App() {
           <Route path="/admin/correos" element={<ProtectedRoute><AdminRoute><EmailLogs /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/cargas-masivas" element={<ProtectedRoute><AdminRoute><BulkUpload /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/flujo-estados" element={<ProtectedRoute><AdminRoute><StateFlow /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/workflow-editor" element={<ProtectedRoute><AdminRoute><WorkflowEditor /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/workflow-editor/:id" element={<ProtectedRoute><AdminRoute><WorkflowEditor /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/workflow-simulator" element={<ProtectedRoute><AdminRoute><WorkflowSimulator /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/arquitectura" element={<ProtectedRoute><AdminRoute><C4Architecture /></AdminRoute></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>

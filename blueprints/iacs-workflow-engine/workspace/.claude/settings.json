@@ -1,0 +1,23 @@
+﻿{
+  "allowedCommands": [
+    "npm run dev",
+    "npm run lint",
+    "npm run build",
+    "npm start",
+    "npm install",
+    "npm show",
+    "node seed_workflow.mjs",
+    "npx supabase db push",
+    "npx supabase db execute",
+    "curl",
+    "test",
+    "grep",
+    "ls",
+    "cat",
+    "kill",
+    "git add",
+    "git commit",
+    "git tag",
+    "git status"
+  ]
+}

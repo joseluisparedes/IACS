@@ -1,0 +1,31 @@
+﻿{
+  "project": "IACS Workflow Engine",
+  "blueprint": "blueprints/iacs-workflow-engine/blueprint.md",
+  "total_steps": 16,
+  "steps": [
+    { "id": 1, "slug": "workflow-db-schema", "title": "Migración de base de datos", "status": "done", "tag": "step-01-workflow-db-schema" },
+    { "id": 2, "slug": "workflow-types-engine", "title": "Tipos TypeScript y workflowEngine base", "status": "done", "tag": "step-02-workflow-types-engine" },
+    { "id": 3, "slug": "workflow-seed-legacy", "title": "Seed del flujo canónico IACS v1_legacy", "status": "done", "tag": "step-03-workflow-seed-legacy" },
+    { "id": 4, "slug": "workflow-api-endpoints", "title": "Endpoints REST /api/workflow/* en server.ts", "status": "done", "tag": "step-04-workflow-api-endpoints" },
+    { "id": 5, "slug": "workflow-canvas-nodes", "title": "Componentes de nodo del canvas (5 tipos)", "status": "done", "tag": "step-05-workflow-canvas-nodes" },
+    { "id": 6, "slug": "workflow-store-panels", "title": "WorkflowStore (Zustand), Toolbar y ConfigPanel", "status": "done", "tag": "step-06-workflow-store-panels" },
+    { "id": 7, "slug": "xyflow-install-versionbar", "title": "Instalación @xyflow/react y WorkflowVersionBar", "status": "done", "tag": "step-07-xyflow-install-versionbar" },
+    { "id": 8, "slug": "workflow-editor-canvas", "title": "WorkflowEditor — página principal del canvas", "status": "done", "tag": "step-08-workflow-editor-canvas" },
+    { "id": 9, "slug": "app-routing-workflow", "title": "Routing en App.tsx", "status": "done", "tag": "step-09-app-routing-workflow" },
+    { "id": 10, "slug": "role-assignment-table", "title": "RoleAssignmentTable — gestión de usuarios por rol", "status": "done", "tag": "step-10-role-assignment-table" },
+    { "id": 11, "slug": "workflow-simulator", "title": "WorkflowSimulator — sandbox de pruebas", "status": "done", "tag": "step-11-workflow-simulator" },
+    { "id": 12, "slug": "stateflow-dynamic-view", "title": "StateFlow.tsx — vista dinámica del flujo activo", "status": "done", "tag": "step-12-stateflow-dynamic-view" },
+    { "id": 13, "slug": "workflow-engine-integration", "title": "WorkflowEngine en InitiativeDetail.tsx", "status": "done", "tag": "step-13-workflow-engine-integration" },
+    { "id": 14, "slug": "server-workflow-node-tracking", "title": "PATCH /api/initiatives/:id con current_node_id", "status": "done", "tag": "step-14-server-workflow-node-tracking" },
+    { "id": 15, "slug": "production-build-verification", "title": "Build de producción y verificación E2E", "status": "done", "tag": "step-15-production-build-verification" },
+    { "id": 16, "slug": "docs-cleanup", "title": "Documentación y cleanup", "status": "done", "tag": "step-16-docs-cleanup" }
+  ],
+  "next_step": null,
+  "bootstrap_commands": [
+    "npm show zustand version",
+    "npm install zustand",
+    "npm install @xyflow/react",
+    "npx supabase db push",
+    "node seed_workflow.mjs"
+  ]
+}

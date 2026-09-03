@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IACS — Arquitectura de Alto Nivel (The Architect)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    code, pre { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased selection:bg-indigo-500 selection:text-white p-4 md:p-10">
+
+  <!-- HEADER EMPRESARIAL -->
+  <header class="max-w-7xl mx-auto mb-10 bg-slate-900/80 backdrop-blur border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+    <div class="space-y-2">
+      <div class="flex items-center gap-3">
+        <span class="px-3 py-1 bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-xs font-bold rounded-full uppercase tracking-wider">
+          The Architect Framework · C4 Model
+        </span>
+        <span class="px-3 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold rounded-full">
+          Versión de Producción
+        </span>
+      </div>
+      <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
+        Arquitectura del Sistema <span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400">IACS</span>
+      </h1>
+      <p class="text-slate-400 text-sm max-w-2xl">
+        Iniciativas y Asistencia Cognitiva de Software (Laureate Perú). Documento técnico ejecutivo para el Comité de Arquitectura Corporativa.
+      </p>
+    </div>
+
+    <div class="flex items-center gap-4 bg-slate-800/60 p-4 rounded-2xl border border-slate-700/60">
+      <div class="text-right">
+        <div class="text-xs font-semibold text-slate-400">Estado de Operación</div>
+        <div class="text-sm font-bold text-emerald-400 flex items-center justify-end gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Multi-LLM Resilient
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ESQUEMA VISUAL EN 4 NIVELES -->
+  <main class="max-w-7xl mx-auto space-y-8">
+
+    <!-- TIER 1: ACTORES Y CANALES -->
+    <section class="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-xl">
+      <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-black text-sm border border-blue-500/30">1</div>
+          <h2 class="text-lg font-bold text-white tracking-wide">CAPA DE CANALES Y ACTORES (L1)</h2>
+        </div>
+        <span class="text-xs font-semibold text-slate-400 uppercase">Canal: HTTPS / Web Browser</span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <!-- Rol 1 -->
+        <div class="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-5 hover:border-indigo-500/50 transition duration-200">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="p-2.5 bg-blue-600/20 text-blue-400 rounded-xl">👤</div>
+            <div>
+              <h3 class="font-bold text-white text-base">Key User / Solicitante</h3>
+              <p class="text-xs text-slate-400">Directores, Jefes, VPs</p>
+            </div>
+          </div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Plantea iniciativas de negocio mediante diálogo natural guiado con <strong>Teo</strong> o formulario estructurado.
+          </p>
+        </div>
+
+        <!-- Rol 2 -->
+        <div class="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-5 hover:border-indigo-500/50 transition duration-200">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="p-2.5 bg-purple-600/20 text-purple-400 rounded-xl">👔</div>
+            <div>
+              <h3 class="font-bold text-white text-base">Business Partner TI</h3>
+              <p class="text-xs text-slate-400">Evaluador Técnico & Funcional</p>
+            </div>
+          </div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Revisa viabilidad, formula observaciones con trazabilidad y otorga el <strong>VoBo de Aprobación</strong> a "En Demanda".
+          </p>
+        </div>
+
+        <!-- Rol 3 -->
+        <div class="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-5 hover:border-indigo-500/50 transition duration-200">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="p-2.5 bg-emerald-600/20 text-emerald-400 rounded-xl">🛡️</div>
+            <div>
+              <h3 class="font-bold text-white text-base">Administrador TI</h3>
+              <p class="text-xs text-slate-400">Gobernanza & Roles</p>
+            </div>
+          </div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Administra matriz RBAC por VP, campos dinámicos sin programar código y bitácoras de entrenamiento de IA.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONECTOR -->
+    <div class="flex justify-center -my-3">
+      <div class="px-4 py-1.5 bg-indigo-950 text-indigo-400 border border-indigo-800/60 rounded-full text-xs font-mono font-bold shadow-lg flex items-center gap-2">
+        <span>↓</span> HTTPS Web Traffic / JWT Sessions <span>↓</span>
+      </div>
+    </div>
+
+    <!-- TIER 2: CAPA DE PRESENTACIÓN (SPA) -->
+    <section class="bg-slate-900/90 border border-indigo-900/50 rounded-3xl p-6 md:p-8 shadow-xl">
+      <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-black text-sm border border-indigo-500/30">2</div>
+          <h2 class="text-lg font-bold text-white tracking-wide">CAPA DE PRESENTACIÓN (FRONTEND SPA)</h2>
+        </div>
+        <span class="text-xs font-mono font-bold text-indigo-400 bg-indigo-950/60 px-3 py-1 rounded-lg border border-indigo-800/60">
+          React 19 · Vite · TypeScript · Tailwind CSS
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-4">
+          <div class="text-indigo-400 font-bold text-sm mb-1">🤖 Asistente Teo</div>
+          <p class="text-xs text-slate-300">Chat cognitivo guiado, reconocimiento de voz (STT) y completitud inteligente.</p>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-4">
+          <div class="text-indigo-400 font-bold text-sm mb-1">📝 Formulario Dinámico</div>
+          <p class="text-xs text-slate-300">Metamodelo de campos configurable en caliente con validaciones en tiempo real.</p>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-4">
+          <div class="text-indigo-400 font-bold text-sm mb-1">📊 Tablero Kanban</div>
+          <p class="text-xs text-slate-300">Máquina de estados (Borrador ➔ Pendiente ➔ Observada ➔ En Demanda).</p>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-4">
+          <div class="text-indigo-400 font-bold text-sm mb-1">📄 Plantillas PDF</div>
+          <p class="text-xs text-slate-300">Generación y exportación de actas ejecutivas y resúmenes de visto bueno.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONECTOR -->
+    <div class="flex justify-center -my-3">
+      <div class="px-4 py-1.5 bg-emerald-950 text-emerald-400 border border-emerald-800/60 rounded-full text-xs font-mono font-bold shadow-lg flex items-center gap-2">
+        <span>↓</span> REST API / JSON + JWT Bearer Validation <span>↓</span>
+      </div>
+    </div>
+
+    <!-- TIER 3: CAPA DE APLICACIÓN Y GATEWAY -->
+    <section class="bg-slate-900/90 border border-emerald-900/50 rounded-3xl p-6 md:p-8 shadow-xl">
+      <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-sm border border-emerald-500/30">3</div>
+          <h2 class="text-lg font-bold text-white tracking-wide">CAPA DE APLICACIÓN Y GATEWAY (BACKEND)</h2>
+        </div>
+        <span class="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-3 py-1 rounded-lg border border-emerald-800/60">
+          Node.js · Express · TypeScript Engine
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div class="bg-slate-800/70 border border-slate-700/70 rounded-2xl p-5">
+          <div class="font-bold text-emerald-400 text-sm mb-2 flex items-center gap-2">
+            <span>🛡️</span> Seguridad & Guardarrieles
+          </div>
+          <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+            <li>16+ Guardarrieles corporativos inyectables</li>
+            <li>Inyección de contexto temporal dinámico</li>
+            <li>Protección contra Prompt Injection</li>
+          </ul>
+        </div>
+
+        <div class="bg-slate-800/70 border border-slate-700/70 rounded-2xl p-5">
+          <div class="font-bold text-emerald-400 text-sm mb-2 flex items-center gap-2">
+            <span>🔀</span> Resiliencia Multi-LLM
+          </div>
+          <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+            <li>Timeout estricto de 3s en inferencia</li>
+            <li>Failover automático a Groq LPU</li>
+            <li>Fallback heurístico local sin caídas</li>
+          </ul>
+        </div>
+
+        <div class="bg-slate-800/70 border border-slate-700/70 rounded-2xl p-5">
+          <div class="font-bold text-emerald-400 text-sm mb-2 flex items-center gap-2">
+            <span>📄</span> Extracción de Archivos
+          </div>
+          <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+            <li>Procesamiento PDF (<code class="text-slate-400">pdf-parse</code>)</li>
+            <li>Procesamiento Word (<code class="text-slate-400">mammoth</code>)</li>
+            <li>Cargas masivas Excel (<code class="text-slate-400">xlsx</code>)</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONECTOR -->
+    <div class="flex justify-center -my-3">
+      <div class="px-4 py-1.5 bg-purple-950 text-purple-400 border border-purple-800/60 rounded-full text-xs font-mono font-bold shadow-lg flex items-center gap-2">
+        <span>↓</span> Inferencia IA / SQL Transaccional / Notificaciones <span>↓</span>
+      </div>
+    </div>
+
+    <!-- TIER 4: SERVICIOS EXTERNOS Y PERSISTENCIA -->
+    <section class="bg-slate-900/90 border border-purple-900/50 rounded-3xl p-6 md:p-8 shadow-xl">
+      <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-black text-sm border border-purple-500/30">4</div>
+          <h2 class="text-lg font-bold text-white tracking-wide">SERVICIOS DE IA, PERSISTENCIA E INTEGRACIÓN</h2>
+        </div>
+        <span class="text-xs font-semibold text-slate-400 uppercase">Capa Especializada</span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
+        <!-- IA Primaria -->
+        <div class="bg-purple-950/40 border border-purple-800/60 rounded-2xl p-4">
+          <div class="text-xs font-bold text-purple-400 uppercase mb-1">⭐ Inferencia Primaria</div>
+          <div class="font-bold text-white text-sm mb-2">Google Gemini 2.0 Flash</div>
+          <p class="text-xs text-slate-300">Diálogo cognitivo, síntesis formal en infinitivo y objetivos estratégicos.</p>
+        </div>
+
+        <!-- IA Respaldo -->
+        <div class="bg-amber-950/40 border border-amber-800/60 rounded-2xl p-4">
+          <div class="text-xs font-bold text-amber-400 uppercase mb-1">⚡ Inferencia Respaldo</div>
+          <div class="font-bold text-white text-sm mb-2">Groq LLaMA 3.3 70B</div>
+          <p class="text-xs text-slate-300">Respaldo de ultra-alta velocidad (sub-segundo) en caso de saturación o HTTP 429.</p>
+        </div>
+
+        <!-- Base de Datos -->
+        <div class="bg-teal-950/40 border border-teal-800/60 rounded-2xl p-4">
+          <div class="text-xs font-bold text-teal-400 uppercase mb-1">🛢️ Persistencia & RLS</div>
+          <div class="font-bold text-white text-sm mb-2">PostgreSQL 15+ (Supabase)</div>
+          <p class="text-xs text-slate-300">Aislamiento por Vicepresidencia mediante <strong>Row-Level Security (RLS)</strong>.</p>
+        </div>
+
+        <!-- Notificaciones -->
+        <div class="bg-blue-950/40 border border-blue-800/60 rounded-2xl p-4">
+          <div class="text-xs font-bold text-blue-400 uppercase mb-1">📨 Integración Correo</div>
+          <div class="font-bold text-white text-sm mb-2">Microsoft 365 (SMTP)</div>
+          <p class="text-xs text-slate-300">Despacho asíncrono con bitácora inalterable de auditoría (<code class="text-slate-400">email_logs</code>).</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TABLA COMPARATIVA DE DECISIONES DE ARQUITECTURA -->
+    <section class="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 md:p-8">
+      <h3 class="text-lg font-bold text-white mb-4">Principales Atributos No Funcionales</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-800/80 text-slate-300 uppercase font-semibold">
+            <tr>
+              <th class="p-3.5 rounded-l-xl">Atributo</th>
+              <th class="p-3.5">Mecanismo de Implementación</th>
+              <th class="p-3.5 rounded-r-xl">Garantía para TI</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800 text-slate-300">
+            <tr>
+              <td class="p-3.5 font-bold text-white">Disponibilidad de IA</td>
+              <td class="p-3.5">Cascada Gemini 2.0 ➔ Groq LLaMA 3.3 ➔ Fallback Local</td>
+              <td class="p-3.5 text-emerald-400">Cero caídas por límites de cuota o indisponibilidad de API.</td>
+            </tr>
+            <tr>
+              <td class="p-3.5 font-bold text-white">Aislamiento de Datos</td>
+              <td class="p-3.5">Políticas de PostgreSQL Row-Level Security (RLS) por Vicepresidencia</td>
+              <td class="p-3.5 text-emerald-400">Ningún área accede a iniciativas ajenas a nivel de motor DB.</td>
+            </tr>
+            <tr>
+              <td class="p-3.5 font-bold text-white">Mantenibilidad de Esquema</td>
+              <td class="p-3.5">Metamodelo dinámico en tabla <code class="text-slate-400">initiative_fields</code></td>
+              <td class="p-3.5 text-emerald-400">Modificación de campos y listas sin despliegues de código.</td>
+            </tr>
+            <tr>
+              <td class="p-3.5 font-bold text-white">Trazabilidad y Auditoría</td>
+              <td class="p-3.5">Historial inmutable de observaciones y bitácora de correos</td>
+              <td class="p-3.5 text-emerald-400">Auditoría 100% verificable para cumplimiento corporativo.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="max-w-7xl mx-auto mt-10 text-center text-xs text-slate-500 pb-10">
+    IACS Architecture Overview · Desarrollado bajo The Architect Framework · Laureate Perú 2026
+  </footer>
+
+</body>
+</html>
