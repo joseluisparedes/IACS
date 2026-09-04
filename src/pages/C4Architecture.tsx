@@ -4,7 +4,7 @@ import {
   ArrowRight, ArrowDown, ArrowUpRight, GitBranch, Settings, Info, 
   CheckCircle2, Shield, ShieldCheck, Zap, Activity, Cpu, Lock, 
   Network, Search, ExternalLink, HardDrive, RefreshCw, Key, 
-  FileCheck, HelpCircle, ChevronRight, Eye, AlertTriangle, Cloud
+  FileCheck, HelpCircle, ChevronRight, Eye, AlertTriangle, Cloud, Sparkles
 } from 'lucide-react';
 
 type C4Level = 'context' | 'container' | 'component' | 'dependencies';
@@ -132,15 +132,15 @@ const ARCHITECTURE_DATA: Record<string, ComponentDetail> = {
     summary: 'Servidor de backend que aloja la lógica de negocio protegida, ejecuta los guardarrieles de IA, procesa adjuntos y sirve como proxy seguro ante los LLMs.',
     responsibilities: [
       'Exponer endpoints protegidos con autenticación JWT Bearer y control RBAC',
-      'Ejecutar la cascada de modelos de IA (Gemini 2.0 -> Groq LLaMA-3.3-70B -> Fallback local)',
-      'Extraer y sanitizar texto de archivos adjuntos (PDF/DOCX/TXT) previniendo Prompt Injection',
+      'Ejecutar la cascada de modelos de IA (Azure OpenAI GPT-5.1 -> Gemini 3.6 -> Groq LLaMA-3.3)',
+      'Extraer y sanitizar texto e imágenes de arquitectura (PDF/DOCX/PNG) mediante visión y NLP',
       'Despachar notificaciones transaccionales y registrar trazas de auditoría'
     ],
-    dependsOn: ['ext-supabase-db', 'ext-supabase-storage', 'ext-gemini', 'ext-groq', 'ext-smtp'],
+    dependsOn: ['ext-supabase-db', 'ext-supabase-storage', 'ext-azure-openai', 'ext-gemini', 'ext-groq', 'ext-smtp'],
     dependedBy: ['container-spa'],
     protocol: 'HTTPS REST / JSON',
     criticality: 'Crítica',
-    resilienceStrategy: 'Cascada multi-modelo con timeout estricto de 3s y fallback estructurado libre de caídas.'
+    resilienceStrategy: 'Cascada multi-tier con Azure OpenAI primario, Gemini y Groq como fallbacks resilientes.'
   },
   'ext-supabase-db': {
     id: 'ext-supabase-db',
@@ -197,27 +197,46 @@ const ARCHITECTURE_DATA: Record<string, ComponentDetail> = {
     criticality: 'Alta',
     resilienceStrategy: 'Almacenamiento distribuido redundante con fallback a Base64 en contingencia.'
   },
+  'ext-azure-openai': {
+    id: 'ext-azure-openai',
+    name: 'Motor Primario Empresarial (Azure OpenAI GPT-5.1)',
+    category: 'ai',
+    tech: 'Azure OpenAI Service (Deployment: gpt-5.1-pruebas / GPT-5.1)',
+    level: 'L2',
+    summary: 'Proveedor cognitivo principal empresarial de alta velocidad para diálogo con Teo, comprensión visual de diagramas de arquitectura y estructuración de iniciativas.',
+    responsibilities: [
+      'Diálogo analítico y cuestionamiento socrático con el solicitante de la iniciativa',
+      'Visión multimodal: interpretación de diagramas de arquitectura (PNG/JPG) y flujos BPMN',
+      'Segmentación semántica de políticas institucionales para la Base de Conocimiento',
+      'Evaluación lógica de compuertas y transiciones en el motor de workflows'
+    ],
+    dependsOn: [],
+    dependedBy: ['container-api'],
+    protocol: 'HTTPS / Azure Cognitive Services REST API',
+    criticality: 'Crítica',
+    resilienceStrategy: 'Conmutación automática e instantánea a Google Gemini y Groq ante fallos de red o saturación.'
+  },
   'ext-gemini': {
     id: 'ext-gemini',
-    name: 'Motor Primario de IA Cognitiva (Google Gemini API)',
+    name: 'Motor Secundario & STT (Google Gemini API)',
     category: 'ai',
-    tech: 'Google GenAI SDK (Gemini 2.0 Flash / Gemini 1.5 Flash)',
+    tech: 'Google GenAI SDK (Gemini 3.6 Flash / Gemini 2.0 Flash)',
     level: 'L2',
-    summary: 'Proveedor primario de procesamiento de lenguaje natural para el diálogo con Teo, estructuración de objetivos y síntesis de iniciativas.',
+    summary: 'Proveedor secundario de procesamiento cognitivo y motor dedicado de Speech-to-Text para notas de voz del micrófono.',
     responsibilities: [
-      'Mantener conversación contextual en lenguaje de negocio con el solicitante',
-      'Redactar títulos formales en infinitivo y objetivos alineados a metas estratégicas',
-      'Sintetizar la iniciativa completa en JSON estructurado al finalizar el levantamiento'
+      'Transcripción de notas de voz capturadas con el micrófono en la interfaz',
+      'Respaldo multimodal secundario para visión y segmentación de documentos',
+      'Asumir inferencias en caso de indisponibilidad temporal del motor primario'
     ],
     dependsOn: [],
     dependedBy: ['container-api'],
     protocol: 'HTTPS / Google API v1beta',
     criticality: 'Alta',
-    resilienceStrategy: 'Conmutación instantánea a Groq en caso de timeout (>3000ms) o saturación de cuota (HTTP 429).'
+    resilienceStrategy: 'Fallback continuo a Groq LLaMA 3.3 en caso de saturación o límite de tasa.'
   },
   'ext-groq': {
     id: 'ext-groq',
-    name: 'Motor Secundario de IA (Groq Cloud LLaMA 3.3)',
+    name: 'Motor Terciario de Alta Velocidad (Groq Cloud LLaMA 3.3)',
     category: 'ai',
     tech: 'Groq LPU Inference (LLaMA-3.3-70B-Versatile / 8B-Instant)',
     level: 'L2',
@@ -465,11 +484,11 @@ export default function C4Architecture() {
 
         <div className="bg-white p-4.5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3.5">
           <div className="w-11 h-11 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-black text-lg shrink-0">
-            2
+            3
           </div>
           <div>
-            <span className="text-xs font-bold text-slate-800 block">Motores de IA Dual</span>
-            <span className="text-[11px] text-slate-500 font-medium">Gemini 2.0 Flash + Groq LLaMA-3.3</span>
+            <span className="text-xs font-bold text-slate-800 block">Arquitectura Multi-LLM</span>
+            <span className="text-[11px] text-slate-500 font-medium">Azure GPT-5.1 + Gemini + Groq</span>
           </div>
         </div>
 
@@ -585,8 +604,8 @@ export default function C4Architecture() {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
                     {[
                       { id: 'ext-supabase-db', name: 'Supabase DB', sub: 'PostgreSQL + RLS', icon: Database, color: 'text-teal-600' },
-                      { id: 'ext-gemini', name: 'Gemini 2.0', sub: 'Motor IA Primario', icon: Brain, color: 'text-indigo-600' },
-                      { id: 'ext-groq', name: 'Groq LLaMA', sub: 'Respaldo de IA', icon: Zap, color: 'text-purple-600' },
+                      { id: 'ext-azure-openai', name: 'Azure OpenAI', sub: 'GPT-5.1 Primario', icon: Brain, color: 'text-indigo-600' },
+                      { id: 'ext-gemini', name: 'Google Gemini', sub: 'Respaldo & STT', icon: Sparkles, color: 'text-purple-600' },
                       { id: 'ext-smtp', name: 'Servicio SMTP', sub: 'Alertas por Correo', icon: Mail, color: 'text-amber-600' },
                     ].map(ext => (
                       <button
@@ -689,11 +708,11 @@ export default function C4Architecture() {
                     </div>
                   </button>
 
-                  {/* Container: Dual AI */}
+                  {/* Container: Multi-Tier AI */}
                   <button
-                    onClick={() => setSelectedNodeId('ext-gemini')}
+                    onClick={() => setSelectedNodeId('ext-azure-openai')}
                     className={`p-5 rounded-2xl border text-left transition-all ${
-                      selectedNodeId === 'ext-gemini' || selectedNodeId === 'ext-groq'
+                      selectedNodeId === 'ext-azure-openai' || selectedNodeId === 'ext-gemini' || selectedNodeId === 'ext-groq'
                         ? 'border-indigo-500 bg-indigo-50/50 ring-2 ring-indigo-400/20 shadow-md' 
                         : 'border-slate-200 bg-white hover:border-indigo-200 shadow-sm'
                     }`}
@@ -706,12 +725,12 @@ export default function C4Architecture() {
                         Cognitive Engine
                       </span>
                     </div>
-                    <h3 className="text-sm font-black text-slate-900">Dual Model AI Ingestion</h3>
+                    <h3 className="text-sm font-black text-slate-900">Azure OpenAI GPT-5.1 (Primary Engine)</h3>
                     <p className="text-xs text-slate-500 mt-1 font-normal leading-relaxed">
-                      Gemini 2.0 Flash + Groq LLaMA-3.3-70B con tolerancia a fallos y fallback local.
+                      Motor principal empresarial para diálogo con Teo y visión de diagramas, con failover a Gemini y Groq.
                     </p>
                     <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                      <span className="text-slate-500 font-medium">Tech: Google GenAI / Groq SDK</span>
+                      <span className="text-slate-500 font-medium">Tech: Azure OpenAI / Google GenAI / Groq</span>
                       <span className="font-bold text-indigo-600 flex items-center gap-1">Inspeccionar <ChevronRight className="w-3.5 h-3.5" /></span>
                     </div>
                   </button>

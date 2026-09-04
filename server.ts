@@ -159,14 +159,65 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 );
 
-// ─── Gemini AI Client ──────────────────────────────────────────────────────
+// ─── Azure OpenAI Client (Primary Enterprise Engine: GPT-5.1) ───────────────
+const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT || "https://otros-project-resource.cognitiveservices.azure.com/";
+const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY || "";
+const AZURE_OPENAI_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-5.1-pruebas";
+const AZURE_OPENAI_API_VERSION = process.env.AZURE_OPENAI_API_VERSION || "2024-12-01-preview";
+
+function isAzureConfigured(): boolean {
+  return Boolean(AZURE_OPENAI_ENDPOINT && AZURE_OPENAI_API_KEY && AZURE_OPENAI_DEPLOYMENT);
+}
+
+let _azureCooldownUntil = 0;
+
+async function callAzureOpenAI(
+  messages: Array<{ role: string; content: any }>,
+  options: { maxTokens?: number; temperature?: number; jsonFormat?: boolean; timeoutMs?: number } = {}
+): Promise<string> {
+  const timeoutMs = options.timeoutMs || 20000;
+  const url = `${AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '')}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`;
+  
+  const body: any = {
+    messages,
+    max_completion_tokens: options.maxTokens || 4096,
+    temperature: options.temperature ?? 0.2,
+  };
+  if (options.jsonFormat) {
+    body.response_format = { type: "json_object" };
+  }
+
+  const response = await withTimeout(
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "api-key": AZURE_OPENAI_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    }),
+    timeoutMs
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Azure OpenAI error (${response.status}): ${errorText.substring(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("Azure OpenAI returned empty response choices");
+  return content;
+}
+
+// ─── Gemini AI Client (Secondary Fallback) ──────────────────────────────────
 let _genAI: GoogleGenAI | null = null;
 function getGenAI() {
   if (!_genAI) _genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   return _genAI;
 }
 
-// ─── Groq AI Client (fallback) ────────────────────────────────────────────
+// ─── Groq AI Client (Tertiary Fallback) ────────────────────────────────────
 let _groq: Groq | null = null;
 function getGroq(): Groq | null {
   if (!process.env.GROQ_API_KEY) return null;
@@ -174,13 +225,14 @@ function getGroq(): Groq | null {
   return _groq;
 }
 
-// ─── Unified AI JSON Call with Multi-Model Auto-Fallback Cascade ─────────────
-// Tries Gemini 2.0 Flash first. If quota/rate limit is reached, cascades through
-// Groq models (llama-3.3-70b-versatile -> llama-3.1-8b-instant) seamlessly.
+// ─── Unified AI JSON Call with Multi-Tier Enterprise Cascade ────────────────
+// Tier 1: Azure OpenAI (GPT-5.1 enterprise deployment)
+// Tier 2: Google Gemini (gemini-3.6-flash / 2.5 / 2.0)
+// Tier 3: Groq multi-model cascade (LLaMA-3.3-70B, etc.)
 let _geminiCooldownUntil = 0;
 let _groqCooldownUntil = 0;
 
-function withTimeout<T>(promise: Promise<T>, ms: number = 3000): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number = 20000): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`AI Call Timeout (${ms}ms)`)), ms);
     promise
@@ -192,33 +244,55 @@ function withTimeout<T>(promise: Promise<T>, ms: number = 3000): Promise<T> {
 async function callAIForJSON(prompt: string): Promise<string> {
   const now = Date.now();
 
-  // 1. Try Gemini models cascade (if not in 60s rate-limit cooldown)
-  if (now > _geminiCooldownUntil) {
+  // 1. Primary Enterprise Engine: Azure OpenAI (GPT-5.1)
+  if (isAzureConfigured() && now > _azureCooldownUntil) {
+    try {
+      console.log(`[AI Primary] Calling Azure OpenAI (${AZURE_OPENAI_DEPLOYMENT})...`);
+      const content = await callAzureOpenAI(
+        [
+          { role: "system", content: "Eres un asistente de IA experto en análisis de procesos y negocios de TI. Responde estrictamente en formato JSON." },
+          { role: "user", content: prompt }
+        ],
+        { jsonFormat: true, timeoutMs: 20000 }
+      );
+      if (content && content.trim()) return content;
+    } catch (azureErr: any) {
+      const msg = azureErr?.message || String(azureErr);
+      console.warn("[AI Primary] Azure OpenAI failed:", msg.substring(0, 150));
+      if (msg.includes("429") || msg.includes("Rate limit") || msg.includes("quota")) {
+        _azureCooldownUntil = Date.now() + 60000;
+        console.warn("[AI Cooldown] Azure OpenAI rate-limited. Setting 60s cooldown.");
+      }
+    }
+  }
+
+  // 2. Secondary Fallback: Gemini models cascade (if not in cooldown)
+  if (now > _geminiCooldownUntil && process.env.GEMINI_API_KEY) {
     const geminiModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
     for (const model of geminiModels) {
       try {
-        console.log(`[AI Call] Trying Gemini model: ${model}...`);
+        console.log(`[AI Fallback] Trying Gemini model: ${model}...`);
         const response = await withTimeout(
           getGenAI().models.generateContent({
             model,
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             config: { responseMimeType: "application/json" }
           }),
-          3000
+          15000
         );
         if (response && response.text) return response.text;
       } catch (geminiErr: any) {
         const msg = geminiErr?.message || String(geminiErr);
-        console.warn(`[AI Call] Gemini model ${model} failed:`, msg.substring(0, 120));
+        console.warn(`[AI Fallback] Gemini model ${model} failed:`, msg.substring(0, 120));
         if (msg.includes("429") || msg.includes("quota") || msg.includes("RESOURCE_EXHAUSTED")) {
-          _geminiCooldownUntil = Date.now() + 60000; // 60 seconds cooldown
+          _geminiCooldownUntil = Date.now() + 60000;
           console.warn("[AI Cooldown] Gemini rate-limited. Setting 60s cooldown.");
           break;
         }
       }
     }
   } else {
-    console.log("[AI Call] Skipping Gemini (Rate-limit 60s cooldown active).");
+    console.log("[AI Call] Skipping Gemini fallback.");
   }
 
   // 2. Try Groq multi-model cascade (if not in 60s rate-limit cooldown)
@@ -362,6 +436,7 @@ function buildSystemPrompt(training: any[]): string {
 }
 
 function isApiKeyConfigured(): boolean {
+  if (isAzureConfigured()) return true;
   const key = process.env.GEMINI_API_KEY;
   return !!key && key !== "MY_GEMINI_API_KEY" && key.trim() !== "";
 }
@@ -1616,45 +1691,74 @@ Debes responder estrictamente en formato JSON con la siguiente estructura:
   "totalChunks": 1
 }`;
 
-        const genAI = getGenAI();
-        const visionModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
         let visionResponseText = "";
 
-        for (const model of visionModels) {
+        // 1. Primary: Azure OpenAI GPT-5.1 Vision
+        if (isAzureConfigured()) {
           try {
-            console.log(`[AI Vision] Analyzing diagram with ${model}...`);
-            const response = await withTimeout(
-              genAI.models.generateContent({
-                model,
-                contents: [
-                  {
-                    role: "user",
-                    parts: [
-                      { text: visionPrompt },
-                      {
-                        inlineData: {
-                          mimeType: mime || "image/png",
-                          data: base64Data
-                        }
-                      }
-                    ]
-                  }
-                ],
-                config: { responseMimeType: "application/json" }
-              }),
-              20000 // 20s timeout for vision analysis
+            console.log(`[AI Vision Primary] Analyzing diagram with Azure OpenAI (${AZURE_OPENAI_DEPLOYMENT})...`);
+            const cleanMime = mime && ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mime) ? mime : 'image/png';
+            const content = await callAzureOpenAI(
+              [
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: visionPrompt },
+                    { type: "image_url", image_url: { url: `data:${cleanMime};base64,${base64Data}` } }
+                  ]
+                }
+              ],
+              { jsonFormat: true, timeoutMs: 25000 }
             );
-            if (response && response.text) {
-              visionResponseText = response.text;
-              break;
+            if (content) {
+              visionResponseText = content;
             }
-          } catch (vErr: any) {
-            console.warn(`[AI Vision] Model ${model} failed:`, vErr?.message || vErr);
+          } catch (azureVisErr: any) {
+            console.warn("[AI Vision Primary] Azure OpenAI Vision failed, falling back to Gemini:", azureVisErr?.message);
+          }
+        }
+
+        // 2. Secondary Fallback: Gemini Vision
+        if (!visionResponseText && process.env.GEMINI_API_KEY) {
+          const genAI = getGenAI();
+          const visionModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+
+          for (const model of visionModels) {
+            try {
+              console.log(`[AI Vision Fallback] Analyzing diagram with ${model}...`);
+              const response = await withTimeout(
+                genAI.models.generateContent({
+                  model,
+                  contents: [
+                    {
+                      role: "user",
+                      parts: [
+                        { text: visionPrompt },
+                        {
+                          inlineData: {
+                            mimeType: mime || "image/png",
+                            data: base64Data
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  config: { responseMimeType: "application/json" }
+                }),
+                20000
+              );
+              if (response && response.text) {
+                visionResponseText = response.text;
+                break;
+              }
+            } catch (vErr: any) {
+              console.warn(`[AI Vision Fallback] Model ${model} failed:`, vErr?.message || vErr);
+            }
           }
         }
 
         if (!visionResponseText) {
-          return res.status(500).json({ error: "No se pudo interpretar el diagrama con los modelos de visión de IA. Verifica tu API Key o la legibilidad de la imagen." });
+          return res.status(500).json({ error: "No se pudo interpretar el diagrama con los modelos de visión de IA. Verifica la legibilidad de la imagen." });
         }
 
         let parsedChunks: any = null;
@@ -1692,12 +1796,8 @@ Debes responder estrictamente en formato JSON con la siguiente estructura:
       } else {
         return res.status(400).json({ error: "Formato no soportado. Usa PDF, DOCX, TXT o imágenes (PNG, JPG, WEBP)." });
       }
-
-      // ── Semantic AI Chunking with Gemini (Preserves complete sections and real titles) ──
-      if (isApiKeyConfigured() && fullText.trim().length > 80) {
-        try {
-          const genAI = getGenAI();
-          const chunkingPrompt = `Eres un Arquitecto de Información y Analista de Negocio Senior de TI experto en estructuración de bases de conocimiento.
+      // ── Semantic AI Chunking (Azure OpenAI Primary, Gemini Fallback) ──
+      const chunkingPrompt = `Eres un Arquitecto de Información y Analista de Negocio Senior de TI experto en estructuración de bases de conocimiento.
 Analiza el siguiente texto extraído del documento institucional "${req.file.originalname}" y organízalo en Fichas de Conocimiento temáticas, autónomas y coherentes para la memoria de un asistente de IA (TEO).
 
 REGLAS OBLIGATORIAS:
@@ -1722,30 +1822,56 @@ Responde estrictamente en formato JSON con la siguiente estructura:
   "totalChunks": 2
 }`;
 
-          const chunkingModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
-          for (const model of chunkingModels) {
-            try {
-              console.log(`[AI Chunking] Structuring document with ${model}...`);
-              const response = await withTimeout(
-                genAI.models.generateContent({
-                  model,
-                  contents: [{ role: "user", parts: [{ text: chunkingPrompt }] }],
-                  config: { responseMimeType: "application/json" }
-                }),
-                20000
-              );
-              if (response && response.text) {
-                const parsed = JSON.parse(response.text);
-                if (parsed.chunks && parsed.chunks.length > 0) {
-                  return res.json(parsed);
-                }
+      // ── Semantic AI Chunking (Azure OpenAI Primary, Gemini Fallback) ──
+      if (isApiKeyConfigured() && fullText.trim().length > 80) {
+        // 1. Primary: Azure OpenAI GPT-5.1
+        if (isAzureConfigured()) {
+          try {
+            console.log(`[AI Chunking Primary] Structuring document with Azure OpenAI (${AZURE_OPENAI_DEPLOYMENT})...`);
+            const content = await callAzureOpenAI(
+              [{ role: "user", content: chunkingPrompt }],
+              { jsonFormat: true, timeoutMs: 25000 }
+            );
+            if (content) {
+              const parsed = JSON.parse(content);
+              if (parsed.chunks && parsed.chunks.length > 0) {
+                return res.json(parsed);
               }
-            } catch (err: any) {
-              console.warn(`[AI Chunking] Model ${model} failed:`, err?.message || err);
             }
+          } catch (azureChunkErr: any) {
+            console.warn("[AI Chunking Primary] Azure OpenAI failed, falling back to Gemini:", azureChunkErr?.message);
           }
-        } catch (aiErr: any) {
-          console.warn("[AI Chunking] AI extraction failed, falling back to smart delimiter splitter:", aiErr?.message);
+        }
+
+        // 2. Secondary Fallback: Gemini
+        if (process.env.GEMINI_API_KEY) {
+          try {
+            const genAI = getGenAI();
+            const chunkingModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+            for (const model of chunkingModels) {
+              try {
+                console.log(`[AI Chunking Fallback] Structuring document with ${model}...`);
+                const response = await withTimeout(
+                  genAI.models.generateContent({
+                    model,
+                    contents: [{ role: "user", parts: [{ text: chunkingPrompt }] }],
+                    config: { responseMimeType: "application/json" }
+                  }),
+                  20000
+                );
+                if (response && response.text) {
+                  const parsed = JSON.parse(response.text);
+                  if (parsed.chunks && parsed.chunks.length > 0) {
+                    return res.json(parsed);
+                  }
+                }
+              } catch (err: any) {
+                console.warn(`[AI Chunking Fallback] Model ${model} failed:`, err?.message || err);
+              }
+            }
+          } catch (aiErr: any) {
+            console.warn("[AI Chunking Fallback] Gemini failed, falling back to delimiter splitter:", aiErr?.message);
+          }
         }
       }
 
