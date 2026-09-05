@@ -1432,7 +1432,7 @@ Responde estrictamente en formato JSON:
       await updateAgentTask(tPoId, 100, 'completed');
       return res.json({
         text: getMockChatResponse(history, sanitizedInitialData, message),
-        options: isInitialGreeting ? [] : getMockOptions(history, message),
+        options: getMockOptions(history, message),
         extractedFields: extractedProposal
       });
     }
@@ -1448,13 +1448,11 @@ Responde estrictamente en formato JSON:
         ? `${systemPrompt}
 
 Este es el INICIO de la conversación con el usuario. El usuario acaba de abrir la ventana del asistente Teo.
-Saluda amablemente al usuario, preséntate como Teo, Analista de Negocio Senior, e invítalo a describir en sus propias palabras cuál es la necesidad o el problema de negocio que desea abordar para entender mejor el contexto y acompañarlo en la definición de la iniciativa. NO asumas que ya ha dado detalles ni hagas preguntas secundarias sobre objetivos todavía.
-
-REGLA ESTRICTA: En esta primera interacción NO debe haber opciones ni botones sugeridos ("options": []). El usuario debe tener el espacio libre para redactar su necesidad o problema.
+Aplica estrictamente tus directivas de identidad y tus guardarraíles (incluyendo las reglas de bienvenida y el manejo de opciones).
 
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
-  "text": "¡Hola! Soy Teo, Analista de Negocio Senior. Cuéntame, ¿cuál es la necesidad o el problema de negocio que deseas abordar? Así podré entender mejor el contexto y acompañarte en la definición de la iniciativa.",
+  "text": "Tu mensaje respetando tus guardarraíles e identidad.",
   "options": []
 }`
         : `${systemPrompt}
@@ -1513,7 +1511,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
 
       res.json({
         text: parsed.text,
-        options: isInitialGreeting ? [] : (parsed.options || []),
+        options: parsed.options || [],
         extractedFields: extractedProposal
       });
     } catch (e: any) {
@@ -1522,7 +1520,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       await updateAgentTask(tPoId, 100, 'completed', { error: e.message });
       res.json({
         text: getMockChatResponse(history, sanitizedInitialData, message),
-        options: isInitialGreeting ? [] : getMockOptions(history, message),
+        options: getMockOptions(history, message),
         extractedFields: extractedProposal
       });
     }
