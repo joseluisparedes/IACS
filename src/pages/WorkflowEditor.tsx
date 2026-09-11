@@ -9,7 +9,8 @@ import {
   Panel,
   useReactFlow,
   ConnectionLineType,
-  ConnectionMode
+  ConnectionMode,
+  MarkerType
 } from '@xyflow/react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -31,6 +32,8 @@ import { AITextNode } from '../components/workflow/nodes/AITextNode';
 import { HumanTaskNode } from '../components/workflow/nodes/HumanTaskNode';
 import { WorkflowEdge } from '../components/workflow/WorkflowEdge';
 import { useWorkflowStore } from '../lib/workflowStore';
+import { supabase } from '../lib/supabase';
+import { organizeWorkflowGraph } from '../lib/workflowLayout';
 import { 
   Loader2, 
   Plus, 
@@ -72,6 +75,7 @@ const WorkflowEditorContent: React.FC = () => {
     selectedEdgeId,
     isDirty,
     setActiveWorkflow,
+    setNodes,
     setEdges,
     onNodesChange,
     onEdgesChange,
@@ -92,9 +96,6 @@ const WorkflowEditorContent: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showRolesModal, setShowRolesModal] = useState(false);
   const [workflowsList, setWorkflowsList] = useState<any[]>([]);
-
-  // Debounced auto-save timer
-  const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Safe Edge Reconnection Guard - Prevents edges from disappearing if drop is cancelled
   const edgeReconnectSuccessful = useRef(true);
@@ -177,30 +178,45 @@ const WorkflowEditorContent: React.FC = () => {
         .catch(() => {});
 
       let url = id ? `/api/workflow/definitions/${id}` : '/api/workflow/active';
-      const res = await fetch(url);
+      let workflowData: any = null;
 
-      if (!res.ok) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) workflowData = json.data;
+        }
+      } catch (apiErr) {
+        console.warn('API load failed, trying direct Supabase fallback:', apiErr);
+      }
+
+      // Fallback directo a Supabase
+      if (!workflowData) {
+        let query = supabase
+          .from('workflow_definitions')
+          .select('*, workflow_node_roles(*), workflow_transitions(*)');
+        
+        if (id) {
+          query = query.eq('id', id);
+        } else {
+          query = query.eq('status', 'published').order('version', { ascending: false }).limit(1);
+        }
+
+        const { data: sbWf } = await query.maybeSingle();
+        if (sbWf) {
+          workflowData = sbWf;
+        }
+      }
+
+      if (workflowData) {
+        setActiveWorkflow(workflowData);
+      } else {
         if (id) throw new Error('No se encontró el flujo solicitado');
-        // Si no hay activo, crear borrador inicial
+        // Si no hay activo ni en API ni en Supabase, crear borrador inicial
         const createRes = await fetch('/api/workflow/definitions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Flujo de Iniciativas v1' }),
-        });
-        const createdData = await createRes.json();
-        setActiveWorkflow(createdData.data);
-        return;
-      }
-
-      const json = await res.json();
-      if (json.data) {
-        setActiveWorkflow(json.data);
-      } else {
-        // Crear primer borrador
-        const createRes = await fetch('/api/workflow/definitions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: 'Nuevo Flujo de Iniciativas' }),
         });
         const createdData = await createRes.json();
         setActiveWorkflow(createdData.data);
@@ -216,7 +232,30 @@ const WorkflowEditorContent: React.FC = () => {
     loadWorkflow();
   }, [loadWorkflow]);
 
-  // Guardar Borrador
+  // Auto-ajustar vista del lienzo para mostrar todo el flujo de forma ordenada
+  useEffect(() => {
+    if (!loading && nodes.length > 0) {
+      const timer = setTimeout(() => {
+        reactFlowInstance.fitView({ padding: 0.15, duration: 400 });
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, activeWorkflow?.id, reactFlowInstance]);
+
+  // Auto-organización inteligente del diagrama
+  const handleAutoLayout = useCallback(() => {
+    if (nodes.length === 0) return;
+    const { nodes: organizedNodes, edges: organizedEdges } = organizeWorkflowGraph(nodes, edges);
+    setNodes(organizedNodes);
+    setEdges(organizedEdges);
+    setIsDirty(true);
+    setTimeout(() => {
+      reactFlowInstance.fitView({ padding: 0.15, duration: 400 });
+    }, 50);
+    showToast('¡Diagrama reorganizado limpiamente! Presiona "Guardar" para conservar los cambios. ✨');
+  }, [nodes, edges, setNodes, setEdges, setIsDirty, reactFlowInstance]);
+
+  // Guardar Borrador con tolerancia a fallos y fallback directo a Supabase
   const handleSave = async () => {
     if (!activeWorkflow) return;
     try {
@@ -249,39 +288,110 @@ const WorkflowEditorContent: React.FC = () => {
         condition_config: (e.data as any)?.condition_config || {},
       }));
 
-      const res = await fetch(`/api/workflow/definitions/${activeWorkflow.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          graph_json: { nodes, edges },
-          name: activeWorkflow.name,
-          description: activeWorkflow.description,
-          node_roles: nodeRolesToSave,
-          transitions: transitionsToSave,
-        }),
-      });
+      let saveSuccess = false;
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Error al guardar');
-      }
-
-      const savedJson = await res.json();
-      if (savedJson.data) {
-        setActiveWorkflow({
-          ...savedJson.data,
-          workflow_node_roles: nodeRolesToSave,
-          workflow_transitions: transitionsToSave,
+      // Intento 1: API Express del Backend
+      try {
+        const res = await fetch(`/api/workflow/definitions/${activeWorkflow.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            graph_json: { nodes, edges },
+            name: activeWorkflow.name,
+            description: activeWorkflow.description,
+            node_roles: nodeRolesToSave,
+            transitions: transitionsToSave,
+          }),
         });
+
+        if (res.ok) {
+          const savedJson = await res.json();
+          if (savedJson.data) {
+            setActiveWorkflow({
+              ...savedJson.data,
+              workflow_node_roles: nodeRolesToSave,
+              workflow_transitions: transitionsToSave,
+            });
+            saveSuccess = true;
+          }
+        } else {
+          console.warn('Backend API PATCH returned status', res.status);
+        }
+      } catch (apiErr) {
+        console.warn('API save failed, attempting Supabase direct fallback:', apiErr);
       }
+
+      // Intento 2: Fallback directo a Supabase (Gobernanza Cyber Neo / The Architect)
+      if (!saveSuccess) {
+        const { data: updatedWf, error: sbErr } = await supabase
+          .from('workflow_definitions')
+          .update({
+            graph_json: { nodes, edges },
+            name: activeWorkflow.name,
+            description: activeWorkflow.description,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', activeWorkflow.id)
+          .select()
+          .single();
+
+        if (sbErr) throw sbErr;
+
+        // Sincronizar roles de nodos en Supabase
+        await supabase.from('workflow_node_roles').delete().eq('workflow_id', activeWorkflow.id);
+        if (nodeRolesToSave.length > 0) {
+          const rolesPayload = nodeRolesToSave.map((r) => ({
+            workflow_id: activeWorkflow.id,
+            ...r,
+          }));
+          await supabase.from('workflow_node_roles').insert(rolesPayload);
+        }
+
+        // Sincronizar transiciones en Supabase
+        await supabase.from('workflow_transitions').delete().eq('workflow_id', activeWorkflow.id);
+        if (transitionsToSave.length > 0) {
+          const transPayload = transitionsToSave.map((t) => ({
+            workflow_id: activeWorkflow.id,
+            edge_id: t.edge_id,
+            label: t.label,
+            source_node_id: t.source_node_id,
+            target_node_id: t.target_node_id,
+            condition_type: t.condition_type,
+            condition_config: t.condition_config,
+          }));
+          await supabase.from('workflow_transitions').insert(transPayload);
+        }
+
+        if (updatedWf) {
+          setActiveWorkflow({
+            ...updatedWf,
+            workflow_node_roles: nodeRolesToSave,
+            workflow_transitions: transitionsToSave,
+          });
+        }
+      }
+
       setIsDirty(false);
-      showToast('¡Diseño del flujo guardado con éxito! ✓');
+      showToast('¡Diseño del flujo guardado con éxito en la BD! ✓');
     } catch (err: any) {
-      showToast(err.message, 'error');
+      console.error('Error in handleSave:', err);
+      showToast(err.message || 'Error al guardar en la BD', 'error');
     } finally {
       setIsSaving(false);
     }
   };
+
+  // Prevenir cierre accidental de pestaña si hay cambios sin guardar
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
 
   // Publicar Flujo
   const handlePublish = async () => {
@@ -350,12 +460,27 @@ const WorkflowEditorContent: React.FC = () => {
       const type = event.dataTransfer.getData('application/reactflow-type') as WorkflowNodeType;
       if (!type) return;
 
+      let payload: any = {};
+      try {
+        const raw = event.dataTransfer.getData('application/reactflow-payload');
+        if (raw) payload = JSON.parse(raw);
+      } catch {
+        // ignore JSON parse error
+      }
+
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
 
-      addNode(type, position);
+      addNode(
+        type, 
+        position, 
+        payload.label, 
+        payload.description, 
+        payload.stateSubtype, 
+        payload.roles
+      );
     },
     [reactFlowInstance, addNode]
   );
@@ -388,12 +513,13 @@ const WorkflowEditorContent: React.FC = () => {
         onSave={handleSave}
         onPublish={handlePublish}
         onOpenRolesModal={() => setShowRolesModal(true)}
+        onAutoLayout={handleAutoLayout}
       />
 
       {/* Main Canvas Workspace */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Left Toolbar */}
-        <WorkflowToolbar />
+        <WorkflowToolbar onAutoLayout={handleAutoLayout} />
 
         {/* Center Canvas */}
         <div className="flex-1 h-full relative" onDrop={onDrop} onDragOver={onDragOver}>
@@ -439,6 +565,12 @@ const WorkflowEditorContent: React.FC = () => {
             snapGrid={[16, 16]}
             defaultEdgeOptions={{
               type: 'workflow',
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                width: 18,
+                height: 18,
+                color: '#94a3b8',
+              },
             }}
           >
             <Controls className="!bg-white !border-slate-200 !shadow-sm !rounded-xl overflow-hidden" />
@@ -452,6 +584,15 @@ const WorkflowEditorContent: React.FC = () => {
 
             {/* Quick Canvas Actions Floating Panel */}
             <Panel position="top-right" className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAutoLayout}
+                className="px-3 py-1.5 bg-white/95 backdrop-blur-xs border border-indigo-200 text-[#4F5AF5] text-xs font-semibold rounded-xl shadow-xs hover:bg-indigo-50 transition-colors flex items-center gap-1.5"
+                title="Alinear y ordenar todas las cajas y flechas automáticamente sin solapamientos"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                <span>Organizar Diagrama</span>
+              </button>
               <button
                 type="button"
                 onClick={handleCloneAsNewDraft}

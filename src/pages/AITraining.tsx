@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import STTWorker from '../workers/stt.worker?worker';
 import { supabase } from '../lib/supabase';
+import { formatDateDDMMYYYY } from '../lib/utils';
 import {
   DndContext,
   closestCenter,
@@ -1512,7 +1513,7 @@ function FeedbackTab({ feedback, onApprove, onDiscard }: {
               <div className="px-4 py-2 flex items-center gap-2 border-b border-[#E2E8F0] bg-white">
                 <span className="text-base">{fb.rating === 'negative' ? '👎' : '👍'}</span>
                 <span className="text-xs text-[#64748B]">Iniciativa: <span className="font-semibold text-[#1E293B]">{fb.initiative_id}</span></span>
-                <span className="text-xs text-[#94A3B8] ml-auto">{new Date(fb.created_at).toLocaleDateString()}</span>
+                <span className="text-xs text-[#94A3B8] ml-auto">{formatDateDDMMYYYY(fb.created_at)}</span>
               </div>
               <div className="grid grid-cols-2 divide-x divide-[#E2E8F0]">
                 <div className="p-4">

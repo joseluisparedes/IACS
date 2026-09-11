@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { formatDateDDMMYYYY } from "../lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -63,9 +64,7 @@ function getTitle(initiative: Initiative): string {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-EC", {
-    day: "2-digit", month: "short", year: "numeric"
-  });
+  return formatDateDDMMYYYY(iso);
 }
 
 // ─── Detail Modal ─────────────────────────────────────────────────────────────

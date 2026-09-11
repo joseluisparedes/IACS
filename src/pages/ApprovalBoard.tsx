@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Filter, Eye, ChevronRight, User, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, X, FileText, Building2 } from "lucide-react";
+import { Filter, Eye, ChevronRight, User, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, X, FileText, Building2, SlidersHorizontal, GripVertical, Copy, Check, RotateCcw } from "lucide-react";
 import { Initiative } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
 import { useReactToPrint } from "react-to-print";
+import { formatDateDDMMYYYY } from "../lib/utils";
 
 interface SearchableFilterDropdownProps {
   label: string;
@@ -132,56 +133,154 @@ function SearchableFilterDropdown({
   );
 }
 
-type TabKey = "nueva" | "observada" | "demand" | "draft" | "rejected";
+export type TabKey = 
+  | "todas"
+  | "borrador"
+  | "eval_bp"
+  | "aprob_bo"
+  | "aprob_vp"
+  | "asig_demanda"
+  | "estimacion"
+  | "planificacion"
+  | "observada"
+  | "desestimada";
 
 const TABS: { key: TabKey; label: string; dot: string }[] = [
-  { key: "nueva", label: "Pendientes de aprobación", dot: "bg-[#4F5AF5]" },
-  { key: "observada", label: "Observadas", dot: "bg-amber-500" },
-  { key: "demand", label: "En demanda", dot: "bg-emerald-500" },
-  { key: "draft", label: "Borradores", dot: "bg-slate-400" },
-  { key: "rejected", label: "Desestimadas", dot: "bg-red-500" },
+  { key: "todas", label: "Todas", dot: "bg-[#4F5AF5]" },
+  { key: "borrador", label: "1. Borrador", dot: "bg-slate-400" },
+  { key: "eval_bp", label: "2. Viabilidad BP TI", dot: "bg-indigo-500" },
+  { key: "aprob_bo", label: "3. Patrocinio BO", dot: "bg-blue-500" },
+  { key: "aprob_vp", label: "4. Aprobación VP", dot: "bg-purple-500" },
+  { key: "asig_demanda", label: "5. Demanda TI", dot: "bg-cyan-500" },
+  { key: "estimacion", label: "6. Estimación", dot: "bg-amber-500" },
+  { key: "planificacion", label: "7. Planificación", dot: "bg-emerald-500" },
+  { key: "observada", label: "Observadas", dot: "bg-rose-500" },
+  { key: "desestimada", label: "Desestimadas", dot: "bg-slate-500" },
 ];
 
-const STATUS_MAP: Record<string, TabKey> = {
-  "Pendiente de aprobación": "nueva",
-  Observada: "observada",
-  "En demanda": "demand",
-  Borrador: "draft",
-  Desestimada: "rejected",
-};
-
 const STATUS_BADGE: Record<TabKey, string> = {
-  nueva: "bg-[#EEF2FF] text-[#4F5AF5]",
-  observada: "bg-amber-50 text-amber-700",
-  demand: "bg-emerald-50 text-emerald-700",
-  draft: "bg-slate-100 text-slate-600",
-  rejected: "bg-red-50 text-red-700",
+  todas: "bg-slate-100 text-slate-700",
+  borrador: "bg-slate-100 text-slate-600 border border-slate-200",
+  eval_bp: "bg-indigo-50 text-indigo-700 border border-indigo-200",
+  aprob_bo: "bg-blue-50 text-blue-700 border border-blue-200",
+  aprob_vp: "bg-purple-50 text-purple-700 border border-purple-200",
+  asig_demanda: "bg-cyan-50 text-cyan-700 border border-cyan-200",
+  estimacion: "bg-amber-50 text-amber-700 border border-amber-200",
+  planificacion: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  observada: "bg-rose-50 text-rose-700 border border-rose-200",
+  desestimada: "bg-slate-100 text-slate-600 border border-slate-200",
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  "Pendiente de aprobación": "Pendiente de aprobación",
-  Observada: "Observada",
-  "En demanda": "En demanda",
-  Borrador: "Borrador",
-  Desestimada: "Desestimada",
+const STATUS_TO_NODE: Record<string, string> = {
+  'Borrador': 'borrador',
+  '1. Borrador': 'borrador',
+  'Pendiente de aprobación': 'eval_bp',
+  '2. Evaluación BP TI': 'eval_bp',
+  'En evaluación de BP TI': 'eval_bp',
+  '3. Aprobación BO': 'aprob_bo',
+  '4. Aprobación VP': 'aprob_vp',
+  '5. Asignación Gestor Demanda': 'asig_demanda',
+  '5. Asignación de Dominio': 'asig_demanda',
+  '6. Ventana de Estimación': 'ventana_est',
+  '6. Compromiso Estimación': 'ventana_est',
+  '7A. Estimación con Presupuesto': 'est_con_presupuesto',
+  '7B. Estimación sin Presupuesto': 'est_sin_presupuesto',
+  '8A. Validación Estimación BP': 'val_est_bp',
+  '8B. VoBo Estimación BO': 'vobo_est_bo',
+  '9. Planificación de Fechas': 'plan_fechas',
+  '10. Validación Planificación BP': 'val_plan_bp',
+  '10. Validación Planificación': 'val_plan_bp',
+  '11. Aprobación Final Fechas': 'aprob_plan_bo',
+  '12. Planificación': 'planificacion',
+  'Observada': 'observada',
+  '⚠️ Observada (Hub BP TI)': 'observada',
+  'En demanda': 'planificacion',
+  'Desestimada': 'desestimada',
+  '🗄️ Desestimada': 'desestimada',
 };
+
+function getInitiativeStatusInfo(i: any, activeWorkflow: any) {
+  const nodes: any[] = activeWorkflow?.graph_json?.nodes || [];
+  const currNodeId = String(i?.current_node_id || STATUS_TO_NODE[i?.status] || 'borrador').toLowerCase();
+  const node = nodes.find((n: any) => String(n.id || '').toLowerCase() === currNodeId);
+
+  // Latest status label from active workflow node, fallback to initiative.status
+  const label = node?.data?.label || i?.status || "Sin estado";
+  const lowerLabel = String(label).toLowerCase();
+  const lowerStatus = String(i?.status || "").toLowerCase();
+
+  let tabKey: TabKey = "eval_bp";
+
+  if (currNodeId === "desestimada" || lowerLabel.includes("desestimad") || lowerStatus.includes("desestimad")) {
+    tabKey = "desestimada";
+  } else if (currNodeId === "observada" || lowerLabel.includes("observad") || lowerStatus.includes("observad")) {
+    tabKey = "observada";
+  } else if (currNodeId === "borrador" || lowerLabel.includes("borrador") || lowerStatus.includes("borrador")) {
+    tabKey = "borrador";
+  } else if (currNodeId === "eval_bp" || lowerLabel.includes("bp ti") || lowerStatus.includes("bp ti") || lowerStatus.includes("pendiente de aprobación")) {
+    tabKey = "eval_bp";
+  } else if (currNodeId === "aprob_bo" || lowerLabel.includes("bo") || lowerStatus.includes("bo") || lowerLabel.includes("patrocinio") || lowerStatus.includes("patrocinio")) {
+    tabKey = "aprob_bo";
+  } else if (currNodeId === "aprob_vp" || lowerLabel.includes("vp") || lowerStatus.includes("vp") || lowerLabel.includes("vicepresiden") || lowerStatus.includes("vicepresiden")) {
+    tabKey = "aprob_vp";
+  } else if (currNodeId === "asig_demanda" || lowerLabel.includes("dominio") || lowerStatus.includes("dominio") || lowerLabel.includes("demanda ti") || lowerStatus.includes("demanda ti")) {
+    tabKey = "asig_demanda";
+  } else if (['ventana_est', 'est_con_presupuesto', 'est_sin_presupuesto', 'val_est_bp', 'vobo_est_bo'].includes(currNodeId) || lowerLabel.includes("estimaci") || lowerStatus.includes("estimaci")) {
+    tabKey = "estimacion";
+  } else if (['plan_fechas', 'val_plan_bp', 'aprob_plan_bo', 'planificacion'].includes(currNodeId) || lowerLabel.includes("planificaci") || lowerStatus.includes("planificaci") || lowerLabel.includes("en demanda") || lowerStatus.includes("en demanda")) {
+    tabKey = "planificacion";
+  }
+
+  return { label, tabKey, node };
+}
 
 function formatDate(iso: string) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatDateDDMMYYYY(iso);
 }
 
 function formatTime(iso: string) {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("es-PE", { 
+    timeZone: "America/Lima",
+    hour: "2-digit", 
+    minute: "2-digit" 
+  });
 }
+
+interface ColumnDef {
+  id: string;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+  canHide: boolean;
+}
+
+const ALL_COLUMNS: ColumnDef[] = [
+  { id: "codigo", label: "Código ID", defaultWidth: 150, minWidth: 120, canHide: true },
+  { id: "solicitud", label: "Solicitud", defaultWidth: 300, minWidth: 200, canHide: false },
+  { id: "vicepresidencia", label: "Vicepresidencia", defaultWidth: 160, minWidth: 130, canHide: true },
+  { id: "direccion", label: "Dirección", defaultWidth: 170, minWidth: 130, canHide: true },
+  { id: "fecha", label: "Fecha", defaultWidth: 130, minWidth: 100, canHide: true },
+  { id: "key_user", label: "Key User", defaultWidth: 180, minWidth: 140, canHide: true },
+  { id: "bp", label: "IT Business Partner", defaultWidth: 160, minWidth: 130, canHide: true },
+  { id: "estado", label: "Estado", defaultWidth: 170, minWidth: 130, canHide: true },
+  { id: "acciones", label: "Acciones", defaultWidth: 110, minWidth: 90, canHide: false }
+];
+
+const DEFAULT_COLUMN_ORDER = ALL_COLUMNS.map(c => c.id);
+const DEFAULT_COLUMN_WIDTHS: Record<string, number> = ALL_COLUMNS.reduce(
+  (acc, c) => ({ ...acc, [c.id]: c.defaultWidth }),
+  {}
+);
+const DEFAULT_HIDDEN_COLUMNS: string[] = [];
 
 export default function ApprovalBoard() {
   const [initiatives, setInitiatives] = useState<Initiative[]>([]);
   const [loading, setLoading] = useState(true);
   const [slowLoad, setSlowLoad] = useState(false);
   const [editingStatusId, setEditingStatusId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("nueva");
+  const [activeTab, setActiveTab] = useState<TabKey>("todas");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedRegistradores, setSelectedRegistradores] = useState<string[]>([]);
   const [selectedDirecciones, setSelectedDirecciones] = useState<string[]>([]);
@@ -189,7 +288,277 @@ export default function ApprovalBoard() {
   const [selectedVicepresidencias, setSelectedVicepresidencias] = useState<string[]>([]);
   const [showOnlyMine, setShowOnlyMine] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortConfig, setSortConfig] = useState<{ field: "solicitud" | "fecha" | "key_user" | "bp" | "estado"; order: "asc" | "desc" } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ 
+    field: "codigo" | "solicitud" | "vicepresidencia" | "direccion" | "fecha" | "key_user" | "bp" | "estado"; 
+    order: "asc" | "desc" 
+  } | null>(null);
+
+  // User Authentication & Preferences
+  const { profile, user, session } = useAuth();
+  const [activeWorkflow, setActiveWorkflow] = useState<any>(null);
+  const [columnOrder, setColumnOrder] = useState<string[]>(DEFAULT_COLUMN_ORDER);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(DEFAULT_COLUMN_WIDTHS);
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>(DEFAULT_HIDDEN_COLUMNS);
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  const columnsMenuRef = useRef<HTMLDivElement>(null);
+  const [draggedColId, setDraggedColId] = useState<string | null>(null);
+  const [dragOverColId, setDragOverColId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const saveTimeoutRef = useRef<any>(null);
+  const resizingColumnRef = useRef<{ colId: string; startX: number; startWidth: number } | null>(null);
+
+  const effectiveColumnOrder = useMemo(() => {
+    const existing = columnOrder.filter(id => ALL_COLUMNS.some(c => c.id === id));
+    const missing = ALL_COLUMNS.map(c => c.id).filter(id => !existing.includes(id));
+    return [...existing, ...missing];
+  }, [columnOrder]);
+
+  const visibleColumns = useMemo(() => {
+    return effectiveColumnOrder.filter(id => !hiddenColumns.includes(id));
+  }, [effectiveColumnOrder, hiddenColumns]);
+
+  // Load User Preferences
+  useEffect(() => {
+    const currentUserId = user?.id || profile?.id;
+    if (!currentUserId) return;
+
+    // 1. Fast local cache
+    try {
+      const cached = localStorage.getItem(`iacs_table_prefs_approval_board_${currentUserId}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed.column_order)) setColumnOrder(parsed.column_order);
+        if (parsed.column_widths) setColumnWidths(parsed.column_widths);
+        if (Array.isArray(parsed.hidden_columns)) setHiddenColumns(parsed.hidden_columns);
+      }
+    } catch {}
+
+    // 2. Fetch remote
+    (async () => {
+      try {
+        const token = session?.access_token;
+        const res = await fetch(`/api/user-preferences/approval_board?user_id=${currentUserId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.preferences) {
+            const p = json.preferences;
+            if (Array.isArray(p.column_order)) setColumnOrder(p.column_order);
+            if (p.column_widths) setColumnWidths(p.column_widths);
+            if (Array.isArray(p.hidden_columns)) setHiddenColumns(p.hidden_columns);
+            localStorage.setItem(`iacs_table_prefs_approval_board_${currentUserId}`, JSON.stringify(p));
+          }
+        }
+      } catch (err) {
+        // Fallback to Supabase
+        const { data } = await supabase
+          .from("user_table_preferences")
+          .select("preferences")
+          .eq("user_id", currentUserId)
+          .eq("table_id", "approval_board")
+          .maybeSingle();
+        if (data?.preferences) {
+          const p = data.preferences as any;
+          if (Array.isArray(p.column_order)) setColumnOrder(p.column_order);
+          if (p.column_widths) setColumnWidths(p.column_widths);
+          if (Array.isArray(p.hidden_columns)) setHiddenColumns(p.hidden_columns);
+        }
+      }
+    })();
+  }, [user?.id, profile?.id, session?.access_token]);
+
+  // Save Preferences with Debounce
+  const savePreferences = (newPrefs: {
+    column_order: string[];
+    column_widths: Record<string, number>;
+    hidden_columns: string[];
+  }) => {
+    const currentUserId = user?.id || profile?.id;
+    if (!currentUserId) return;
+
+    try {
+      localStorage.setItem(`iacs_table_prefs_approval_board_${currentUserId}`, JSON.stringify(newPrefs));
+    } catch {}
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const token = session?.access_token;
+        const res = await fetch("/api/user-preferences/approval_board", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            user_id: currentUserId,
+            preferences: newPrefs
+          })
+        });
+        if (!res.ok) throw new Error("API preference save failed");
+      } catch {
+        // Fallback to direct Supabase
+        await supabase.from("user_table_preferences").upsert(
+          [
+            {
+              user_id: currentUserId,
+              table_id: "approval_board",
+              preferences: newPrefs,
+              updated_at: new Date().toISOString()
+            }
+          ],
+          { onConflict: "user_id,table_id" }
+        );
+      }
+    }, 400);
+  };
+
+  const handleToggleColumn = (colId: string) => {
+    const colDef = ALL_COLUMNS.find(c => c.id === colId);
+    if (!colDef?.canHide) return;
+
+    const nextHidden = hiddenColumns.includes(colId)
+      ? hiddenColumns.filter(id => id !== colId)
+      : [...hiddenColumns, colId];
+
+    setHiddenColumns(nextHidden);
+    savePreferences({
+      column_order: columnOrder,
+      column_widths: columnWidths,
+      hidden_columns: nextHidden
+    });
+  };
+
+  const handleResetColumns = () => {
+    setColumnOrder(DEFAULT_COLUMN_ORDER);
+    setColumnWidths(DEFAULT_COLUMN_WIDTHS);
+    setHiddenColumns(DEFAULT_HIDDEN_COLUMNS);
+    savePreferences({
+      column_order: DEFAULT_COLUMN_ORDER,
+      column_widths: DEFAULT_COLUMN_WIDTHS,
+      hidden_columns: DEFAULT_HIDDEN_COLUMNS
+    });
+  };
+
+  const handleMoveColumn = (colId: string, direction: 'up' | 'down') => {
+    const currentOrder = [...effectiveColumnOrder];
+    const idx = currentOrder.indexOf(colId);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= currentOrder.length) return;
+
+    const [moved] = currentOrder.splice(idx, 1);
+    currentOrder.splice(targetIdx, 0, moved);
+    setColumnOrder(currentOrder);
+    savePreferences({
+      column_order: currentOrder,
+      column_widths: columnWidths,
+      hidden_columns: hiddenColumns
+    });
+  };
+
+  const handleResizeStart = (e: React.MouseEvent, colId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const currentWidth = columnWidths[colId] || ALL_COLUMNS.find(c => c.id === colId)?.defaultWidth || 150;
+    resizingColumnRef.current = { colId, startX: e.clientX, startWidth: currentWidth };
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizingColumnRef.current) return;
+      const delta = moveEvent.clientX - resizingColumnRef.current.startX;
+      const colDef = ALL_COLUMNS.find(c => c.id === resizingColumnRef.current!.colId);
+      const minW = colDef?.minWidth || 90;
+      const newWidth = Math.max(minW, resizingColumnRef.current.startWidth + delta);
+
+      setColumnWidths(prev => ({
+        ...prev,
+        [resizingColumnRef.current!.colId]: newWidth
+      }));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      if (resizingColumnRef.current) {
+        setColumnWidths(currentWidths => {
+          savePreferences({
+            column_order: columnOrder,
+            column_widths: currentWidths,
+            hidden_columns: hiddenColumns
+          });
+          return currentWidths;
+        });
+      }
+      resizingColumnRef.current = null;
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  };
+
+  const handleDragStart = (e: React.DragEvent, colId: string) => {
+    if (colId === "acciones") return;
+    e.dataTransfer.setData("text/plain", colId);
+    setDraggedColId(colId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, colId: string) => {
+    e.preventDefault();
+    if (colId !== "acciones" && draggedColId && draggedColId !== colId) {
+      setDragOverColId(colId);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverColId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetColId: string) => {
+    e.preventDefault();
+    if (!draggedColId || draggedColId === targetColId || targetColId === "acciones") {
+      setDragOverColId(null);
+      setDraggedColId(null);
+      return;
+    }
+
+    const nextOrder = [...effectiveColumnOrder];
+    const fromIdx = nextOrder.indexOf(draggedColId);
+    const toIdx = nextOrder.indexOf(targetColId);
+
+    if (fromIdx !== -1 && toIdx !== -1) {
+      nextOrder.splice(fromIdx, 1);
+      nextOrder.splice(toIdx, 0, draggedColId);
+      setColumnOrder(nextOrder);
+      savePreferences({
+        column_order: nextOrder,
+        column_widths: columnWidths,
+        hidden_columns: hiddenColumns
+      });
+    }
+
+    setDragOverColId(null);
+    setDraggedColId(null);
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(text);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Close columns menu on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (columnsMenuRef.current && !columnsMenuRef.current.contains(event.target as Node)) {
+        setColumnsMenuOpen(false);
+      }
+    }
+    if (columnsMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [columnsMenuOpen]);
 
   // PDF Generation State
   const [pdfInitiative, setPdfInitiative] = useState<any>(null);
@@ -208,7 +577,6 @@ export default function ApprovalBoard() {
     }, 150);
   };
 
-  const { profile } = useAuth();
   const [direccionesMap, setDireccionesMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -228,6 +596,15 @@ export default function ApprovalBoard() {
         setDireccionesMap(map);
       }
     });
+
+    fetch('/api/workflow/active')
+      .then(async res => {
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) setActiveWorkflow(json.data);
+        }
+      })
+      .catch(() => {});
 
     fetch('/api/initiatives')
       .then(async res => {
@@ -316,24 +693,32 @@ export default function ApprovalBoard() {
 
   const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
   const isInvitado = profile?.profile_roles?.some((r: any) => r.role === 'invitado');
+  const hasTransversalRole = profile?.profile_roles?.some((r: any) => r.is_transversal);
   const bpRoles = profile?.profile_roles?.filter((r: any) => r.role === 'bp_ti') || [];
   const isBP = bpRoles.length > 0;
   const registradorRoles = profile?.profile_roles?.filter((r: any) => r.role === 'registrador') || [];
   const isRegistrador = registradorRoles.length > 0;
 
-  const bpAllowedDirNames = new Set(bpRoles.flatMap((r: any) => r.direcciones_ids).map((id: string) => direccionesMap[id]));
-  const userAllowedDirNames = new Set(registradorRoles.flatMap((r: any) => r.direcciones_ids).map((id: string) => direccionesMap[id]));
+  const bpAllowedDirNames = new Set(bpRoles.flatMap((r: any) => r.direcciones_ids || []).map((id: string) => direccionesMap[id]));
+  const userAllowedDirNames = new Set(registradorRoles.flatMap((r: any) => r.direcciones_ids || []).map((id: string) => direccionesMap[id]));
+  const anyAllowedDirNames = new Set(
+    (profile?.profile_roles || [])
+      .flatMap((r: any) => r.direcciones_ids || [])
+      .map((id: string) => direccionesMap[id])
+  );
 
   const roleFilteredInitiatives = initiatives.filter(i => {
     if (isAdmin || isInvitado) return true;
 
     const isMine = i.user_id === profile?.id || i.form_data?.registrador === profile?.name;
 
-    if (STATUS_MAP[i.status] === "draft") {
+    const isDraft = String(i.status || '').toLowerCase().includes("borrador") || String((i as any).current_node_id || '').toLowerCase() === "borrador";
+    if (isDraft) {
       return isMine;
     }
 
     if (isMine) return true;
+    if (hasTransversalRole) return true;
 
     if (isBP) {
       const initDir = i.form_data?.direccion;
@@ -344,6 +729,9 @@ export default function ApprovalBoard() {
       const initDir = i.form_data?.direccion;
       if (initDir && userAllowedDirNames.has(initDir)) return true;
     }
+
+    const initDir = i.form_data?.direccion;
+    if (initDir && anyAllowedDirNames.has(initDir)) return true;
 
     return false;
   });
@@ -416,11 +804,15 @@ export default function ApprovalBoard() {
     });
   }, [roleFilteredInitiatives, selectedRegistradores, selectedDirecciones, selectedBPs, selectedVicepresidencias, showOnlyMine, searchQuery, profile]);
 
-  const countByTab = (tabKey: TabKey) =>
-    filteredInitiatives.filter(i => (STATUS_MAP[i.status] ?? "nueva") === tabKey).length;
+  const countByTab = (tabKey: TabKey) => {
+    if (tabKey === "todas") return filteredInitiatives.length;
+    return filteredInitiatives.filter(i => getInitiativeStatusInfo(i, activeWorkflow).tabKey === tabKey).length;
+  };
 
-  const byTab = (tabKey: TabKey) =>
-    filteredInitiatives.filter(i => (STATUS_MAP[i.status] ?? "nueva") === tabKey);
+  const byTab = (tabKey: TabKey) => {
+    if (tabKey === "todas") return filteredInitiatives;
+    return filteredInitiatives.filter(i => getInitiativeStatusInfo(i, activeWorkflow).tabKey === tabKey);
+  };
 
   const filtered = byTab(activeTab);
 
@@ -432,9 +824,21 @@ export default function ApprovalBoard() {
       let valB: any = "";
 
       switch (sortConfig.field) {
+        case "codigo":
+          valA = a.id || "";
+          valB = b.id || "";
+          break;
         case "solicitud":
           valA = a.summary?.titulo ?? Object.values(a.form_data ?? {})[0] ?? a.id;
           valB = b.summary?.titulo ?? Object.values(b.form_data ?? {})[0] ?? b.id;
+          break;
+        case "vicepresidencia":
+          valA = a.form_data?.vicepresidencia || "";
+          valB = b.form_data?.vicepresidencia || "";
+          break;
+        case "direccion":
+          valA = a.form_data?.direccion || "";
+          valB = b.form_data?.direccion || "";
           break;
         case "fecha":
           valA = a.created_at || "";
@@ -449,8 +853,8 @@ export default function ApprovalBoard() {
           valB = b.form_data?.bp_ti_asignado || "";
           break;
         case "estado":
-          valA = a.status || "";
-          valB = b.status || "";
+          valA = getInitiativeStatusInfo(a, activeWorkflow).label || "";
+          valB = getInitiativeStatusInfo(b, activeWorkflow).label || "";
           break;
       }
 
@@ -466,7 +870,7 @@ export default function ApprovalBoard() {
     });
   }, [filtered, sortConfig]);
 
-  const handleSort = (field: "solicitud" | "fecha" | "key_user" | "bp" | "estado") => {
+  const handleSort = (field: "codigo" | "solicitud" | "vicepresidencia" | "direccion" | "fecha" | "key_user" | "bp" | "estado") => {
     setSortConfig(prev => {
       if (prev && prev.field === field) {
         if (prev.order === "asc") {
@@ -580,39 +984,129 @@ export default function ApprovalBoard() {
       </div>
 
       {/* Main Board Table */}
-      <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden shadow-sm">
-        {/* Tabs navigation */}
-        <div className="border-b border-[#F1F5F9] px-6 pt-4 flex gap-1 overflow-x-auto">
-          {TABS.map((tab) => {
-            const count = countByTab(tab.key);
-            const isActive = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`pb-3 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                  isActive
-                    ? "border-[#4F5AF5] text-[#4F5AF5]"
-                    : "border-transparent text-[#64748B] hover:text-[#1E293B]"
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm relative">
+        {/* Tabs navigation & Column Customizer Button */}
+        <div className="border-b border-[#F1F5F9] px-6 pt-4 flex items-center justify-between gap-3 flex-wrap rounded-t-2xl bg-white relative z-20">
+          <div className="flex gap-1 overflow-x-auto pb-1 sm:pb-0">
+            {TABS.map((tab) => {
+              const count = countByTab(tab.key);
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`pb-3 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
                     isActive
-                      ? "bg-[#EEF2FF] text-[#4F5AF5]"
-                      : "bg-[#F1F5F9] text-[#64748B]"
+                      ? "border-[#4F5AF5] text-[#4F5AF5]"
+                      : "border-transparent text-[#64748B] hover:text-[#1E293B]"
                   }`}
                 >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+                  <span>{tab.label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                      isActive
+                        ? "bg-[#EEF2FF] text-[#4F5AF5]"
+                        : "bg-[#F1F5F9] text-[#64748B]"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Column Customizer Button & Dropdown Menu */}
+          <div className="relative mb-2.5 sm:mb-2" ref={columnsMenuRef}>
+            <button
+              type="button"
+              onClick={() => setColumnsMenuOpen(!columnsMenuOpen)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#1E293B] shadow-xs transition-colors"
+              title="Personalizar columnas visibles y orden"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[#4F5AF5]" />
+              <span>Columnas</span>
+              <span className="text-[10px] font-bold bg-[#EEF2FF] text-[#4F5AF5] px-1.5 py-0.5 rounded-full">
+                {visibleColumns.length}/{ALL_COLUMNS.length}
+              </span>
+              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${columnsMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {columnsMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setColumnsMenuOpen(false)} />
+                <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-[#E2E8F0] shadow-2xl z-50 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="flex items-center justify-between border-b border-[#F1F5F9] pb-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-[#1E293B]">Columnas de la tabla</h4>
+                      <p className="text-[10px] text-slate-400">Marca las visibles o reordénalas</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleResetColumns}
+                      className="text-[11px] font-medium text-slate-500 hover:text-[#4F5AF5] flex items-center gap-1 transition-colors"
+                      title="Restablecer columnas por defecto"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Reset
+                    </button>
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
+                    {effectiveColumnOrder.map((colId, index) => {
+                      const colDef = ALL_COLUMNS.find(c => c.id === colId);
+                      if (!colDef) return null;
+                      const isVisible = !hiddenColumns.includes(colId);
+
+                      return (
+                        <div
+                          key={colId}
+                          className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-[#F8FAFC] text-xs transition-colors border border-transparent hover:border-slate-100"
+                        >
+                          <label className="flex items-center gap-2 cursor-pointer select-none min-w-0 flex-1">
+                            <input
+                              type="checkbox"
+                              checked={isVisible}
+                              disabled={!colDef.canHide}
+                              onChange={() => handleToggleColumn(colId)}
+                              className="rounded border-slate-300 text-[#4F5AF5] focus:ring-[#4F5AF5] w-3.5 h-3.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            />
+                            <span className={`truncate font-medium ${isVisible ? "text-slate-800" : "text-slate-400 line-through"}`}>
+                              {colDef.label}
+                            </span>
+                          </label>
+                          <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                            <button
+                              type="button"
+                              onClick={() => handleMoveColumn(colId, 'up')}
+                              disabled={index === 0}
+                              className="p-1 text-slate-400 hover:text-[#4F5AF5] disabled:opacity-20 disabled:hover:text-slate-400"
+                              title="Mover hacia arriba / izquierda"
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveColumn(colId, 'down')}
+                              disabled={index === effectiveColumnOrder.length - 1}
+                              className="p-1 text-slate-400 hover:text-[#4F5AF5] disabled:opacity-20 disabled:hover:text-slate-400"
+                              title="Mover hacia abajo / derecha"
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Table content */}
-        <div className="p-0 overflow-x-auto">
+        <div className="p-0 overflow-x-auto rounded-b-2xl">
           {loading ? (
             <div className="p-12 text-center text-[#64748B] text-sm">
               Cargando solicitudes...
@@ -627,75 +1121,62 @@ export default function ApprovalBoard() {
               No hay solicitudes en esta sección.
             </div>
           ) : (
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse table-fixed">
               <thead>
-                <tr className="border-b border-[#F1F5F9] bg-[#F8FAFC] text-[11px] font-bold text-[#64748B] uppercase tracking-wider">
-                  <th 
-                    onClick={() => handleSort("solicitud")}
-                    className="px-6 py-3 cursor-pointer hover:bg-slate-100/80 transition-colors select-none group"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Solicitud</span>
-                      {sortConfig?.field === "solicitud" ? (
-                        sortConfig.order === "asc" ? <ArrowUp className="w-3 h-3 text-[#4F5AF5]" /> : <ArrowDown className="w-3 h-3 text-[#4F5AF5]" />
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </th>
-                  <th 
-                    onClick={() => handleSort("fecha")}
-                    className="px-6 py-3 cursor-pointer hover:bg-slate-100/80 transition-colors select-none group"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Fecha</span>
-                      {sortConfig?.field === "fecha" ? (
-                        sortConfig.order === "asc" ? <ArrowUp className="w-3 h-3 text-[#4F5AF5]" /> : <ArrowDown className="w-3 h-3 text-[#4F5AF5]" />
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </th>
-                  <th 
-                    onClick={() => handleSort("key_user")}
-                    className="px-6 py-3 cursor-pointer hover:bg-slate-100/80 transition-colors select-none group"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Key User</span>
-                      {sortConfig?.field === "key_user" ? (
-                        sortConfig.order === "asc" ? <ArrowUp className="w-3 h-3 text-[#4F5AF5]" /> : <ArrowDown className="w-3 h-3 text-[#4F5AF5]" />
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </th>
-                  <th 
-                    onClick={() => handleSort("bp")}
-                    className="px-6 py-3 cursor-pointer hover:bg-slate-100/80 transition-colors select-none group"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>IT Business Partner</span>
-                      {sortConfig?.field === "bp" ? (
-                        sortConfig.order === "asc" ? <ArrowUp className="w-3 h-3 text-[#4F5AF5]" /> : <ArrowDown className="w-3 h-3 text-[#4F5AF5]" />
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </th>
-                  <th 
-                    onClick={() => handleSort("estado")}
-                    className="px-6 py-3 cursor-pointer hover:bg-slate-100/80 transition-colors select-none group"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span>Estado</span>
-                      {sortConfig?.field === "estado" ? (
-                        sortConfig.order === "asc" ? <ArrowUp className="w-3 h-3 text-[#4F5AF5]" /> : <ArrowDown className="w-3 h-3 text-[#4F5AF5]" />
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
-                  </th>
-                  <th className="px-6 py-3">Acciones</th>
+                <tr className="border-b border-[#F1F5F9] bg-[#F8FAFC] text-[11px] font-bold text-[#64748B] uppercase tracking-wider relative">
+                  {visibleColumns.map((colId) => {
+                    const colDef = ALL_COLUMNS.find(c => c.id === colId);
+                    if (!colDef) return null;
+                    const isSortable = colId !== "acciones";
+                    const width = columnWidths[colId] || colDef.defaultWidth;
+                    const isOver = dragOverColId === colId;
+
+                    return (
+                      <th 
+                        key={colId}
+                        draggable={colId !== "acciones"}
+                        onDragStart={(e) => handleDragStart(e, colId)}
+                        onDragOver={(e) => handleDragOver(e, colId)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, colId)}
+                        style={{ width: `${width}px`, minWidth: `${colDef.minWidth}px` }}
+                        className={`px-4 py-3 select-none relative transition-colors group ${
+                          isOver ? "border-l-2 border-l-[#4F5AF5] bg-indigo-50/80" : ""
+                        } ${draggedColId === colId ? "opacity-30" : ""}`}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div 
+                            onClick={() => isSortable && handleSort(colId as any)}
+                            className={`flex items-center gap-1.5 min-w-0 ${isSortable ? "cursor-pointer hover:text-[#4F5AF5]" : ""}`}
+                            title={isSortable ? `Ordenar por ${colDef.label}` : colDef.label}
+                          >
+                            {colId !== "acciones" && (
+                              <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing shrink-0 transition-opacity" />
+                            )}
+                            <span className="truncate">{colDef.label}</span>
+                            {isSortable && (
+                              sortConfig?.field === colId ? (
+                                sortConfig.order === "asc" ? (
+                                  <ArrowUp className="w-3 h-3 text-[#4F5AF5] shrink-0" />
+                                ) : (
+                                  <ArrowDown className="w-3 h-3 text-[#4F5AF5] shrink-0" />
+                                )
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                              )
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Drag Handle to Resize Column */}
+                        <div
+                          onMouseDown={(e) => handleResizeStart(e, colId)}
+                          className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#4F5AF5]/40 active:bg-[#4F5AF5] group-hover:bg-slate-300/40 transition-colors z-20"
+                          title="Arrastra para cambiar el ancho de la columna"
+                        />
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
@@ -703,123 +1184,196 @@ export default function ApprovalBoard() {
                   const title = i.summary?.titulo ?? Object.values(i.form_data ?? {})[0] ?? i.id;
                   const registrador = i.form_data?.registrador || i.form_data?.solicitante || "Sin registrador";
                   const initials = registrador.split(" ").map((n: string) => n[0]).join("").substring(0, 2);
-                  const tabKey = STATUS_MAP[i.status] ?? "nueva";
+                  const { label: statusLabel, tabKey } = getInitiativeStatusInfo(i, activeWorkflow);
 
                   return (
                     <tr key={i.id} className="hover:bg-[#F8FAFC] transition-colors">
-                      <td className="px-6 py-4">
-                        <p className="font-semibold text-[#1E293B] text-sm leading-snug max-w-[300px] truncate">{title}</p>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                          <span className="text-[10px] font-mono text-[#94A3B8] bg-[#F1F5F9] px-1.5 py-0.5 rounded font-medium">{i.id}</span>
-                          {i.form_data?.vicepresidencia && (
-                            <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100/60 px-1.5 py-0.5 rounded truncate max-w-[140px]" title={`VP: ${i.form_data.vicepresidencia}`}>
-                              VP: {i.form_data.vicepresidencia}
-                            </span>
-                          )}
-                          {i.form_data?.direccion && (
-                            <span className="text-[10px] font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded truncate max-w-[140px]" title={`Dirección: ${i.form_data.direccion}`}>
-                              {i.form_data.direccion}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className="text-sm text-[#1E293B]">{formatDate(i.created_at)}</p>
-                        <p className="text-[11px] text-[#94A3B8]">{formatTime(i.created_at)}</p>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#4F5AF5] to-violet-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0 uppercase">
-                            {initials}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm text-[#1E293B] font-medium truncate" title={registrador}>{registrador}</p>
-                            {i.form_data?.institucion && (
-                              <p className="text-[10px] text-[#64748B] font-medium truncate">
-                                {Array.isArray(i.form_data.institucion) ? i.form_data.institucion.join(", ") : i.form_data.institucion}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <p className={`text-sm font-medium ${i.form_data?.bp_ti_asignado ? 'text-[#1E293B]' : 'text-amber-600'}`}>
-                          {i.form_data?.bp_ti_asignado || "Pendiente de TI BP"}
-                        </p>
-                      </td>
-                      <td className="px-6 py-4">
-                        {(isBP || isAdmin) && (i.status === "Pendiente de aprobación" || i.status === "Desestimada" || i.status === "En demanda") ? (
-                          editingStatusId === i.id ? (
-                            <select
-                              value={i.status}
-                              onChange={(e) => handleStatusChange(i.id, e.target.value)}
-                              onBlur={() => setEditingStatusId(null)}
-                              autoFocus
-                              className="text-xs font-semibold bg-white border border-[#CBD5E1] rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-[#4F5AF5] text-[#1E293B]"
-                            >
-                              {i.status === "Pendiente de aprobación" && (
-                                <>
-                                  <option value="Pendiente de aprobación">Pendiente de aprobación</option>
-                                  <option value="En demanda">En demanda</option>
-                                  <option value="Desestimada">Desestimada</option>
-                                </>
-                              )}
-                              {i.status === "Desestimada" && (
-                                <>
-                                  <option value="Desestimada">Desestimada</option>
-                                  <option value="En demanda">En demanda</option>
-                                  <option value="Pendiente de aprobación">Pendiente de aprobación</option>
-                                </>
-                              )}
-                              {i.status === "En demanda" && (
-                                <>
-                                  <option value="En demanda">En demanda</option>
-                                  <option value="Pendiente de aprobación">Pendiente de aprobación</option>
-                                  <option value="Desestimada">Desestimada</option>
-                                </>
-                              )}
-                            </select>
-                          ) : (
-                            <span 
-                              onDoubleClick={() => setEditingStatusId(i.id)}
-                              title="Doble clic para cambiar estado"
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity ${STATUS_BADGE[tabKey]}`}
-                            >
-                              <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
-                              {STATUS_LABEL[i.status] ?? i.status}
-                            </span>
-                          )
-                        ) : (
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[tabKey]}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
-                            {STATUS_LABEL[i.status] ?? i.status}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <Link
-                            to={`/iniciativa/${i.id}`}
-                            className="inline-flex items-center gap-1.5 text-[#4F5AF5] hover:text-[#3F49E0] text-xs font-semibold transition-colors whitespace-nowrap"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            Revisar
-                          </Link>
+                      {visibleColumns.map((colId) => {
+                        switch (colId) {
+                          case "codigo":
+                            return (
+                              <td key={colId} className="px-4 py-4 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-mono font-semibold text-[#4F5AF5] bg-[#EEF2FF] px-2 py-1 rounded-md border border-[#4F5AF5]/20">
+                                    {i.id}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(i.id)}
+                                    className="p-1 text-slate-400 hover:text-[#4F5AF5] hover:bg-slate-100 rounded transition-colors"
+                                    title="Copiar Código ID"
+                                  >
+                                    {copiedId === i.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              </td>
+                            );
 
-                          {/* Botón Generar PDF (Disponible para solicitudes En demanda) */}
-                          {(tabKey === "demand" || i.status === "En demanda") && (
-                            <button
-                              type="button"
-                              onClick={() => handleGeneratePdf(i)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-semibold text-xs transition-colors whitespace-nowrap cursor-pointer"
-                              title="Generar e imprimir informe ejecutivo PDF"
-                            >
-                              <FileText className="w-3.5 h-3.5 text-rose-600" />
-                              PDF
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                          case "solicitud":
+                            return (
+                              <td key={colId} className="px-4 py-4">
+                                <Link
+                                  to={`/iniciativa/${i.id}`}
+                                  className="font-semibold text-[#1E293B] hover:text-[#4F5AF5] text-sm leading-snug line-clamp-2 transition-colors block"
+                                  title={title}
+                                >
+                                  {title}
+                                </Link>
+                              </td>
+                            );
+
+                          case "vicepresidencia":
+                            return (
+                              <td key={colId} className="px-4 py-4">
+                                {i.form_data?.vicepresidencia ? (
+                                  <span 
+                                    className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100/70 px-2.5 py-1 rounded-md inline-block max-w-[170px] truncate" 
+                                    title={i.form_data.vicepresidencia}
+                                  >
+                                    {i.form_data.vicepresidencia}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400 italic">-</span>
+                                )}
+                              </td>
+                            );
+
+                          case "direccion":
+                            return (
+                              <td key={colId} className="px-4 py-4">
+                                {i.form_data?.direccion ? (
+                                  <span 
+                                    className="text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200/70 px-2.5 py-1 rounded-md inline-block max-w-[170px] truncate" 
+                                    title={i.form_data.direccion}
+                                  >
+                                    {i.form_data.direccion}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400 italic">-</span>
+                                )}
+                              </td>
+                            );
+
+                          case "fecha":
+                            return (
+                              <td key={colId} className="px-4 py-4 whitespace-nowrap">
+                                <p className="text-sm text-[#1E293B] font-medium">{formatDate(i.created_at)}</p>
+                                <p className="text-[11px] text-[#94A3B8]">{formatTime(i.created_at)}</p>
+                              </td>
+                            );
+
+                          case "key_user":
+                            return (
+                              <td key={colId} className="px-4 py-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#4F5AF5] to-violet-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0 uppercase">
+                                    {initials}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-sm text-[#1E293B] font-medium truncate" title={registrador}>{registrador}</p>
+                                    {i.form_data?.institucion && (
+                                      <p className="text-[10px] text-[#64748B] font-medium truncate">
+                                        {Array.isArray(i.form_data.institucion) ? i.form_data.institucion.join(", ") : i.form_data.institucion}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            );
+
+                          case "bp":
+                            return (
+                              <td key={colId} className="px-4 py-4">
+                                <p className={`text-sm font-medium ${i.form_data?.bp_ti_asignado ? 'text-[#1E293B]' : 'text-amber-600'}`}>
+                                  {i.form_data?.bp_ti_asignado || "Pendiente de TI BP"}
+                                </p>
+                              </td>
+                            );
+
+                          case "estado":
+                            return (
+                              <td key={colId} className="px-4 py-4 whitespace-nowrap">
+                                {(isBP || isAdmin) && (i.status === "Pendiente de aprobación" || i.status === "Desestimada" || i.status === "En demanda") ? (
+                                  editingStatusId === i.id ? (
+                                    <select
+                                      value={i.status}
+                                      onChange={(e) => handleStatusChange(i.id, e.target.value)}
+                                      onBlur={() => setEditingStatusId(null)}
+                                      autoFocus
+                                      className="text-xs font-semibold bg-white border border-[#CBD5E1] rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-[#4F5AF5] text-[#1E293B]"
+                                    >
+                                      {i.status === "Pendiente de aprobación" && (
+                                        <>
+                                          <option value="Pendiente de aprobación">Pendiente de aprobación</option>
+                                          <option value="En demanda">En demanda</option>
+                                          <option value="Desestimada">Desestimada</option>
+                                        </>
+                                      )}
+                                      {i.status === "Desestimada" && (
+                                        <>
+                                          <option value="Desestimada">Desestimada</option>
+                                          <option value="En demanda">En demanda</option>
+                                          <option value="Pendiente de aprobación">Pendiente de aprobación</option>
+                                        </>
+                                      )}
+                                      {i.status === "En demanda" && (
+                                        <>
+                                          <option value="En demanda">En demanda</option>
+                                          <option value="Pendiente de aprobación">Pendiente de aprobación</option>
+                                          <option value="Desestimada">Desestimada</option>
+                                        </>
+                                      )}
+                                    </select>
+                                  ) : (
+                                    <span 
+                                      onDoubleClick={() => setEditingStatusId(i.id)}
+                                      title="Doble clic para cambiar estado"
+                                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity ${STATUS_BADGE[tabKey]}`}
+                                    >
+                                      <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
+                                      {statusLabel}
+                                    </span>
+                                  )
+                                ) : (
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[tabKey]}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
+                                    {statusLabel}
+                                  </span>
+                                )}
+                              </td>
+                            );
+
+                          case "acciones":
+                            return (
+                              <td key={colId} className="px-4 py-4 whitespace-nowrap">
+                                <div className="flex items-center gap-2">
+                                  <Link
+                                    to={`/iniciativa/${i.id}`}
+                                    className="inline-flex items-center gap-1.5 text-[#4F5AF5] hover:text-[#3F49E0] text-xs font-semibold transition-colors"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    Revisar
+                                  </Link>
+
+                                  {(tabKey === "planificacion" || i.status === "En demanda") && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleGeneratePdf(i)}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-semibold text-xs transition-colors whitespace-nowrap cursor-pointer"
+                                      title="Generar e imprimir informe ejecutivo PDF"
+                                    >
+                                      <FileText className="w-3.5 h-3.5 text-rose-600" />
+                                      PDF
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            );
+
+                          default:
+                            return null;
+                        }
+                      })}
                     </tr>
                   );
                 })}

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye, Calendar, Trash2, Video as VideoIcon, Music as AudioIcon, Volume2 } from "lucide-react";
 import STTWorker from '../workers/stt.worker?worker';
@@ -492,37 +492,39 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
       setError(null);
 
       // 1. Client-side validation using field.options configuration
-      let typeKey: 'pdf' | 'docx' | 'txt' | 'image' = 'txt';
+      let typeKey: 'pdf' | 'docx' | 'xlsx' | 'txt' | 'image' = 'txt';
       const name = file.name.toLowerCase();
       const mime = file.type;
 
       if (mime === 'application/pdf' || name.endsWith('.pdf')) typeKey = 'pdf';
       else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')) typeKey = 'docx';
+      else if (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || mime === 'application/vnd.ms-excel' || name.endsWith('.xlsx') || name.endsWith('.xls')) typeKey = 'xlsx';
       else if (mime.startsWith('image/')) typeKey = 'image';
 
       // Fallback default config if options is empty/invalid
-      const fileTypes = field.options?.fileTypes || {
-        pdf: { enabled: true, maxMb: 1.0 },
-        docx: { enabled: true, maxMb: 1.0 },
-        txt: { enabled: true, maxMb: 1.0 },
-        image: { enabled: true, maxMb: 1.0 }
+      const fileTypes = field.fileOptions?.fileTypes || (field.options as any)?.fileTypes || {
+        pdf: { enabled: true, maxMb: 25.0 },
+        docx: { enabled: true, maxMb: 25.0 },
+        xlsx: { enabled: true, maxMb: 25.0 },
+        txt: { enabled: true, maxMb: 5.0 },
+        image: { enabled: true, maxMb: 10.0 }
       };
 
-      const config = fileTypes[typeKey] || { enabled: true, maxMb: 1.0 };
+      const config = fileTypes[typeKey] || { enabled: true, maxMb: 25.0 };
       if (!config.enabled) {
         setError(`La subida de archivos de tipo ${typeKey.toUpperCase()} está deshabilitada.`);
         return;
       }
 
-      const limitBytes = config.maxMb * 1024 * 1024;
+      const limitBytes = (config.maxMb || 25.0) * 1024 * 1024;
       if (file.size > limitBytes) {
-        setError(`El archivo supera el límite permitido de ${config.maxMb} MB.`);
+        setError(`El archivo supera el límite permitido de ${config.maxMb || 25.0} MB.`);
         return;
       }
 
-      const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'image/jpeg', 'image/png', 'image/webp'];
-      if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i)) {
-        setError('Formato no soportado. Usa PDF, DOCX, TXT o imágenes.');
+      const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel', 'text/plain', 'image/jpeg', 'image/png', 'image/webp'];
+      if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|xlsx|xls|txt|jpg|jpeg|png|webp)$/i)) {
+        setError('Formato no soportado. Usa PDF, Word, Excel, TXT o imágenes.');
         return;
       }
 
@@ -561,10 +563,11 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
           ref={fileInputRef} 
           type="file" 
           accept={[
-            field.options?.fileTypes?.pdf?.enabled !== false && '.pdf',
-            field.options?.fileTypes?.docx?.enabled !== false && '.docx',
-            field.options?.fileTypes?.txt?.enabled !== false && '.txt',
-            field.options?.fileTypes?.image?.enabled !== false && '.jpg,.jpeg,.png,.webp'
+            field.fileOptions?.fileTypes?.pdf?.enabled !== false && (field.options as any)?.fileTypes?.pdf?.enabled !== false && '.pdf',
+            field.fileOptions?.fileTypes?.docx?.enabled !== false && (field.options as any)?.fileTypes?.docx?.enabled !== false && '.docx',
+            field.fileOptions?.fileTypes?.xlsx?.enabled !== false && (field.options as any)?.fileTypes?.xlsx?.enabled !== false && '.xlsx,.xls',
+            field.fileOptions?.fileTypes?.txt?.enabled !== false && (field.options as any)?.fileTypes?.txt?.enabled !== false && '.txt',
+            field.fileOptions?.fileTypes?.image?.enabled !== false && (field.options as any)?.fileTypes?.image?.enabled !== false && '.jpg,.jpeg,.png,.webp'
           ].filter(Boolean).join(',')} 
           className="hidden" 
           onChange={handleFileAttach} 
@@ -621,15 +624,17 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
 
         {/* File type/size hint */}
         {(() => {
-          const ft = field.options?.fileTypes || {
-            pdf: { enabled: true, maxMb: 1.0 },
-            docx: { enabled: true, maxMb: 1.0 },
-            txt: { enabled: true, maxMb: 1.0 },
-            image: { enabled: true, maxMb: 1.0 },
+          const ft = field.fileOptions?.fileTypes || (field.options as any)?.fileTypes || {
+            pdf: { enabled: true, maxMb: 25.0 },
+            docx: { enabled: true, maxMb: 25.0 },
+            xlsx: { enabled: true, maxMb: 25.0 },
+            txt: { enabled: true, maxMb: 5.0 },
+            image: { enabled: true, maxMb: 10.0 },
           };
           const parts: string[] = [];
           if (ft.pdf?.enabled) parts.push(`PDF (máx. ${ft.pdf.maxMb} MB)`);
           if (ft.docx?.enabled) parts.push(`DOCX (máx. ${ft.docx.maxMb} MB)`);
+          if (ft.xlsx?.enabled) parts.push(`Excel (máx. ${ft.xlsx.maxMb} MB)`);
           if (ft.txt?.enabled) parts.push(`TXT (máx. ${ft.txt.maxMb} MB)`);
           if (ft.image?.enabled) parts.push(`Imagen (máx. ${ft.image.maxMb} MB)`);
           if (parts.length === 0) return null;
@@ -700,23 +705,59 @@ const STEPS = [
   { n: "4", label: "Revisión BP" },
 ];
 
-function Stepper({ current, path }: { current: number; path: 'unstructured' | 'direct' | 'select' }) {
-  const steps = path === 'unstructured' ? [
-    { n: "1", label: "Describe tu necesidad" },
-    { n: "2", label: "Revisión con IA" },
+function Stepper({ current, path, hasInitialFields = true }: { current: number; path: 'unstructured' | 'direct' | 'select'; hasInitialFields?: boolean }) {
+  if (path === 'unstructured') {
+    const steps = [
+      { n: "1", label: "Describe tu necesidad", activeOn: 1 },
+      { n: "2", label: "Revisión con IA", activeOn: 2 },
+    ];
+    return (
+      <div className="flex items-center gap-0 mb-8 overflow-x-auto pb-1">
+        {steps.map((s, i) => {
+          const done = current > s.activeOn;
+          const active = current === s.activeOn;
+          return (
+            <div key={s.n} className="flex items-center">
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                active ? "bg-[#EEF2FF] text-[#4F5AF5]"
+                : done ? "text-[#4F5AF5]"
+                : "text-[#94A3B8]"
+              }`}>
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                  active ? "bg-[#4F5AF5] text-white"
+                  : done ? "bg-[#4F5AF5] text-white"
+                  : "bg-[#E2E8F0] text-[#94A3B8]"
+                }`}>
+                  {done ? "✓" : s.n}
+                </span>
+                {s.label}
+              </div>
+              {i < steps.length - 1 && (
+                <ChevronRight className="w-3.5 h-3.5 text-[#CBD5E1] mx-1 shrink-0" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const steps = !hasInitialFields ? [
+    { n: "1", label: "Asistente IA", activeOn: 2 },
+    { n: "2", label: "Resumen y Validación", activeOn: 3 },
+    { n: "3", label: "Revisión BP", activeOn: 4 },
   ] : [
-    { n: "1", label: "Formulario inicial" },
-    { n: "2", label: "Asistente IA" },
-    { n: "3", label: "Resumen" },
-    { n: "4", label: "Revisión BP" },
+    { n: "1", label: "Formulario inicial", activeOn: 1 },
+    { n: "2", label: "Asistente IA", activeOn: 2 },
+    { n: "3", label: "Resumen y Validación", activeOn: 3 },
+    { n: "4", label: "Revisión BP", activeOn: 4 },
   ];
 
   return (
     <div className="flex items-center gap-0 mb-8 overflow-x-auto pb-1">
       {steps.map((s, i) => {
-        const idx = i + 1;
-        const done = idx < current;
-        const active = idx === current;
+        const done = current > s.activeOn;
+        const active = current === s.activeOn;
         return (
           <div key={s.n} className="flex items-center">
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
@@ -758,9 +799,20 @@ export default function InitiativeForm() {
   const [fields, setFields] = useState<FieldDefinition[]>([]);
   const [aiFields, setAiFields] = useState<FieldDefinition[]>([]);
   const [loadingFields, setLoadingFields] = useState(true);
+
+  const step1FieldsCount = useMemo(() => {
+    const vpField = fields.find(f => f.key === 'vicepresidencia');
+    const dirField = fields.find(f => f.key === 'direccion');
+    const dynamicStep1 = fields.filter(f => 
+      f.ask_in_initial_form === true && 
+      !['registrador', 'solicitante', 'vicepresidencia', 'direccion'].includes(f.key.toLowerCase())
+    );
+    return (vpField?.ask_in_initial_form ? 1 : 0) + (dirField?.ask_in_initial_form ? 1 : 0) + dynamicStep1.length;
+  }, [fields]);
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [confirmedFields, setConfirmedFields] = useState<Record<string, boolean>>({});
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type?: string } | null>(null);
+  const [keyUserConsent, setKeyUserConsent] = useState<any>(null);
   const [selectedPath, setSelectedPath] = useState<'select' | 'direct' | 'unstructured'>('select');
   useEffect(() => {
     (window as any).isInitiativeProcessInProgress = (selectedPath !== 'select' || !!id);
@@ -957,10 +1009,11 @@ export default function InitiativeForm() {
   const [aiName, setAiName] = useState("Asistente IA");
   const [aiAvatar, setAiAvatar] = useState("");
   const [fileTypes, setFileTypes] = useState({
-    pdf: { enabled: true, maxMb: 1.0 },
-    docx: { enabled: true, maxMb: 1.0 },
-    txt: { enabled: true, maxMb: 1.0 },
-    image: { enabled: true, maxMb: 1.0 },
+    pdf: { enabled: true, maxMb: 25.0 },
+    docx: { enabled: true, maxMb: 25.0 },
+    xlsx: { enabled: true, maxMb: 25.0 },
+    txt: { enabled: true, maxMb: 5.0 },
+    image: { enabled: true, maxMb: 10.0 },
   });
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -1038,10 +1091,11 @@ export default function InitiativeForm() {
         useMic: true,
         useAttachments: true,
         fileTypes: {
-          pdf: { enabled: true, maxMb: 1.0 },
-          docx: { enabled: true, maxMb: 1.0 },
-          txt: { enabled: true, maxMb: 1.0 },
-          image: { enabled: true, maxMb: 1.0 }
+          pdf: { enabled: true, maxMb: 25.0 },
+          docx: { enabled: true, maxMb: 25.0 },
+          xlsx: { enabled: true, maxMb: 25.0 },
+          txt: { enabled: true, maxMb: 5.0 },
+          image: { enabled: true, maxMb: 10.0 }
         }
       }))
     ])
@@ -1063,16 +1117,34 @@ export default function InitiativeForm() {
           if (features.aiAvatar) setAiAvatar(features.aiAvatar);
         }
 
-        if (features.fileTypes) {
-          setFileTypes(features.fileTypes);
+        // Align fileTypes with the form's file field (adjuntos_sustento in form_registro_iniciativa)
+        const fileField = data.find((f: any) => f.field_type === 'file' || f.key === 'adjuntos_sustento');
+        const formTypes = fileField?.fileOptions?.fileTypes || (fileField?.options as any)?.fileTypes;
+        if (formTypes && typeof formTypes === 'object' && Object.keys(formTypes).length > 0) {
+          setFileTypes(prev => ({
+            ...prev,
+            ...formTypes
+          }));
+        } else if (features?.fileTypes) {
+          setFileTypes(prev => ({
+            ...prev,
+            ...features.fileTypes
+          }));
         }
         
-        const normalFormFields = data.filter((f: FieldDefinition) => f.is_visible && (f.section || 'form') === 'form' && f.key !== 'aprobacion_de_director' && f.key !== 'aprobacin_de_director');
-        const voboField = data.find((f: FieldDefinition) => f.is_visible && (f.key === 'aprobacion_de_director' || f.key === 'aprobacin_de_director'));
-        const allVisibleFormFields = voboField ? [...normalFormFields, voboField] : normalFormFields;
+        const allVisibleFormFields = data.filter((f: FieldDefinition) => f.is_visible && (f.section || 'form') === 'form');
         const visibleAiFields = data.filter((f: FieldDefinition) => f.is_visible && f.section === 'ai');
         setFields(allVisibleFormFields);
         setAiFields(visibleAiFields);
+
+        fetch('/api/stage-consents')
+          .then(r => r.json())
+          .then(json => {
+            const list = json.data || [];
+            const found = list.find((c: any) => c.code === 'consent_key_user') || list[0];
+            if (found) setKeyUserConsent(found);
+          })
+          .catch(() => {});
         
         const draft = draftRes?.data;
         if (draft) {
@@ -1215,9 +1287,10 @@ export default function InitiativeForm() {
 
   // Compute allowed options based on user roles
   const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
+  const isTransversal = profile?.profile_roles?.some((r: any) => r.is_transversal);
   const registradorRoles = profile?.profile_roles?.filter((r: any) => r.role === 'registrador' || r.role === 'admin') || [];
 
-  const allowedVps = isAdmin 
+  const allowedVps = (isAdmin || isTransversal) 
     ? dbVps 
     : dbVps.filter(vp => registradorRoles.some((r: any) => r.vp_id === vp.id));
     
@@ -1225,15 +1298,15 @@ export default function InitiativeForm() {
   
   let allowedDirecciones: any[] = [];
   if (selectedVp) {
-    if (isAdmin) {
+    if (isAdmin || isTransversal) {
       allowedDirecciones = dbDirecciones.filter(d => d.vp_id === selectedVp.id);
     } else {
       const rolesForVp = registradorRoles.filter((r: any) => r.vp_id === selectedVp.id);
       if (rolesForVp.length > 0) {
         const vpDirs = dbDirecciones.filter(d => d.vp_id === selectedVp.id);
-        const userDirIds = new Set(rolesForVp.flatMap((r: any) => r.direcciones_ids));
+        const userDirIds = new Set(rolesForVp.flatMap((r: any) => r.direcciones_ids || []));
         
-        if (rolesForVp.some((r: any) => r.direcciones_ids.length === vpDirs.length)) {
+        if (rolesForVp.some((r: any) => r.direcciones_ids?.length === vpDirs.length)) {
            allowedDirecciones = vpDirs;
         } else {
            allowedDirecciones = vpDirs.filter(d => userDirIds.has(d.id));
@@ -1395,15 +1468,16 @@ export default function InitiativeForm() {
   const processFile = async (file: File, context: 'chat' | 'support' = 'support') => {
     setAttachError(null);
 
-    let typeKey: 'pdf' | 'docx' | 'txt' | 'image' = 'txt';
+    let typeKey: 'pdf' | 'docx' | 'xlsx' | 'txt' | 'image' = 'txt';
     const name = file.name.toLowerCase();
     const mime = file.type || '';
 
     if (mime === 'application/pdf' || name.endsWith('.pdf')) typeKey = 'pdf';
     else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || name.endsWith('.docx')) typeKey = 'docx';
+    else if (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || mime === 'application/vnd.ms-excel' || name.endsWith('.xlsx') || name.endsWith('.xls')) typeKey = 'xlsx';
     else if (mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/') || name.match(/\.(jpg|jpeg|png|webp|gif|svg|mp4|webm|mov|mp3|wav|ogg|m4a)$/i)) typeKey = 'image';
 
-    const typeConfig = fileTypes[typeKey] || { enabled: true, maxMb: 1.0 };
+    const typeConfig = fileTypes[typeKey] || { enabled: true, maxMb: 25.0 };
     if (!typeConfig.enabled) {
       const errorMsg = `La subida de archivos de tipo ${typeKey.toUpperCase()} está deshabilitada.`;
       setAttachError(errorMsg);
@@ -1423,6 +1497,8 @@ export default function InitiativeForm() {
     const allowed = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
       'text/plain',
       'image/jpeg',
       'image/png',
@@ -1437,8 +1513,8 @@ export default function InitiativeForm() {
       'audio/ogg',
       'audio/mp4'
     ];
-    if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|txt|jpg|jpeg|png|webp|gif|svg|mp4|webm|mov|mp3|wav|ogg|m4a)$/i)) {
-      const errorMsg = 'Formato no soportado. Usa PDF, DOCX, TXT, imagen, video o audio.';
+    if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|xlsx|xls|txt|jpg|jpeg|png|webp|gif|svg|mp4|webm|mov|mp3|wav|ogg|m4a)$/i)) {
+      const errorMsg = 'Formato no soportado. Usa PDF, Word, Excel, TXT o multimedia.';
       setAttachError(errorMsg);
       showToast(errorMsg, 'error');
       return;
@@ -1608,8 +1684,47 @@ export default function InitiativeForm() {
     }
   };
 
-  const handleStartChat = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const startChatSession = async (customFormData?: Record<string, any>) => {
+    const currentData = customFormData || formData;
+    setSelectedPath('direct');
+    setStep(2);
+    setIsAiTyping(true);
+
+    await autoSave([], null, currentData);
+
+    const MAX_RETRIES = 3;
+    const fieldsForAI = [...fields, ...aiFields].filter(f => 
+      !["registrador", "solicitante"].includes(f.key.toLowerCase())
+    );
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history: [], message: "[INICIALIZAR_CHAT]", initialData: currentData, aiFields: fieldsForAI }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const newHist = [{ role: "model" as const, text: data.text, options: data.options }];
+        setChatHistory(newHist);
+        autoSave(newHist, summary, currentData);
+        setIsAiTyping(false);
+        return; // success
+      } catch (err) {
+        if (attempt < MAX_RETRIES) {
+          // Wait 2 seconds before retrying (lets the server wake up)
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+    }
+
+    // All retries exhausted
+    setChatHistory([{ role: "model", text: "Error al conectar con el asistente. Por favor recarga la página e intenta de nuevo." }]);
+    setIsAiTyping(false);
+  };
+
+  const handleStartChat = async (e?: React.FormEvent) => {
+    if (e && e.preventDefault) e.preventDefault();
 
     if (unstructuredText.trim() !== "") {
       setIsAiTyping(true);
@@ -1624,41 +1739,7 @@ export default function InitiativeForm() {
       return;
     }
 
-    setStep(2);
-    setIsAiTyping(true);
-
-    await autoSave([], null);
-
-    const MAX_RETRIES = 3;
-    let lastError: any;
-
-    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion", "institucion", "empresa", "organizacion"].includes(f.key.toLowerCase()));
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const res = await fetch("/api/chat", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ history: [], message: "[INICIALIZAR_CHAT]", initialData: formData, aiFields: fieldsForAI }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const newHist = [{ role: "model" as const, text: data.text, options: data.options }];
-        setChatHistory(newHist);
-        autoSave(newHist, summary);
-        setIsAiTyping(false);
-        return; // success
-      } catch (err) {
-        lastError = err;
-        if (attempt < MAX_RETRIES) {
-          // Wait 2 seconds before retrying (lets the server wake up)
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
-    }
-
-    // All retries exhausted
-    setChatHistory([{ role: "model", text: "Error al conectar con el asistente. Por favor recarga la página e intenta de nuevo." }]);
-    setIsAiTyping(false);
+    await startChatSession();
   };
 
   const submitMessage = async (userText: string, customAttachment?: any) => {
@@ -1697,7 +1778,7 @@ export default function InitiativeForm() {
     removeAttachment();
     setIsAiTyping(true);
 
-    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion", "institucion", "empresa", "organizacion"].includes(f.key.toLowerCase()));
+    const fieldsForAI = [...fields, ...aiFields].filter(f => !["registrador", "solicitante"].includes(f.key.toLowerCase()));
 
     try {
       const res = await fetch("/api/chat", {
@@ -1742,7 +1823,7 @@ export default function InitiativeForm() {
     setIsAiTyping(true);
     setStep(3);
     try {
-      const fieldsToSummarize = [...fields, ...aiFields].filter(f => !["registrador", "solicitante", "vicepresidencia", "direccion"].includes(f.key.toLowerCase()));
+      const fieldsToSummarize = [...fields, ...aiFields].filter(f => !["registrador", "solicitante"].includes(f.key.toLowerCase()));
       const res = await fetch("/api/summarize", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ history: fullHistory, initialData: formData, aiFields: fieldsToSummarize }),
@@ -1757,20 +1838,35 @@ export default function InitiativeForm() {
     finally { setIsAiTyping(false); }
   };
 
-  const validateAllFields = () => {
+  const validateAllFields = (isSubmitting = false) => {
     const errors: string[] = [];
     
-    // Check fixed required fields
-    if (!formData.vicepresidencia) {
-      errors.push("El campo Vicepresidencia es obligatorio.");
+    // In Step 1 (advancing to chat), only validate fields actually shown in Step 1
+    const vpInStep1 = !!fields.find(f => f.key === 'vicepresidencia')?.ask_in_initial_form;
+    const dirInStep1 = !!fields.find(f => f.key === 'direccion')?.ask_in_initial_form;
+
+    if (isSubmitting || selectedPath === 'unstructured' || vpInStep1) {
+      if (!formData.vicepresidencia) {
+        errors.push("El campo Vicepresidencia es obligatorio.");
+      }
     }
-    if (!formData.direccion) {
-      errors.push("El campo Dirección es obligatorio.");
+
+    if (isSubmitting || selectedPath === 'unstructured' || dirInStep1) {
+      if (!formData.direccion) {
+        errors.push("El campo Dirección es obligatorio.");
+      }
     }
     
     // Check dynamic required fields (both fixed form fields and AI fields)
-    const allVisibleFields = (selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3)) ? [...fields, ...aiFields] : fields;
-    allVisibleFields.forEach(field => {
+    let fieldsToValidate = (selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3)) 
+      ? [...fields, ...aiFields] 
+      : fields;
+
+    if (!isSubmitting && selectedPath === 'direct' && step === 1) {
+      fieldsToValidate = fields.filter(f => f.ask_in_initial_form === true);
+    }
+
+    fieldsToValidate.forEach(field => {
       // Omit fixed fields handled manually
       if (["registrador", "solicitante", "vicepresidencia", "direccion"].includes(field.key.toLowerCase())) return;
       
@@ -1800,7 +1896,7 @@ export default function InitiativeForm() {
 
     // Check if there are any active warnings shown
     const activeWarnings = Object.keys(aiWarnings).filter(k => 
-      allVisibleFields.some(f => f.key === k) && aiWarnings[k]
+      fieldsToValidate.some(f => f.key === k) && aiWarnings[k]
     );
     if (activeWarnings.length > 0) {
       errors.push("Por favor resuelve todas las alertas de información faltante antes de continuar.");
@@ -1813,7 +1909,7 @@ export default function InitiativeForm() {
   };
 
   const handleSaveWithValidation = (status: "Borrador" | "Pendiente de aprobación") => {
-    const { isValid, errors } = validateAllFields();
+    const { isValid, errors } = validateAllFields(true);
     if (!isValid) {
       setFormErrors(errors);
       showToast("Por favor completa todos los campos obligatorios antes de continuar.", "error");
@@ -1824,7 +1920,7 @@ export default function InitiativeForm() {
     
     if (status === "Pendiente de aprobación") {
       if (!disclaimerAccepted) {
-        showToast("Por favor marca el casilla de Declaración de Responsabilidad (Consentimiento) al final del formulario antes de enviar a aprobación.", "error");
+        showToast("Por favor marca la casilla de Declaración de Responsabilidad y Veracidad al final del formulario antes de enviar a aprobación.", "error");
         const el = document.getElementById('consent-disclaimer-section');
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
@@ -1837,7 +1933,7 @@ export default function InitiativeForm() {
 
   const handleStartChatWithValidation = (e: React.FormEvent) => {
     e.preventDefault();
-    const { isValid, errors } = validateAllFields();
+    const { isValid, errors } = validateAllFields(false);
     if (!isValid) {
       setFormErrors(errors);
       return;
@@ -1853,11 +1949,13 @@ export default function InitiativeForm() {
       id: draftIdRef.current, 
       form_data: { 
         ...formData, 
-        _director_declaration_accepted: disclaimerAccepted 
+        _director_declaration_accepted: disclaimerAccepted,
+        declaracion_responsabilidad: disclaimerAccepted
       }, 
       chat_history: chatHistory, 
       summary, 
       status, 
+      current_node_id: status === "Pendiente de aprobación" ? "eval_bp" : "borrador",
       confirmed_fields: confirmedFields, 
       unstructured_text: unstructuredText,
       user_id: profile?.id ?? null,
@@ -1917,15 +2015,16 @@ export default function InitiativeForm() {
         ref={fileInputRef}
         type="file"
         accept={[
-          fileTypes.pdf.enabled && '.pdf',
-          fileTypes.docx.enabled && '.docx',
-          fileTypes.txt.enabled && '.txt',
-          fileTypes.image.enabled && '.jpg,.jpeg,.png,.webp'
+          fileTypes.pdf?.enabled && '.pdf',
+          fileTypes.docx?.enabled && '.docx',
+          fileTypes.xlsx?.enabled && '.xlsx,.xls',
+          fileTypes.txt?.enabled && '.txt',
+          fileTypes.image?.enabled && '.jpg,.jpeg,.png,.webp,.gif,.svg,.mp4,.webm,.mov,.mp3,.wav,.ogg,.m4a'
         ].filter(Boolean).join(',')}
         className="hidden"
         onChange={handleFileAttach}
       />
-      {selectedPath !== 'select' && <Stepper current={step} path={selectedPath} />}
+      {selectedPath !== 'select' && <Stepper current={step} path={selectedPath} hasInitialFields={step1FieldsCount > 0} />}
 
       {/* ── Step 1: Formulario inicial ──────────────────────────────────── */}
       {/* ── Step 1: Formulario inicial o Selección de Flujo ────────────────── */}
@@ -1963,9 +2062,15 @@ export default function InitiativeForm() {
             {/* Opción B */}
             <button
               onClick={() => {
+                const newForm = { ...formData, selectedPath: 'direct' };
                 setSelectedPath('direct');
-                setFormData(prev => ({ ...prev, selectedPath: 'direct' }));
+                setFormData(newForm);
                 setAiWarnings({});
+                if (step1FieldsCount === 0) {
+                  startChatSession(newForm);
+                } else {
+                  setStep(1);
+                }
               }}
               className="group bg-white p-8 rounded-2xl border border-[#E2E8F0] hover:border-[#4F5AF5] hover:shadow-xl hover:shadow-[#4F5AF5]/5 transition-all text-left flex flex-col justify-between min-h-[240px] shadow-sm relative overflow-hidden"
             >
@@ -2025,11 +2130,12 @@ export default function InitiativeForm() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-xs font-semibold text-[#64748B]">Documentos o archivos de soporte (opcional):</span>
+                    <span className="text-xs font-semibold text-[#64748B]">Documentación o archivos de sustento (opcional):</span>
                     {(() => {
                       const parts: string[] = [];
                       if (fileTypes.pdf?.enabled) parts.push(`PDF (máx. ${fileTypes.pdf.maxMb} MB)`);
                       if (fileTypes.docx?.enabled) parts.push(`DOCX (máx. ${fileTypes.docx.maxMb} MB)`);
+                      if (fileTypes.xlsx?.enabled) parts.push(`Excel (máx. ${fileTypes.xlsx.maxMb} MB)`);
                       if (fileTypes.txt?.enabled) parts.push(`TXT (máx. ${fileTypes.txt.maxMb} MB)`);
                       if (fileTypes.image?.enabled) parts.push(`Imagen (máx. ${fileTypes.image.maxMb} MB)`);
                       return parts.length > 0 ? (
@@ -2152,7 +2258,7 @@ export default function InitiativeForm() {
                   {selectedPath === 'unstructured' 
                     ? '2. Revisión con IA' 
                     : step === 3 
-                      ? '3. Revisión con IA' 
+                      ? (step1FieldsCount === 0 ? '2. Revisión con IA' : '3. Revisión con IA') 
                       : '1. Formulario inicial'}
                 </h2>
                 <p className="text-xs text-[#94A3B8]">
@@ -2205,10 +2311,7 @@ export default function InitiativeForm() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {/* Campos Fijos Obligatorios */}
-                  <div>
-                    <label className={labelCls}>Key user <span className="text-red-500 ml-1">*</span></label>
-                    <input type="text" value={formData.registrador || ""} disabled className={inputCls} />
-                  </div>
+                  {(step === 3 || selectedPath === 'unstructured' || fields.find(f => f.key === 'vicepresidencia')?.ask_in_initial_form) && (
                   <div>
                     <label className={labelCls}>Vicepresidencia <span className="text-red-500 ml-1">*</span></label>
                     <select
@@ -2238,6 +2341,8 @@ export default function InitiativeForm() {
                       </div>
                     )}
                   </div>
+                  )}
+                  {(step === 3 || selectedPath === 'unstructured' || fields.find(f => f.key === 'direccion')?.ask_in_initial_form) && (
                   <div>
                     <label className={labelCls}>Dirección <span className="text-red-500 ml-1">*</span></label>
                     <select
@@ -2267,9 +2372,13 @@ export default function InitiativeForm() {
                       </div>
                     )}
                   </div>
+                  )}
 
                   {/* Campos Dinámicos */}
-                  {((selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3)) ? [...fields, ...aiFields] : fields).map(field => {
+                  {((selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3)) 
+                      ? [...fields, ...aiFields] 
+                      : fields.filter(f => f.ask_in_initial_form === true)
+                    ).map(field => {
                     // Omitir si existen en la configuración para evitar duplicados
                     if (["registrador", "solicitante", "vicepresidencia", "direccion"].includes(field.key.toLowerCase())) return null;
 
@@ -2300,11 +2409,9 @@ export default function InitiativeForm() {
                           }}
                           onChange={v => {
                             setFormData(p => {
-                              const isVobo = field.key === 'aprobacion_de_director' || field.key === 'aprobacin_de_director';
                               const newForm = { 
                                 ...p, 
                                 [field.key]: v,
-                                ...(isVobo ? { aprobacion_de_director: v, aprobacin_de_director: v } : {})
                               };
                               // Reset any child fields that depend on this one
                               fields.filter(f => f.depends_on === field.key).forEach(child => {
@@ -2360,172 +2467,7 @@ export default function InitiativeForm() {
             )}
             </div>
 
-            {/* Archivos de soporte (opcional) */}
-            {useAttachments && Object.values(fileTypes).some(t => t.enabled) && (
-              <div className="px-8 pb-8 pt-6 border-t border-[#F1F5F9] space-y-4 bg-slate-50/20">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h4 className="text-sm font-bold text-[#1E293B]">Archivos de soporte cargados</h4>
-                    <p className="text-[11px] text-[#94A3B8] mt-0.5">Estos archivos de soporte sustentan la propuesta analizada por la IA.</p>
-                    {(() => {
-                      const parts: string[] = [];
-                      if (fileTypes.pdf?.enabled) parts.push(`PDF (máx. ${fileTypes.pdf.maxMb} MB)`);
-                      if (fileTypes.docx?.enabled) parts.push(`DOCX (máx. ${fileTypes.docx.maxMb} MB)`);
-                      if (fileTypes.txt?.enabled) parts.push(`TXT (máx. ${fileTypes.txt.maxMb} MB)`);
-                      if (fileTypes.image?.enabled) parts.push(`Imagen (máx. ${fileTypes.image.maxMb} MB)`);
-                      return parts.length > 0 ? (
-                        <p className="text-[10px] text-[#94A3B8] mt-1 font-medium">{parts.join(' · ')}</p>
-                      ) : null;
-                    })()}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isProcessingFile}
-                    className="flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-bold transition-colors border border-[#4F5AF5]/20 hover:border-[#4F5AF5] px-3 py-1.5 rounded-lg bg-[#EEF2FF]/30 shrink-0"
-                  >
-                    <Paperclip className="w-3.5 h-3.5" /> Adjuntar archivo
-                  </button>
-                </div>
 
-                {/* Drag-and-drop zone */}
-                <div
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSupport(true); }}
-                  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingSupport(true); }}
-                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDraggingSupport(false); }}
-                  onDrop={async (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDraggingSupport(false);
-                    const files = Array.from(e.dataTransfer.files);
-                    for (const file of files) {
-                      await processFile(file, 'support');
-                    }
-                  }}
-                  onClick={() => !isProcessingFile && fileInputRef.current?.click()}
-                  className={`relative rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer
-                    ${
-                      isDraggingSupport
-                        ? 'border-[#4F5AF5] bg-[#EEF2FF] scale-[1.01]'
-                        : 'border-[#CBD5E1] bg-white hover:border-[#4F5AF5]/50 hover:bg-[#EEF2FF]/20'
-                    }
-                    ${isProcessingFile ? 'pointer-events-none opacity-70' : ''}
-                  `}
-                >
-                  {/* Drop overlay text */}
-                  {isDraggingSupport && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10 pointer-events-none">
-                      <div className="w-10 h-10 rounded-full bg-[#4F5AF5] flex items-center justify-center shadow-lg shadow-[#4F5AF5]/30 animate-bounce">
-                        <Paperclip className="w-5 h-5 text-white" />
-                      </div>
-                      <p className="text-sm font-bold text-[#4F5AF5]">Suelta para adjuntar</p>
-                    </div>
-                  )}
-
-                  <div className={`p-4 transition-opacity duration-150 ${isDraggingSupport ? 'opacity-0' : 'opacity-100'}`}>
-                    {(!formData.attachments || formData.attachments.length === 0) && !uploadingFile ? (
-                      <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
-                        <div className="w-10 h-10 rounded-full bg-[#F1F5F9] flex items-center justify-center">
-                          <Paperclip className="w-4 h-4 text-[#94A3B8]" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold text-[#475569]">Arrastra archivos aquí o <span className="text-[#4F5AF5] underline underline-offset-2">haz clic para explorar</span></p>
-                          <p className="text-[10px] text-[#94A3B8] mt-0.5">Puedes subir varios archivos</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {(formData.attachments || []).map((file: any, fileIdx: number) => (
-                          <div key={fileIdx} onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 bg-white border border-[#E2E8F0] rounded-xl p-3 shadow-sm animate-in fade-in slide-in-from-top-1 duration-200">
-                            {file.type?.startsWith('image/') || file.name?.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i) ? (
-                              <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
-                            ) : file.type?.startsWith('video/') || file.name?.match(/\.(mp4|webm|mov)$/i) ? (
-                              <VideoIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
-                            ) : file.type?.startsWith('audio/') || file.name?.match(/\.(mp3|wav|ogg|m4a)$/i) ? (
-                              <AudioIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
-                            ) : (
-                              <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-[#1E293B] truncate" title={file.name}>
-                                {file.name}
-                              </p>
-                              <p className="text-[10px] text-[#64748B]">
-                                {file.size ? (file.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
-                              </p>
-                            </div>
-                            {file.url && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setPreviewFile({ url: file.url || '', name: file.name, type: file.type }); }}
-                                className="text-[#4F5AF5] hover:text-[#3F49E0] transition-colors p-1"
-                                title="Ver vista previa"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); removeAttachment(file.name); }}
-                              className="text-[#94A3B8] hover:text-red-500 transition-colors p-1"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                        {isProcessingFile && uploadingFile && (
-                          <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#CBD5E1] rounded-xl p-3 shadow-sm animate-pulse">
-                            {uploadingFile.type?.startsWith('image/') ? (
-                              <ImageIcon className="w-4 h-4 text-[#64748B] shrink-0" />
-                            ) : (
-                              <FileText className="w-4 h-4 text-[#64748B] shrink-0" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-[#64748B] truncate" title={uploadingFile.name}>
-                                {uploadingFile.name}
-                              </p>
-                              <p className="text-[10px] text-[#64748B]">
-                                {uploadingFile.size ? (uploadingFile.size / 1024).toFixed(0) + ' KB' : 'Adjunto'}
-                              </p>
-                            </div>
-                            <span className="flex items-center gap-1.5 text-[10px] text-[#4F5AF5] font-semibold shrink-0">
-                              <div className="w-3 h-3 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
-                              Cargando...
-                            </span>
-                          </div>
-                        )}
-                        {/* Añadir más */}
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                          disabled={isProcessingFile}
-                          className="flex items-center justify-center gap-2 border border-dashed border-[#CBD5E1] hover:border-[#4F5AF5] hover:bg-[#EEF2FF]/30 text-[#94A3B8] hover:text-[#4F5AF5] rounded-xl p-3 text-xs font-semibold transition-all"
-                        >
-                          <Paperclip className="w-3.5 h-3.5" /> Añadir otro archivo
-                        </button>
-                      </div>
-                    )}
-                    {/* Upload spinner when empty */}
-                    {isProcessingFile && uploadingFile && (!formData.attachments || formData.attachments.length === 0) && (
-                      <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#CBD5E1] rounded-xl p-3 shadow-sm animate-pulse mt-2">
-                        {uploadingFile.type?.startsWith('image/') ? (
-                          <ImageIcon className="w-4 h-4 text-[#64748B] shrink-0" />
-                        ) : (
-                          <FileText className="w-4 h-4 text-[#64748B] shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-[#64748B] truncate">{uploadingFile.name}</p>
-                        </div>
-                        <span className="flex items-center gap-1.5 text-[10px] text-[#4F5AF5] font-semibold shrink-0">
-                          <div className="w-3 h-3 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
-                          Cargando...
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Form Validation Errors */}
             {formErrors.length > 0 && (
@@ -2544,8 +2486,8 @@ export default function InitiativeForm() {
               </div>
             )}
 
-            {/* Disclaimer and Checkbox */}
-            {(step >= 2 || selectedPath === 'unstructured' || selectedPath === 'direct' || step === 3) && (
+            {/* Disclaimer and Checkbox (Only on final review step before BP submission) */}
+            {((selectedPath === 'unstructured' && step >= 2) || (selectedPath === 'direct' && step === 3)) && (
               <div id="consent-disclaimer-section" className="px-8 py-5 border-t border-[#F1F5F9] bg-[#FFFBEB]/30">
                 <div className={`flex items-start gap-3 p-4 rounded-xl border transition-all ${disclaimerAccepted ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-400/30'}`}>
                   <input
@@ -2555,8 +2497,18 @@ export default function InitiativeForm() {
                     onChange={(e) => setDisclaimerAccepted(e.target.checked)}
                     className="w-5 h-5 mt-0.5 rounded border-amber-400 text-[#4F5AF5] focus:ring-[#4F5AF5] transition-colors cursor-pointer shrink-0"
                   />
-                  <label htmlFor="disclaimer-checkbox" className="text-xs text-amber-950 leading-relaxed select-none cursor-pointer">
-                    <span className="font-bold text-amber-900">Declaración de Responsabilidad (Consentimiento):</span> Estoy conforme con toda la información mostrada y declaro que mi Director / VP tiene pleno conocimiento y ha otorgado su consentimiento para que esta necesidad sea aprobada por el BP TI.
+                  <label htmlFor="disclaimer-checkbox" className="text-xs text-amber-950 leading-relaxed select-none cursor-pointer flex-1">
+                    <span className="font-bold text-amber-900 block mb-0.5">
+                      {keyUserConsent?.title || "Declaración y Sustento del Solicitante (Key User)"}
+                      {keyUserConsent?.version && (
+                        <span className="ml-1.5 font-mono text-[10px] text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 py-0.2 rounded">
+                          v{keyUserConsent.version}
+                        </span>
+                      )}:
+                    </span>
+                    <span>
+                      {keyUserConsent?.statement || "Declaro bajo responsabilidad que la información consignada en esta solicitud es veraz, responde a una necesidad legítima de las operaciones o estrategia institucional, y cuenta con la documentación de sustento requerida para su análisis por TI."}
+                    </span>
                   </label>
                 </div>
               </div>
@@ -2641,9 +2593,27 @@ export default function InitiativeForm() {
               <p className="text-sm font-semibold text-white">{aiName}</p>
               <p className="text-[10px] text-blue-200 uppercase tracking-widest">Analista de Negocio Senior</p>
             </div>
-            <div className="ml-auto flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs text-blue-100">En línea</span>
+            <div className="ml-auto flex items-center gap-3">
+              {!id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (step1FieldsCount > 0) {
+                      setStep(1);
+                    } else {
+                      setSelectedPath('select');
+                      setStep(1);
+                    }
+                  }}
+                  className="text-xs text-white/80 hover:text-white flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  <ArrowLeft className="w-3 h-3" /> {step1FieldsCount > 0 ? "Volver al formulario" : "Volver a opciones"}
+                </button>
+              )}
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs text-blue-100">En línea</span>
+              </div>
             </div>
           </div>
 
@@ -3073,8 +3043,8 @@ export default function InitiativeForm() {
             {/* Disclaimer & formats hint */}
             <div className="space-y-1 text-center pt-0.5">
               <p className="text-[10.5px] text-[#475569] flex items-center justify-center gap-1.5 font-medium bg-slate-50 border border-slate-200/60 rounded-lg py-1 px-2.5">
-                <span className="text-blue-500">ℹ️</span>
-                <span>Los archivos multimedia se adjuntan como <strong>evidencias de soporte</strong> y no son leídos por la IA.</span>
+                <span className="text-blue-500">📎</span>
+                <span>Puedes adjuntar <strong>documentación y archivos de sustento</strong> como apoyo para el análisis de tu necesidad.</span>
               </p>
               <p className="text-[10px] text-[#94A3B8]">
                 {(() => {
@@ -3084,9 +3054,10 @@ export default function InitiativeForm() {
                     const enabledTypes: string[] = [];
                     if (fileTypes.pdf?.enabled) enabledTypes.push(`PDF (máx. ${fileTypes.pdf.maxMb} MB)`);
                     if (fileTypes.docx?.enabled) enabledTypes.push(`DOCX (máx. ${fileTypes.docx.maxMb} MB)`);
+                    if (fileTypes.xlsx?.enabled) enabledTypes.push(`Excel (máx. ${fileTypes.xlsx.maxMb} MB)`);
                     if (fileTypes.txt?.enabled) enabledTypes.push(`TXT (máx. ${fileTypes.txt.maxMb} MB)`);
-                    if (fileTypes.image?.enabled) enabledTypes.push(`Multimedia/Imágenes (máx. ${fileTypes.image.maxMb} MB)`);
-                    if (enabledTypes.length > 0) parts.push(`📎 ${enabledTypes.join(", ")}`);
+                    if (fileTypes.image?.enabled) enabledTypes.push(`Imágenes/Multimedia (máx. ${fileTypes.image.maxMb} MB)`);
+                    if (enabledTypes.length > 0) parts.push(`📎 Formatos permitidos: ${enabledTypes.join(", ")}`);
                   }
                   return parts.join("  ·  ");
                 })()}
@@ -3211,9 +3182,11 @@ export default function InitiativeForm() {
                 <AlertCircle className="w-5 h-5 text-amber-500" />
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-base font-bold text-slate-900">Declaración de Responsabilidad</h3>
+                <h3 className="text-base font-bold text-slate-900">
+                  {keyUserConsent?.title || "Declaración y Sustento del Solicitante (Key User)"}
+                </h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Por la presente declaras que toda la información y documentación cargada para este requerimiento está bajo tu responsabilidad, conformidad y consentimiento. ¿Confirmas el envío a aprobación de BP?
+                  {keyUserConsent?.statement || "Declaro bajo responsabilidad que la información consignada en esta solicitud es veraz, responde a una necesidad legítima de las operaciones o estrategia institucional, y cuenta con la documentación de sustento requerida para su análisis por TI."}
                 </p>
               </div>
             </div>

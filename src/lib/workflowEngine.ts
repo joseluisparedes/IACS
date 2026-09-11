@@ -1,4 +1,4 @@
-﻿import { supabase } from './supabase';
+import { supabase } from './supabase';
 import type { WorkflowTransitionResult, WorkflowDefinition } from '../types';
 
 let cachedWorkflow: (WorkflowDefinition & { workflow_node_roles?: any[]; workflow_transitions?: any[] }) | null = null;
@@ -29,6 +29,7 @@ export async function getActiveWorkflow(): Promise<(WorkflowDefinition & { workf
 export async function validateTransition(params: {
   workflowId?: string | null;
   currentNodeId: string | null;
+  targetNodeId?: string | null;
   userRole: string;
   formData: Record<string, string>;
   transitionLabel: string;
@@ -39,27 +40,78 @@ export async function validateTransition(params: {
     return { allowed: true };
   }
 
-  const transition = workflow.workflow_transitions?.find(
-    (t: any) => t.source_node_id === params.currentNodeId && (t.label === params.transitionLabel || t.label?.toLowerCase() === params.transitionLabel?.toLowerCase())
-  );
-  if (!transition) {
-    return { allowed: false, reason: `Transicion '${params.transitionLabel}' no definida desde el nodo actual en el flujo activo` };
-  }
+  const rawRolesList = String(params.userRole || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 
+  const roleAliases: Record<string, string[]> = {
+    vicepresidente: ['vicepresidente', 'vicepresidente_del_negocio', 'vp'],
+    vicepresidente_del_negocio: ['vicepresidente', 'vicepresidente_del_negocio', 'vp'],
+    gestor_demanda: ['gestor_demanda', 'gestor_de_la_demanda'],
+    gestor_de_la_demanda: ['gestor_demanda', 'gestor_de_la_demanda'],
+    lider_dominio: ['lider_dominio', 'lider_de_dominio'],
+    lider_de_dominio: ['lider_dominio', 'lider_de_dominio'],
+    business_owner: ['business_owner', 'bo'],
+    registrador: ['registrador', 'key_user'],
+    admin: ['admin', 'administrador', 'administrador_general'],
+  };
+
+  const userRolesList = Array.from(new Set(
+    rawRolesList.flatMap(r => roleAliases[r] || [r])
+  ));
+
+  const hasAdmin = userRolesList.includes('admin') || userRolesList.includes('administrador');
+
+  // Buscar coincidencia entre los roles del usuario y los roles autorizados en este nodo
   const nodeRole = workflow.workflow_node_roles?.find(
-    (r: any) => r.node_id === params.currentNodeId && r.role_name?.toLowerCase() === params.userRole?.toLowerCase()
+    (r: any) =>
+      r.node_id === params.currentNodeId &&
+      userRolesList.includes(r.role_name?.toLowerCase())
   );
 
-  // Permitir acciones de guardado estandar siempre si tiene permiso de edicion
-  if (params.transitionLabel === 'Guardar' || params.transitionLabel === 'Borrador') {
-    if (nodeRole && !nodeRole.can_edit) {
-      return { allowed: false, reason: `El rol '${params.userRole}' no tiene permiso de edicion en este nodo` };
+  // 1. Acciones de guardado estandar (sin cambio de estado de etapa)
+  if (params.transitionLabel === 'Guardar' || params.transitionLabel === 'Borrador' || (params.targetNodeId && params.targetNodeId === params.currentNodeId)) {
+    if (!hasAdmin && nodeRole && !nodeRole.can_edit) {
+      return { allowed: false, reason: `Ninguno de los roles asignados (${userRolesList.join(', ')}) cuenta con permiso de edición en este nodo` };
     }
     return { allowed: true, next_node_id: params.currentNodeId };
   }
 
-  if (nodeRole && !nodeRole.can_approve && !nodeRole.can_reject) {
-    return { allowed: false, reason: `El rol '${params.userRole}' no tiene permisos para realizar '${params.transitionLabel}' en este nodo` };
+  // 2. Buscar transición por target_node_id O por label en workflow_transitions y en graph_json.edges
+  const transition = workflow.workflow_transitions?.find(
+    (t: any) => t.source_node_id === params.currentNodeId && (
+      (params.targetNodeId && (t.target_node_id === params.targetNodeId || t.target === params.targetNodeId)) ||
+      (params.transitionLabel && (t.label === params.transitionLabel || t.label?.toLowerCase() === params.transitionLabel?.toLowerCase()))
+    )
+  ) || workflow.graph_json?.edges?.find(
+    (e: any) => e.source === params.currentNodeId && (
+      (params.targetNodeId && e.target === params.targetNodeId) ||
+      (params.transitionLabel && (e.label === params.transitionLabel || e.label?.toLowerCase() === params.transitionLabel?.toLowerCase()))
+    )
+  );
+
+  if (!transition) {
+    return { allowed: false, reason: `Transición '${params.transitionLabel}' no definida desde el nodo actual en el flujo activo` };
+  }
+
+  const targetNodeId = transition.target_node_id || transition.target;
+  const isBorradorNode = params.currentNodeId === 'borrador';
+
+  // Validación de roles en la flecha / transición (Edge-centric RBAC)
+  const allowedRoles: string[] = transition.allowed_roles || (transition.data as any)?.allowed_roles || [];
+  if (allowedRoles.length > 0) {
+    const hasRoleForEdge = allowedRoles.some((r: string) => userRolesList.includes(r.toLowerCase()));
+    if (!hasRoleForEdge) {
+      return {
+        allowed: false,
+        reason: `Tu rol actual no está autorizado para ejecutar la transición '${params.transitionLabel || transition.label || 'Avanzar'}' (requiere rol: ${allowedRoles.join(', ')})`
+      };
+    }
+  }
+
+  if (!hasAdmin && !isBorradorNode && nodeRole && !nodeRole.can_approve && !nodeRole.can_reject) {
+    return { allowed: false, reason: `Ninguno de los roles asignados (${userRolesList.join(', ')}) cuenta con permisos para '${params.transitionLabel}' en este nodo` };
   }
 
   if (transition.condition_type === 'field_required') {
@@ -76,11 +128,71 @@ export async function validateTransition(params: {
     }
   }
 
-  const targetNode = workflow.graph_json?.nodes?.find((n: any) => n.id === transition.target_node_id);
+  let finalTargetNodeId = targetNodeId;
+  let finalTargetNode = workflow.graph_json?.nodes?.find((n: any) => n.id === targetNodeId);
+
+  // Auto-enrutar compuertas dinámicas si el destino es un Gateway
+  if (finalTargetNode?.data?.nodeType === 'gateway' || finalTargetNodeId.startsWith('gw_')) {
+    const gwConfig = finalTargetNode?.data?.gatewayConfig as any;
+    const variable = gwConfig?.variable || (finalTargetNodeId === 'gw_presupuesto' ? 'requiere_presupuesto' : '');
+    const rawVal = params.formData ? String(params.formData[variable] ?? '').trim() : '';
+
+    const gwEdges = workflow.graph_json?.edges?.filter((e: any) => e.source === finalTargetNodeId) || [];
+    const rules = gwConfig?.rules || [];
+
+    let matchedEdge: any = null;
+
+    for (const rule of rules) {
+      if (rule.isDefault) continue;
+      const ruleVal = String(rule.value || '').trim();
+      const op = rule.operator || 'equals';
+
+      let isMatch = false;
+      if (op === 'equals') {
+        isMatch = rawVal.toLowerCase() === ruleVal.toLowerCase();
+        if (!isMatch && (/^(sí|si|true)$/i.test(rawVal) && /^(sí|si|true)$/i.test(ruleVal))) isMatch = true;
+        if (!isMatch && (/^(no|false)$/i.test(rawVal) && /^(no|false)$/i.test(ruleVal))) isMatch = true;
+      } else if (op === 'not_equals') {
+        isMatch = rawVal.toLowerCase() !== ruleVal.toLowerCase();
+      } else if (op === 'contains') {
+        isMatch = rawVal.toLowerCase().includes(ruleVal.toLowerCase());
+      } else if (op === 'greater_than') {
+        isMatch = parseFloat(rawVal) > parseFloat(ruleVal);
+      } else if (op === 'less_than') {
+        isMatch = parseFloat(rawVal) < parseFloat(ruleVal);
+      }
+
+      if (isMatch) {
+        matchedEdge = gwEdges.find((e: any) => e.id === rule.edgeId || e.target === rule.targetNodeId);
+        if (matchedEdge) break;
+      }
+    }
+
+    if (!matchedEdge) {
+      const defaultRule = rules.find((r: any) => r.isDefault);
+      if (defaultRule) {
+        matchedEdge = gwEdges.find((e: any) => e.id === defaultRule.edgeId || e.target === defaultRule.targetNodeId);
+      }
+    }
+
+    if (!matchedEdge && gwEdges.length > 0) {
+      const isYes = /^(sí|si|true)$/i.test(rawVal);
+      matchedEdge = isYes
+        ? gwEdges.find((e: any) => e.target === 'est_con_presupuesto' || /s[ií]/i.test(e.label || ''))
+        : gwEdges.find((e: any) => e.target === 'est_sin_presupuesto' || /no/i.test(e.label || ''));
+      if (!matchedEdge) matchedEdge = gwEdges[0];
+    }
+
+    if (matchedEdge) {
+      finalTargetNodeId = matchedEdge.target;
+      finalTargetNode = workflow.graph_json?.nodes?.find((n: any) => n.id === finalTargetNodeId) || finalTargetNode;
+    }
+  }
+
   return {
     allowed: true,
-    next_node_id: transition.target_node_id,
-    next_node_label: targetNode?.data?.label || transition.target_node_id
+    next_node_id: finalTargetNodeId,
+    next_node_label: finalTargetNode?.data?.label || finalTargetNodeId
   };
 }
 

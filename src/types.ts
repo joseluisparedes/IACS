@@ -25,6 +25,8 @@ export interface FieldDefinition {
   allow_multiple?: boolean;
   help_text?: string;
   requires_confirmation?: boolean;
+  ask_in_initial_form?: boolean;
+  fileOptions?: StageFileOptions;
   created_at?: string;
 }
 
@@ -59,13 +61,36 @@ export interface WorkflowNodeRole {
   required_fields?: string[];
 }
 
+export interface GatewayBranchRule {
+  edgeId?: string;
+  targetNodeId?: string;
+  operator?: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than';
+  value: string;
+  label?: string;
+  isDefault?: boolean;
+}
+
+export interface GatewayConfig {
+  variable: string;
+  variableLabel?: string;
+  dataType?: 'boolean' | 'string' | 'number';
+  rules?: GatewayBranchRule[];
+}
+
 export interface WorkflowNodeData {
   label: string;
   nodeType: WorkflowNodeType;
+  stateSubtype?: 'standard' | 'observada' | 'demanda' | 'desestimada';
+  dispatchMode?: 'general_inbox' | 'select_person';
+  targetAssigneeRole?: string;
   description?: string;
   roles?: WorkflowNodeRole[];
   requiredFields?: string[];
+  form_id?: string;
+  consent_id?: string;
+  action_label?: string;
   aiConfig?: { promptTemplate?: string; outputFields?: string[] };
+  gatewayConfig?: GatewayConfig;
   [key: string]: unknown;
 }
 
@@ -76,6 +101,7 @@ export interface WorkflowTransitionConfig {
   target_node_id: string;
   condition_type: 'always' | 'field_required' | 'vobo_check' | 'role_only';
   condition_config: Record<string, unknown>;
+  allowed_roles?: string[];
 }
 
 export interface WorkflowDefinition {
@@ -100,3 +126,78 @@ export interface WorkflowTransitionResult {
   next_node_id?: string;
   next_node_label?: string;
 }
+
+// ─── Stage Forms & Consents (Cadena de Custodia & Dictámenes) ───────────────
+export type StageFormFieldType = 'text' | 'textarea' | 'number' | 'date' | 'select' | 'multiselect' | 'checkbox' | 'file' | 'role_user';
+
+export interface StageFileConfig {
+  enabled: boolean;
+  maxMb: number;
+}
+
+export interface StageFileOptions {
+  allowMultiple?: boolean;
+  maxFiles?: number;
+  fileTypes?: {
+    pdf?: StageFileConfig;
+    docx?: StageFileConfig;
+    xlsx?: StageFileConfig;
+    txt?: StageFileConfig;
+    image?: StageFileConfig;
+  };
+}
+
+export interface StageFormField {
+  id: string;
+  key: string;
+  label: string;
+  type: StageFormFieldType;
+  required: boolean;
+  placeholder?: string;
+  options?: string[];
+  helpText?: string;
+  fileOptions?: StageFileOptions;
+  ask_in_initial_form?: boolean;
+  target_role?: string;
+  filter_by_scope?: boolean;
+}
+
+export interface StageForm {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  fields: StageFormField[];
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface StageConsent {
+  id: string;
+  code: string;
+  title: string;
+  statement: string;
+  version: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface InitiativeStageRecord {
+  id: string;
+  initiative_id: string;
+  node_id: string;
+  stage_name: string;
+  form_id?: string | null;
+  consent_id?: string | null;
+  user_id?: string | null;
+  user_name?: string | null;
+  user_role?: string | null;
+  form_data: Record<string, any>;
+  consent_accepted: boolean;
+  consent_text_snapshot?: string | null;
+  action_taken: string;
+  submitted_at: string;
+}
+

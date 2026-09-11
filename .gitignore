@@ -18,3 +18,6 @@ seed_logs.js
 
 # Supabase local config
 supabase/.temp/
+
+# Scratch temporary files
+scratch/

@@ -11,7 +11,8 @@ import {
   Loader2,
   Check,
   Undo2,
-  Redo2
+  Redo2,
+  Sparkles
 } from 'lucide-react';
 import { useWorkflowStore } from '../../lib/workflowStore';
 import { Link } from 'react-router-dom';
@@ -20,12 +21,14 @@ interface WorkflowVersionBarProps {
   onSave: () => Promise<void>;
   onPublish: () => Promise<void>;
   onOpenRolesModal?: () => void;
+  onAutoLayout?: () => void;
 }
 
 export const WorkflowVersionBar: React.FC<WorkflowVersionBarProps> = ({
   onSave,
   onPublish,
   onOpenRolesModal,
+  onAutoLayout,
 }) => {
   const { activeWorkflow, isDirty, isSaving, lastSavedAt, undo, redo, past, future } = useWorkflowStore();
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -127,6 +130,18 @@ export const WorkflowVersionBar: React.FC<WorkflowVersionBarProps> = ({
             >
               <Users className="w-3.5 h-3.5 text-slate-500" />
               <span className="hidden md:inline">Asignación de Roles</span>
+            </button>
+          )}
+
+          {onAutoLayout && (
+            <button
+              type="button"
+              onClick={onAutoLayout}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#4F5AF5] bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors shadow-2xs"
+              title="Reorganizar automáticamente todas las cajas y flechas sin sobreposiciones"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#4F5AF5]" />
+              <span className="hidden sm:inline">Organizar Diagrama</span>
             </button>
           )}
 

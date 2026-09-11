@@ -30,10 +30,11 @@ const SYSTEM_FIELDS = ["aprobacion_de_director", "aprobacin_de_director"];
 
 const defaultFileOptions = () => ({
   fileTypes: {
-    pdf: { enabled: true, maxMb: 1.0 },
-    docx: { enabled: true, maxMb: 1.0 },
-    txt: { enabled: true, maxMb: 1.0 },
-    image: { enabled: true, maxMb: 1.0 }
+    pdf: { enabled: true, maxMb: 25 },
+    docx: { enabled: true, maxMb: 25 },
+    xlsx: { enabled: true, maxMb: 25 },
+    txt: { enabled: true, maxMb: 5 },
+    image: { enabled: true, maxMb: 10 }
   }
 });
 
@@ -562,21 +563,23 @@ export default function AdminFields() {
                     <h3 className="text-xs font-bold text-[#475569] uppercase tracking-wider mb-2">Configuración de Archivos</h3>
                     <p className="text-[11px] text-[#94A3B8] mb-3">Habilita formatos y define el tamaño máximo por archivo.</p>
                   </div>
-                  {(["pdf", "docx", "txt", "image"] as const).map(typeKey => {
+                  {(["pdf", "docx", "xlsx", "txt", "image"] as const).map(typeKey => {
                     const typeLabels: Record<string, string> = {
                       pdf: "Archivos PDF (.pdf)",
                       docx: "Documentos Word (.docx)",
+                      xlsx: "Hojas de Cálculo (.xlsx, .xls)",
                       txt: "Archivos de Texto (.txt)",
                       image: "Imágenes (JPG, PNG, WEBP)"
                     };
                     const typeIcons: Record<string, any> = {
                       pdf: <FileText className="w-4 h-4 text-red-500" />,
                       docx: <FileText className="w-4 h-4 text-blue-500" />,
+                      xlsx: <FileText className="w-4 h-4 text-emerald-600" />,
                       txt: <FileText className="w-4 h-4 text-slate-500" />,
                       image: <ImageIcon className="w-4 h-4 text-emerald-500" />
                     };
                     const fileTypes = form.options?.fileTypes || defaultFileOptions().fileTypes;
-                    const config = fileTypes[typeKey] || { enabled: true, maxMb: 1.0 };
+                    const config = fileTypes[typeKey] || { enabled: true, maxMb: 25 };
                     return (
                       <div key={typeKey} className={`flex flex-col bg-white border border-[#E2E8F0] rounded-xl p-3 space-y-3 transition-opacity ${!config.enabled ? 'opacity-65' : ''}`}>
                         <div className="flex items-center justify-between">
@@ -590,7 +593,7 @@ export default function AdminFields() {
                               newFileTypes[typeKey] = { ...config, enabled: !config.enabled };
                               setForm(f => ({ ...f, options: { ...f.options, fileTypes: newFileTypes } }));
                             }} 
-                            color={typeKey === 'pdf' ? 'bg-red-500' : typeKey === 'docx' ? 'bg-blue-500' : typeKey === 'txt' ? 'bg-slate-500' : 'bg-emerald-500'}
+                            color={typeKey === 'pdf' ? 'bg-red-500' : typeKey === 'docx' ? 'bg-blue-500' : typeKey === 'xlsx' ? 'bg-emerald-600' : typeKey === 'txt' ? 'bg-slate-500' : 'bg-emerald-500'}
                           />
                         </div>
                         <div className="flex items-center justify-between text-xs pt-1 border-t border-dashed border-[#E2E8F0]">
@@ -599,8 +602,8 @@ export default function AdminFields() {
                             <input
                               type="number"
                               min="0.1"
-                              max="10"
-                              step="0.1"
+                              max="25"
+                              step="0.5"
                               disabled={!config.enabled}
                               value={config.maxMb}
                               onChange={e => {

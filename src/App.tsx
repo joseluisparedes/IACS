@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2, FileText, Network, Building2, Workflow, Play } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2, FileText, Network, Building2, Workflow, Play, FileCheck2 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
 import InitiativeDetail from './pages/InitiativeDetail';
-import AdminFields from './pages/AdminFields';
 import AdminPDFTemplate from './pages/AdminPDFTemplate';
 import AgentBoard from './pages/AgentBoard';
 import UserManagement from './pages/UserManagement';
@@ -18,11 +17,14 @@ import StateFlow from './pages/StateFlow';
 import C4Architecture from './pages/C4Architecture';
 import WorkflowEditor from './pages/WorkflowEditor';
 import WorkflowSimulator from './pages/WorkflowSimulator';
+import { WorkflowCatalogManager } from './pages/WorkflowCatalogManager';
 import MaintenanceScreen from './components/MaintenanceScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
+import { formatDateTimeDDMMYYYY } from './lib/utils';
 
-const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura', '/admin/pdf-template', '/admin/workflow-editor', '/admin/workflow-simulator'];
+const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura', '/admin/pdf-template', '/admin/workflow-editor', '/admin/workflow-simulator', '/admin/formularios-consentimientos'];
+
 
 function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -100,7 +102,7 @@ function Layout({ children }: { children: React.ReactNode }) {
         alert("Error al eliminar borrador: " + error.message);
       } else {
         setDrafts(prev => prev.filter(d => d.id !== draftId));
-        if (location.pathname === `/nueva/${draftId}`) {
+        if (location.pathname === `/nueva/${draftId}` || location.pathname === `/iniciativa/${draftId}`) {
           navigate('/dashboard');
         }
       }
@@ -177,9 +179,9 @@ function Layout({ children }: { children: React.ReactNode }) {
       name: 'Personalización de Datos',
       items: [
         { name: 'Editor de Flujos', path: '/admin/workflow-editor', icon: Workflow },
+        { name: 'Formularios y Consentimientos', path: '/admin/formularios-consentimientos', icon: FileCheck2 },
         { name: 'Simulador de Flujos', path: '/admin/workflow-simulator', icon: Play },
         { name: 'Flujo de Estados', path: '/admin/flujo-estados', icon: GitBranch },
-        { name: 'Campos del Formulario', path: '/admin', icon: Settings2 },
         { name: 'Plantilla PDF', path: '/admin/pdf-template', icon: FileText },
         { name: 'Arquitectura C4', path: '/admin/arquitectura', icon: Network },
       ]
@@ -258,8 +260,8 @@ function Layout({ children }: { children: React.ReactNode }) {
                 : [];
              return {
                 role: roleNamesMap[r.role] || r.role,
-                vpName: vp?.name || 'Todas',
-                direcciones: dirsForRole.map(d => d.name)
+                vpName: r.is_transversal ? 'Alcance Transversal (Global)' : (vp?.name || 'Sin VP'),
+                direcciones: r.is_transversal ? ['Todas las Vicepresidencias y Direcciones'] : dirsForRole.map(d => d.name)
              };
           });
           setRolesDetails(details);
@@ -377,7 +379,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                               className="group flex items-center justify-between p-2 rounded-lg hover:bg-[#f7f8fc] transition-colors border border-transparent hover:border-[#e4e6ea] mb-1"
                             >
                               <Link
-                                to={`/nueva/${d.id}`}
+                                to={`/iniciativa/${d.id}`}
                                 onClick={() => setDraftsOpen(false)}
                                 className="flex-1 min-w-0 pr-2"
                               >
@@ -385,7 +387,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                                   {d.form_data?.titulo || "Sin título"}
                                 </p>
                                 <p className="text-[10px] text-[#9ca3af] mt-0.5">
-                                  {new Date(d.updated_at || d.created_at).toLocaleDateString()} {new Date(d.updated_at || d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {formatDateTimeDDMMYYYY(d.updated_at || d.created_at)}
                                 </p>
                               </Link>
                               <button
@@ -443,7 +445,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                               {n.message}
                             </p>
                             <p className="text-[10px] text-[#9ca3af] mt-1.5">
-                              {new Date(n.created_at).toLocaleDateString()} {new Date(n.created_at).toLocaleTimeString()}
+                              {formatDateTimeDDMMYYYY(n.created_at)}
                             </p>
                           </Link>
                         ))
@@ -802,7 +804,7 @@ export default function App() {
           <Route path="/nueva/:id" element={<ProtectedRoute><RegistradorRoute><InitiativeForm /></RegistradorRoute></ProtectedRoute>} />
           <Route path="/bandeja" element={<ProtectedRoute><ApprovalBoard /></ProtectedRoute>} />
           <Route path="/iniciativa/:id" element={<ProtectedRoute><InitiativeDetail /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute><AdminRoute><AdminFields /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin" element={<Navigate to="/admin/formularios-consentimientos" replace />} />
           <Route path="/admin/pdf-template" element={<ProtectedRoute><AdminRoute><AdminPDFTemplate /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/estructura" element={<ProtectedRoute><AdminRoute><VPManagement /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/agentes" element={<ProtectedRoute><AdminRoute><AgentBoard /></AdminRoute></ProtectedRoute>} />
@@ -813,6 +815,7 @@ export default function App() {
           <Route path="/admin/flujo-estados" element={<ProtectedRoute><AdminRoute><StateFlow /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/workflow-editor" element={<ProtectedRoute><AdminRoute><WorkflowEditor /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/workflow-editor/:id" element={<ProtectedRoute><AdminRoute><WorkflowEditor /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/formularios-consentimientos" element={<ProtectedRoute><AdminRoute><WorkflowCatalogManager /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/workflow-simulator" element={<ProtectedRoute><AdminRoute><WorkflowSimulator /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/arquitectura" element={<ProtectedRoute><AdminRoute><C4Architecture /></AdminRoute></ProtectedRoute>} />
         </Routes>

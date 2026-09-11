@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import DOMPurify from 'dompurify';
+import { formatDateDDMMYYYY, isDateLike } from '../lib/utils';
 
 interface PDFProps {
   initiative: any;
@@ -90,11 +91,7 @@ function buildProcessedHtml(rawHtml: string, initiative: any): string {
 
   const form_data: Record<string, any> = initiative?.form_data ?? {};
   const summary: Record<string, any> = initiative?.summary ?? {};
-  const today = new Date().toLocaleDateString('es-PE', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  const today = formatDateDDMMYYYY(new Date());
 
   let html = rawHtml;
 
@@ -125,13 +122,21 @@ function buildProcessedHtml(rawHtml: string, initiative: any): string {
     if (form_data[k] !== undefined && form_data[k] !== null) {
       const file = tryParseFileObj(form_data[k]);
       if (file) return file.name ?? '—';
-      return String(form_data[k]);
+      const rawVal = form_data[k];
+      if (/fecha|date|deadline|plazo/i.test(k) || isDateLike(rawVal)) {
+        return formatDateDDMMYYYY(rawVal);
+      }
+      return String(rawVal);
     }
     for (const fdKey of Object.keys(form_data)) {
       if (fdKey.toLowerCase() === k.toLowerCase() && form_data[fdKey] !== null) {
         const file = tryParseFileObj(form_data[fdKey]);
         if (file) return file.name ?? '—';
-        return String(form_data[fdKey]);
+        const rawVal = form_data[fdKey];
+        if (/fecha|date|deadline|plazo/i.test(fdKey) || isDateLike(rawVal)) {
+          return formatDateDDMMYYYY(rawVal);
+        }
+        return String(rawVal);
       }
     }
     return '—';

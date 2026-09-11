@@ -20,6 +20,7 @@ import { AIAgentNode } from '../components/workflow/nodes/AIAgentNode';
 import { AITextNode } from '../components/workflow/nodes/AITextNode';
 import { HumanTaskNode } from '../components/workflow/nodes/HumanTaskNode';
 import { WorkflowEdge } from '../components/workflow/WorkflowEdge';
+import { supabase } from '../lib/supabase';
 import type { WorkflowDefinition } from '../types';
 
 const NODE_TYPES = {
@@ -80,11 +81,21 @@ export default function StateFlow() {
 
   useEffect(() => {
     fetch('/api/workflow/active')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject('API active failed')))
       .then((res) => {
         if (res.data) setActiveWorkflow(res.data);
+        else throw new Error('No data');
       })
-      .catch(() => {})
+      .catch(async () => {
+        const { data } = await supabase
+          .from('workflow_definitions')
+          .select('*, workflow_node_roles(*), workflow_transitions(*)')
+          .eq('status', 'published')
+          .order('version', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data) setActiveWorkflow(data);
+      })
       .finally(() => setLoadingWorkflow(false));
   }, []);
 

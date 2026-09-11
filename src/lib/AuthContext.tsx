@@ -86,7 +86,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!currentUser.email) return;
       const { data, error } = await supabase
         .from('profiles')
-        .select('*, profile_roles(role, vp_id, direcciones_ids)')
+        .select('*, profile_roles(role, vp_id, direcciones_ids, is_transversal)')
         .eq('id', currentUser.id)
         .single();
         

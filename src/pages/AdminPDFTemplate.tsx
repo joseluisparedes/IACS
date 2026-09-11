@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { formatDateDDMMYYYY } from '../lib/utils';
 import { FieldDefinition } from '../types';
 import {
   Save, Loader2, Eye, EyeOff, RotateCcw,
@@ -64,7 +65,7 @@ const DEFAULT_SAMPLE_DATA: Record<string, string> = {
   id_iniciativa:              'INIT-MRPN7JPYGA',
   id_completa:                 'INIT-MRPN7JPYGA',
   id_corta:                   '#INIT-MRP',
-  fecha_actual:               new Date().toLocaleDateString('es-PE', { year: 'numeric', month: 'long', day: 'numeric' }),
+  fecha_actual:               formatDateDDMMYYYY(new Date()),
   estado_actual:              'En demanda',
   registrador:                'Pedro Antonio Guibar Flores',
   direccion:                  'Central de Admisión',

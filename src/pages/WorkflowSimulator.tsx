@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   ReactFlow, 
   ReactFlowProvider, 
@@ -20,7 +20,8 @@ import {
   FileSpreadsheet,
   History,
   Sparkles,
-  HelpCircle
+  HelpCircle,
+  Users
 } from 'lucide-react';
 import { StateNode } from '../components/workflow/nodes/StateNode';
 import { GatewayNode } from '../components/workflow/nodes/GatewayNode';
@@ -57,27 +58,67 @@ interface StepLog {
   timestamp: string;
 }
 
+const STAGE_DEFAULT_ROLE: Record<string, { code: string; label: string }> = {
+  borrador: { code: 'registrador', label: 'Key User (registrador)' },
+  eval_bp: { code: 'bp_ti', label: 'Business Partner TI (bp_ti)' },
+  aprob_bo: { code: 'business_owner', label: 'Business Owner (business_owner)' },
+  aprob_vp: { code: 'vicepresidente_del_negocio', label: 'Vicepresidente del Negocio (vicepresidente_del_negocio)' },
+  asig_demanda: { code: 'gestor_de_la_demanda', label: 'Gestor de la Demanda (gestor_de_la_demanda)' },
+  ventana_est: { code: 'lider_de_dominio', label: 'Líder de Dominio (lider_de_dominio)' },
+  est_con_presupuesto: { code: 'lider_de_dominio', label: 'Líder de Dominio (lider_de_dominio)' },
+  est_sin_presupuesto: { code: 'lider_de_dominio', label: 'Líder de Dominio (lider_de_dominio)' },
+  val_est_bp: { code: 'bp_ti', label: 'Business Partner TI (bp_ti)' },
+  vobo_est_bo: { code: 'business_owner', label: 'Business Owner (business_owner)' },
+  plan_fechas: { code: 'lider_de_dominio', label: 'Líder de Dominio (lider_de_dominio)' },
+  val_plan_bp: { code: 'bp_ti', label: 'Business Partner TI (bp_ti)' },
+  aprob_plan_bo: { code: 'business_owner', label: 'Business Owner (business_owner)' },
+  observada: { code: 'bp_ti', label: 'Business Partner TI (bp_ti)' },
+  desestimada: { code: 'bp_ti', label: 'Business Partner TI (bp_ti)' },
+};
+
 const SimulatorContent: React.FC = () => {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
   const [workflow, setWorkflow] = useState<WorkflowDefinition | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const DEFAULT_ROLES = useMemo(() => [
+    { code: 'registrador', name: 'Key User (registrador)' },
+    { code: 'bp_ti', name: 'Business Partner TI (bp_ti)' },
+    { code: 'business_owner', name: 'Business Owner (business_owner)' },
+    { code: 'vicepresidente_del_negocio', name: 'Vicepresidente del Negocio (vicepresidente_del_negocio)' },
+    { code: 'gestor_de_la_demanda', name: 'Gestor de la Demanda (gestor_de_la_demanda)' },
+    { code: 'lider_de_dominio', name: 'Líder de Dominio (lider_de_dominio)' },
+    { code: 'admin', name: 'Administrador (admin)' },
+    { code: 'invitado', name: 'Invitado (invitado)' },
+  ], []);
+
   // Simulation State
   const [currentNodeId, setCurrentNodeId] = useState<string>('borrador');
   const [simRole, setSimRole] = useState<string>('registrador');
+  const [availableRoles, setAvailableRoles] = useState<Array<{ code: string; name: string }>>([
+    { code: 'registrador', name: 'Key User (registrador)' },
+    { code: 'bp_ti', name: 'Business Partner TI (bp_ti)' },
+    { code: 'business_owner', name: 'Business Owner (business_owner)' },
+    { code: 'vicepresidente_del_negocio', name: 'Vicepresidente del Negocio (vicepresidente_del_negocio)' },
+    { code: 'gestor_de_la_demanda', name: 'Gestor de la Demanda (gestor_de_la_demanda)' },
+    { code: 'lider_de_dominio', name: 'Líder de Dominio (lider_de_dominio)' },
+    { code: 'admin', name: 'Administrador (admin)' },
+    { code: 'invitado', name: 'Invitado (invitado)' },
+  ]);
   const [simFormData, setSimFormData] = useState<Record<string, string>>({
     descripcion: 'Iniciativa de prueba para simulación de flujo',
     pilar_estrategico: 'Transformación Digital',
     institucion: 'Corporativo',
     _vobo_status: 'correcto',
+    requiere_presupuesto: 'Sí',
   });
 
   const [history, setHistory] = useState<StepLog[]>([]);
   const [simulating, setSimulating] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; allowed: boolean } | null>(null);
 
-  // Cargar lista de flujos y flujo activo
+  // Cargar lista de flujos, roles y flujo activo
   useEffect(() => {
     fetch('/api/workflow/definitions')
       .then((r) => r.json())
@@ -89,7 +130,32 @@ const SimulatorContent: React.FC = () => {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+
+    fetch('/api/roles')
+      .then((r) => r.json())
+      .then((res) => {
+        const rawList = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+        if (rawList.length > 0) {
+          const mapRoles = rawList
+            .filter((r: any) => r.is_active !== false)
+            .map((r: any) => ({ code: r.code, name: `${r.name} (${r.code})` }));
+
+          setAvailableRoles((prev) => {
+            const merged = [...prev];
+            mapRoles.forEach((mr: any) => {
+              const idx = merged.findIndex((m) => m.code === mr.code);
+              if (idx >= 0) {
+                merged[idx] = mr;
+              } else {
+                merged.push(mr);
+              }
+            });
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
+  }, [DEFAULT_ROLES]);
 
   // Cargar detalle del flujo seleccionado
   useEffect(() => {
@@ -106,6 +172,25 @@ const SimulatorContent: React.FC = () => {
           if (startNode) setCurrentNodeId(startNode.id);
           setHistory([]);
           setFeedback(null);
+
+          // Extraer roles presentes en los nodos del flujo para asegurar que aparezcan en el select
+          const wfRoles = (res.data.workflow_node_roles || [])
+            .map((nr: any) => nr.role_name)
+            .filter(Boolean);
+          if (wfRoles.length > 0) {
+            setAvailableRoles((prev) => {
+              const currentCodes = new Set(prev.map((p) => p.code));
+              const additions: Array<{ code: string; name: string }> = [];
+              wfRoles.forEach((rName: string) => {
+                const norm = rName.toLowerCase();
+                if (!currentCodes.has(norm)) {
+                  currentCodes.add(norm);
+                  additions.push({ code: norm, name: `${rName} (${norm})` });
+                }
+              });
+              return additions.length > 0 ? [...prev, ...additions] : prev;
+            });
+          }
         }
       })
       .catch(() => {})
@@ -275,49 +360,102 @@ const SimulatorContent: React.FC = () => {
             </div>
           </div>
 
-          {/* Role selector */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol Simulado</label>
-            <select
-              value={simRole}
-              onChange={(e) => setSimRole(e.target.value)}
-              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-medium"
-            >
-              <option value="registrador">registrador (Key User)</option>
-              <option value="bp_ti">bp_ti (Business Partner TI)</option>
-              <option value="admin">admin (Administrador)</option>
-            </select>
-          </div>
+            {/* Role selector */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol Simulado</label>
+              <select
+                value={simRole}
+                onChange={(e) => setSimRole(e.target.value)}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-medium"
+              >
+                {availableRoles.map((r) => (
+                  <option key={r.code} value={r.code}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
 
-          {/* Mock Form Data */}
-          <div className="space-y-2">
-            <label className="block text-[11px] font-bold text-slate-700">
-              Datos Simulados de Iniciativa
-            </label>
-            <div className="space-y-1.5 text-xs">
-              <input
-                type="text"
-                value={simFormData.descripcion}
-                onChange={(e) => setSimFormData({ ...simFormData, descripcion: e.target.value })}
-                placeholder="Descripción de la iniciativa..."
-                className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs"
-              />
-              <input
-                type="text"
-                value={simFormData.pilar_estrategico}
-                onChange={(e) =>
-                  setSimFormData({ ...simFormData, pilar_estrategico: e.target.value })
-                }
-                placeholder="Pilar Estratégico..."
-                className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs"
-              />
-              <input
-                type="text"
-                value={simFormData.institucion}
-                onChange={(e) => setSimFormData({ ...simFormData, institucion: e.target.value })}
-                placeholder="Institución / Empresa..."
-                className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs"
-              />
+              {(() => {
+                const stageInfo = STAGE_DEFAULT_ROLE[currentNodeId.toLowerCase()];
+                if (!stageInfo) return null;
+
+                const isOperatingWithRole = simRole === stageInfo.code;
+
+                return (
+                  <div className="mt-2 p-2.5 bg-indigo-50/90 border border-indigo-200 rounded-xl space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-600 font-medium">Responsable de etapa:</span>
+                      <span className="font-bold text-indigo-950 bg-indigo-100/90 px-2 py-0.5 rounded-md border border-indigo-200 text-[10px]">
+                        {stageInfo.label}
+                      </span>
+                    </div>
+
+                    {!isOperatingWithRole ? (
+                      <button
+                        type="button"
+                        onClick={() => setSimRole(stageInfo.code)}
+                        className="w-full py-1.5 px-3 bg-[#4F5AF5] hover:bg-[#3D47E0] text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Asumir rol: {stageInfo.label.split('(')[0].trim()}</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <span>Estás operando con el rol requerido</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Mock Form Data */}
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700">
+                  Datos Simulados de Iniciativa
+                </label>
+                <p className="text-[10px] text-slate-400">
+                  Valores de prueba precargados para validar las reglas del flujo sin tener que escribir.
+                </p>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div>
+                  <span className="text-[10px] font-medium text-slate-500 block mb-0.5">1. Descripción:</span>
+                  <input
+                    type="text"
+                    value={simFormData.descripcion}
+                    onChange={(e) => setSimFormData({ ...simFormData, descripcion: e.target.value })}
+                    placeholder="Descripción de la iniciativa..."
+                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#4F5AF5]"
+                  />
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-medium text-slate-500 block mb-0.5">2. Pilar Estratégico:</span>
+                  <input
+                    type="text"
+                    value={simFormData.pilar_estrategico}
+                    onChange={(e) =>
+                      setSimFormData({ ...simFormData, pilar_estrategico: e.target.value })
+                    }
+                    placeholder="Pilar Estratégico..."
+                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#4F5AF5]"
+                  />
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-medium text-slate-500 block mb-0.5">3. Empresa / Institución:</span>
+                  <input
+                    type="text"
+                    value={simFormData.institucion}
+                    onChange={(e) => setSimFormData({ ...simFormData, institucion: e.target.value })}
+                    placeholder="Institución / Empresa..."
+                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#4F5AF5]"
+                  />
+                </div>
               <div className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg">
                 <span className="text-[11px] text-slate-600">VoBo Vicepresidencia:</span>
                 <select
@@ -328,6 +466,17 @@ const SimulatorContent: React.FC = () => {
                   <option value="correcto">Correcto ✓</option>
                   <option value="pendiente">Pendiente</option>
                   <option value="observado">Observado</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between p-2 bg-amber-50/70 border border-amber-200 rounded-lg">
+                <span className="text-[11px] font-semibold text-amber-900">¿Requiere Presupuesto?</span>
+                <select
+                  value={simFormData.requiere_presupuesto || 'Sí'}
+                  onChange={(e) => setSimFormData({ ...simFormData, requiere_presupuesto: e.target.value })}
+                  className="text-xs bg-white border border-amber-300 rounded px-1.5 py-0.5 font-bold text-amber-950"
+                >
+                  <option value="Sí">Sí (Bifurca a 7A)</option>
+                  <option value="No">No (Bifurca a 7B)</option>
                 </select>
               </div>
             </div>

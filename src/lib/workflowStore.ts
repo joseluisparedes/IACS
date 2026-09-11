@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Node, Edge, OnNodesChange, OnEdgesChange, OnConnect, Connection } from '@xyflow/react';
 import { applyNodeChanges, applyEdgeChanges, addEdge, reconnectEdge } from '@xyflow/react';
-import type { WorkflowDefinition, WorkflowNodeData } from '../types';
+import type { WorkflowDefinition, WorkflowNodeData, WorkflowNodeType, WorkflowNodeRole } from '../types';
 
 interface WorkflowSnapshot {
   nodes: Node[];
@@ -40,8 +40,15 @@ interface WorkflowStore {
   setLastSavedAt: (timestamp: string | null) => void;
 
   updateNodeData: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
-  updateEdgeData: (edgeId: string, label: string, condition_type?: string, condition_config?: any) => void;
-  addNode: (type: string, position: { x: number; y: number }, label?: string) => void;
+  updateEdgeData: (edgeId: string, label: string, condition_type?: string, condition_config?: any, allowed_roles?: string[]) => void;
+  addNode: (
+    type: string, 
+    position: { x: number; y: number }, 
+    label?: string, 
+    description?: string, 
+    stateSubtype?: 'standard' | 'observada' | 'demanda' | 'desestimada',
+    roles?: WorkflowNodeRole[]
+  ) => void;
   deleteSelected: () => void;
 }
 
@@ -124,6 +131,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     const edges: Edge[] = (wf.graph_json?.edges || []).map((e: any) => ({
       ...e,
       type: e.type || 'workflow',
+      markerEnd: e.markerEnd || {
+        type: 'arrowclosed',
+        width: 18,
+        height: 18,
+        color: '#94a3b8',
+      },
     }));
     set({
       activeWorkflow: wf,
@@ -177,6 +190,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       id: `e-${connection.source}-${connection.target}-${Date.now().toString(36)}`,
       label: 'Nueva Transición',
       type: 'workflow',
+      markerEnd: {
+        type: 'arrowclosed',
+        width: 18,
+        height: 18,
+        color: '#94a3b8',
+      },
       data: { condition_type: 'always' },
     };
     set({
@@ -230,7 +249,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     });
   },
 
-  updateEdgeData: (edgeId, label, condition_type, condition_config) => {
+  updateEdgeData: (edgeId, label, condition_type, condition_config, allowed_roles) => {
     get().pushHistory();
     set({
       edges: get().edges.map((edge) => {
@@ -242,6 +261,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               ...(edge.data || {}),
               condition_type: condition_type || edge.data?.condition_type || 'always',
               condition_config: condition_config || edge.data?.condition_config || {},
+              allowed_roles: allowed_roles !== undefined ? allowed_roles : (edge.data?.allowed_roles || []),
             },
           };
         }
@@ -251,7 +271,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     });
   },
 
-  addNode: (type, position, label) => {
+  addNode: (type, position, label, description, stateSubtype, roles) => {
     get().pushHistory();
     const id = `node_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
     const defaultLabels: Record<string, string> = {
@@ -270,9 +290,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       position,
       data: {
         label: label || defaultLabels[type] || 'Nuevo Nodo',
-        nodeType: type,
-        description: '',
-        roles: [],
+        nodeType: type as WorkflowNodeType,
+        stateSubtype: stateSubtype || (type === 'state' ? 'standard' : undefined),
+        description: description || '',
+        roles: roles || [],
         requiredFields: [],
       },
     };

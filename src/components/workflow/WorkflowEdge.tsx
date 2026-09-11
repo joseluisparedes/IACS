@@ -4,8 +4,9 @@ import {
   EdgeLabelRenderer,
   getSmoothStepPath,
   EdgeProps,
+  MarkerType,
 } from '@xyflow/react';
-import { X } from 'lucide-react';
+import { X, ArrowRight } from 'lucide-react';
 import { useWorkflowStore } from '../../lib/workflowStore';
 
 export const WorkflowEdge = memo(({
@@ -49,11 +50,29 @@ export const WorkflowEdge = memo(({
     setSelectedEdgeId(id);
   };
 
+  // Flecha direccional obligatoria SVG
+  const arrowMarkerId = `wf-arrow-${id}`;
+  const arrowColor = isSelected ? '#4F5AF5' : (style.stroke as string) || '#94a3b8';
+
   return (
     <>
+      <defs>
+        <marker
+          id={arrowMarkerId}
+          viewBox="0 0 10 10"
+          refX="7"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
+          <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={arrowColor} />
+        </marker>
+      </defs>
+
       <BaseEdge
         path={edgePath}
-        markerEnd={markerEnd}
+        markerEnd={markerEnd || `url(#${arrowMarkerId})`}
         interactionWidth={isSelected ? 25 : 12}
         style={{
           ...style,
@@ -83,6 +102,7 @@ export const WorkflowEdge = memo(({
                 : 'bg-white/95 border-slate-300 text-slate-700 hover:border-[#4F5AF5] hover:bg-white hover:shadow-xs'
             }`}
           >
+            <ArrowRight className={`w-3 h-3 shrink-0 ${isSelected ? 'text-[#4F5AF5]' : 'text-slate-400'}`} />
             <span className="truncate max-w-[150px] font-semibold">{label || 'Transición'}</span>
 
             {conditionType && conditionType !== 'always' && (

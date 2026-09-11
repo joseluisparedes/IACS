@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Users, 
   Upload, 
@@ -32,6 +32,11 @@ interface RoleAssignmentTableProps {
 export const RoleAssignmentTable: React.FC<RoleAssignmentTableProps> = ({ workflowId }) => {
   const [assignments, setAssignments] = useState<RoleAssignment[]>([]);
   const [profiles, setProfiles] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [availableRoles, setAvailableRoles] = useState<Array<{ code: string; name: string; color?: string }>>([
+    { code: 'registrador', name: 'Key user', color: 'blue' },
+    { code: 'bp_ti', name: 'Business Partner (BP)', color: 'indigo' },
+    { code: 'admin', name: 'Administrador', color: 'rose' },
+  ]);
   const [loading, setLoading] = useState(true);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedRole, setSelectedRole] = useState('registrador');
@@ -49,9 +54,10 @@ export const RoleAssignmentTable: React.FC<RoleAssignmentTableProps> = ({ workfl
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [assRes, profRes] = await Promise.all([
+      const [assRes, profRes, rolesRes] = await Promise.all([
         fetch(`/api/workflow/definitions/${workflowId}/assignments`),
         fetch('/api/users/list').catch(() => fetch('/api/admin/users')),
+        fetch('/api/roles').catch(() => null),
       ]);
 
       if (assRes.ok) {
@@ -62,6 +68,18 @@ export const RoleAssignmentTable: React.FC<RoleAssignmentTableProps> = ({ workfl
       if (profRes && profRes.ok) {
         const json = await profRes.json();
         setProfiles(Array.isArray(json) ? json : json.data || []);
+      }
+
+      if (rolesRes && rolesRes.ok) {
+        const rolesData = await rolesRes.json();
+        if (Array.isArray(rolesData) && rolesData.length > 0) {
+          const activeRoles = rolesData
+            .filter((r: any) => r.is_active !== false)
+            .map((r: any) => ({ code: r.code, name: r.name, color: r.color }));
+          if (activeRoles.length > 0) {
+            setAvailableRoles(activeRoles);
+          }
+        }
       }
     } catch (err: any) {
       showStatus(err.message || 'Error cargando asignaciones', 'error');
@@ -207,16 +225,18 @@ export const RoleAssignmentTable: React.FC<RoleAssignmentTableProps> = ({ workfl
           </select>
         </div>
 
-        <div className="w-40">
+        <div className="w-52">
           <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol en el Flujo</label>
           <select
             value={selectedRole}
             onChange={(e) => setSelectedRole(e.target.value)}
             className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] text-xs"
           >
-            <option value="registrador">registrador (Key user)</option>
-            <option value="bp_ti">bp_ti (Business Partner)</option>
-            <option value="admin">admin (Administrador)</option>
+            {availableRoles.map((r) => (
+              <option key={r.code} value={r.code}>
+                {r.name} ({r.code})
+              </option>
+            ))}
           </select>
         </div>
 
@@ -263,8 +283,8 @@ export const RoleAssignmentTable: React.FC<RoleAssignmentTableProps> = ({ workfl
               Usuarios Asignados ({assignments.length})
             </span>
           </div>
-          <span className="text-[10px] text-slate-400">
-            Formato Excel: Columnas <code>email</code> y <code>role_name</code>
+          <span className="text-[10px] text-slate-500">
+            Formato Excel: <code>email</code> y <code>role_name</code> ({availableRoles.slice(0, 5).map(r => r.code).join(', ')}{availableRoles.length > 5 ? '...' : ''})
           </span>
         </div>
 
@@ -284,31 +304,39 @@ export const RoleAssignmentTable: React.FC<RoleAssignmentTableProps> = ({ workfl
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {assignments.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-2 px-3 font-medium text-slate-800">
-                      {item.profiles?.name || '—'}
-                    </td>
-                    <td className="py-2 px-3 text-slate-600">
-                      {item.profiles?.email || '—'}
-                    </td>
-                    <td className="py-2 px-3">
-                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-200">
-                        {item.role_name}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleRemove(item.id)}
-                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Remover asignación"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {assignments.map((item) => {
+                  const roleObj = availableRoles.find(r => r.code === item.role_name);
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-2 px-3 font-medium text-slate-800">
+                        {item.profiles?.name || '—'}
+                      </td>
+                      <td className="py-2 px-3 text-slate-600">
+                        {item.profiles?.email || '—'}
+                      </td>
+                      <td className="py-2 px-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-200">
+                            {roleObj?.name || item.role_name}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            ({item.role_name})
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleRemove(item.id)}
+                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Remover asignación"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
