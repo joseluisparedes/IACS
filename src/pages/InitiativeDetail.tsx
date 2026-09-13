@@ -1962,9 +1962,10 @@ export default function InitiativeDetail() {
         // Enviar roles del usuario con alias para validación en el motor de flujos
         const uRole = userRolesList.join(',');
 
+        const gwParam = extraUpdates.gateway_node_id ? `&gateway_node_id=${encodeURIComponent(extraUpdates.gateway_node_id)}` : '';
         try {
           const valRes = await fetch(
-            `/api/workflow/validate-transition?current_node_id=${encodeURIComponent(currentNodeId)}&target_node_id=${encodeURIComponent(targetNodeId || '')}&user_role=${encodeURIComponent(uRole)}&transition_label=${encodeURIComponent(actionLabel)}&form_data=${encodeURIComponent(JSON.stringify(nextFormData))}`
+            `/api/workflow/validate-transition?current_node_id=${encodeURIComponent(currentNodeId)}&target_node_id=${encodeURIComponent(targetNodeId || '')}&user_role=${encodeURIComponent(uRole)}&transition_label=${encodeURIComponent(actionLabel)}&form_data=${encodeURIComponent(JSON.stringify(nextFormData))}${gwParam}`
           );
           if (valRes.ok) {
             const valJson = await valRes.json();
@@ -1982,6 +1983,7 @@ export default function InitiativeDetail() {
       const cleanExtra = { ...(extraUpdates || {}) };
       delete cleanExtra.target_node_id;
       delete cleanExtra.transition_label;
+      delete cleanExtra.gateway_node_id;
 
       const payload: any = { 
         status, 
@@ -2459,7 +2461,7 @@ export default function InitiativeDetail() {
 
     // Si el nodo destino es una compuerta condicional (Gateway), auto-enrutar dinámicamente según las reglas configuradas
     if (targetNode?.data?.nodeType === 'gateway' || targetId.startsWith('gw_') || targetId === 'gw_presupuesto') {
-      const currentFd = { ...(initiative?.form_data || {}), ...stageFormData };
+      const currentFd = { ...(initiative?.form_data || {}), ...editedFormData, ...stageFormData };
       const gwConfig = targetNode?.data?.gatewayConfig as any;
       const variable = gwConfig?.variable || (targetId === 'gw_presupuesto' ? 'requiere_presupuesto' : '');
       const rawVal = String(currentFd[variable] ?? '').trim();
@@ -2621,11 +2623,13 @@ export default function InitiativeDetail() {
           }
         }
 
+        const isGw = targetNode?.data?.nodeType === 'gateway' || edge.target?.startsWith('gw_') || edge.target === 'gw_presupuesto';
         updateInitiativeData(targetStatusName, { 
           current_node_id: targetId,
           target_node_id: targetId,
+          gateway_node_id: isGw ? edge.target : undefined,
           transition_label: actualButtonLabel,
-          form_data: { ...(initiative?.form_data || {}), ...stageFormData }
+          form_data: { ...(initiative?.form_data || {}), ...editedFormData, ...stageFormData }
         });
       }
     );

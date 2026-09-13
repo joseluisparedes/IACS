@@ -3415,7 +3415,7 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
   // GET /api/workflow/validate-transition
   app.get("/api/workflow/validate-transition", async (req, res) => {
     try {
-      const { current_node_id, target_node_id, user_role, transition_label, form_data } = req.query;
+      const { current_node_id, target_node_id, gateway_node_id, user_role, transition_label, form_data } = req.query;
       let parsedFormData = {};
       try {
         if (typeof form_data === "string") parsedFormData = JSON.parse(form_data);
@@ -3426,6 +3426,7 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
       const result = await validateTransition({
         currentNodeId: (current_node_id as string) || null,
         targetNodeId: (target_node_id as string) || null,
+        gatewayNodeId: (gateway_node_id as string) || null,
         userRole: (user_role as string) || "registrador",
         formData: parsedFormData,
         transitionLabel: (transition_label as string) || "",

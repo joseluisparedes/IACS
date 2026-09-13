@@ -30,6 +30,7 @@ export async function validateTransition(params: {
   workflowId?: string | null;
   currentNodeId: string | null;
   targetNodeId?: string | null;
+  gatewayNodeId?: string | null;
   userRole: string;
   formData: Record<string, string>;
   transitionLabel: string;
@@ -78,8 +79,8 @@ export async function validateTransition(params: {
     return { allowed: true, next_node_id: params.currentNodeId };
   }
 
-  // 2. Buscar transición por target_node_id O por label en workflow_transitions y en graph_json.edges
-  const transition = workflow.workflow_transitions?.find(
+  // 2. Buscar transición directa por target_node_id O por label en workflow_transitions y en graph_json.edges
+  let transition = workflow.workflow_transitions?.find(
     (t: any) => t.source_node_id === params.currentNodeId && (
       (params.targetNodeId && (t.target_node_id === params.targetNodeId || t.target === params.targetNodeId)) ||
       (params.transitionLabel && (t.label === params.transitionLabel || t.label?.toLowerCase() === params.transitionLabel?.toLowerCase()))
@@ -90,6 +91,54 @@ export async function validateTransition(params: {
       (params.transitionLabel && (e.label === params.transitionLabel || e.label?.toLowerCase() === params.transitionLabel?.toLowerCase()))
     )
   );
+
+  let intermediateGatewayId: string | null = params.gatewayNodeId || null;
+
+  // 2b. Si no hay transición directa, buscar si el nodo actual conecta a una compuerta (Gateway)
+  if (!transition) {
+    const outgoingFromCurrent = (workflow.graph_json?.edges || []).filter(
+      (e: any) => e.source === params.currentNodeId
+    );
+
+    for (const outEdge of outgoingFromCurrent) {
+      const gwNode = workflow.graph_json?.nodes?.find((n: any) => n.id === outEdge.target);
+      const isGateway = gwNode?.data?.nodeType === 'gateway' || gwNode?.type === 'gateway' || String(outEdge.target).startsWith('gw_');
+
+      if (isGateway) {
+        const gwId = outEdge.target;
+        const gwEdges = (workflow.graph_json?.edges || []).filter((ge: any) => ge.source === gwId);
+
+        // ¿El targetNodeId es destino de la compuerta?
+        const matchesTarget = Boolean(params.targetNodeId && gwEdges.some((ge: any) => ge.target === params.targetNodeId));
+
+        // ¿El transitionLabel coincide con alguna rama o nodo destino de la compuerta?
+        const matchesLabel = Boolean(params.transitionLabel && gwEdges.some((ge: any) => {
+          const lbl = params.transitionLabel.trim().toLowerCase();
+          if (ge.label?.trim().toLowerCase() === lbl) return true;
+          if (ge.data?.action_label?.trim().toLowerCase() === lbl) return true;
+          const targetNode = workflow.graph_json?.nodes?.find((n: any) => n.id === ge.target);
+          if (targetNode?.data?.label?.trim().toLowerCase() === lbl) return true;
+          if (targetNode?.data?.action_label?.trim().toLowerCase() === lbl) return true;
+          return false;
+        }));
+
+        // ¿El transitionLabel coincide con la flecha que va a la compuerta (ej. "Concluye Ventana")?
+        const matchesOutEdge = Boolean(params.transitionLabel && (
+          outEdge.label?.trim().toLowerCase() === params.transitionLabel.trim().toLowerCase() ||
+          outEdge.data?.action_label?.trim().toLowerCase() === params.transitionLabel.trim().toLowerCase()
+        ));
+
+        const isExplicitGw = Boolean(params.gatewayNodeId && params.gatewayNodeId === gwId);
+        const isSingleGatewayExit = outgoingFromCurrent.length === 1;
+
+        if (matchesTarget || matchesLabel || matchesOutEdge || isExplicitGw || isSingleGatewayExit) {
+          transition = outEdge;
+          intermediateGatewayId = gwId;
+          break;
+        }
+      }
+    }
+  }
 
   if (!transition) {
     return { allowed: false, reason: `Transición '${params.transitionLabel}' no definida desde el nodo actual en el flujo activo` };
@@ -128,16 +177,20 @@ export async function validateTransition(params: {
     }
   }
 
-  let finalTargetNodeId = targetNodeId;
-  let finalTargetNode = workflow.graph_json?.nodes?.find((n: any) => n.id === targetNodeId);
+  let finalTargetNodeId = (intermediateGatewayId && params.targetNodeId) ? params.targetNodeId : targetNodeId;
+  let finalTargetNode = workflow.graph_json?.nodes?.find((n: any) => n.id === finalTargetNodeId);
 
-  // Auto-enrutar compuertas dinámicas si el destino es un Gateway
-  if (finalTargetNode?.data?.nodeType === 'gateway' || finalTargetNodeId.startsWith('gw_')) {
-    const gwConfig = finalTargetNode?.data?.gatewayConfig as any;
-    const variable = gwConfig?.variable || (finalTargetNodeId === 'gw_presupuesto' ? 'requiere_presupuesto' : '');
+  // Auto-enrutar compuertas dinámicas si el destino es un Gateway o si venimos a través de una compuerta intermedia
+  const isGatewayDestination = finalTargetNode?.data?.nodeType === 'gateway' || finalTargetNodeId.startsWith('gw_') || intermediateGatewayId;
+
+  if (isGatewayDestination) {
+    const gwNodeId = intermediateGatewayId || (finalTargetNodeId.startsWith('gw_') ? finalTargetNodeId : null) || 'gw_presupuesto';
+    const gwNode = workflow.graph_json?.nodes?.find((n: any) => n.id === gwNodeId) || finalTargetNode;
+    const gwConfig = gwNode?.data?.gatewayConfig as any;
+    const variable = gwConfig?.variable || (gwNodeId === 'gw_presupuesto' ? 'requiere_presupuesto' : '');
     const rawVal = params.formData ? String(params.formData[variable] ?? '').trim() : '';
 
-    const gwEdges = workflow.graph_json?.edges?.filter((e: any) => e.source === finalTargetNodeId) || [];
+    const gwEdges = workflow.graph_json?.edges?.filter((e: any) => e.source === gwNodeId) || [];
     const rules = gwConfig?.rules || [];
 
     let matchedEdge: any = null;
@@ -185,6 +238,9 @@ export async function validateTransition(params: {
 
     if (matchedEdge) {
       finalTargetNodeId = matchedEdge.target;
+      finalTargetNode = workflow.graph_json?.nodes?.find((n: any) => n.id === finalTargetNodeId) || finalTargetNode;
+    } else if (params.targetNodeId && gwEdges.some((e: any) => e.target === params.targetNodeId)) {
+      finalTargetNodeId = params.targetNodeId;
       finalTargetNode = workflow.graph_json?.nodes?.find((n: any) => n.id === finalTargetNodeId) || finalTargetNode;
     }
   }
