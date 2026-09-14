@@ -5702,11 +5702,13 @@ export default function InitiativeDetail() {
                   </div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-black text-slate-900">
-                      {activeNodeForm ? `Información por Completar por ${
-                        (userRolesList[0] === 'bp_ti' || isBP || /bp/i.test(activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === (initiative.current_node_id || STATUS_TO_NODE[initiative.status]))?.data?.label || ''))
-                          ? 'el BP TI'
-                          : (userRolesList[0] === 'business_owner' ? 'el Business Owner' : (userRolesList[0] === 'vp' ? 'la Vicepresidencia' : (userRolesList[0] || 'el Responsable')))
-                      }` : 'Dictamen & Consentimiento de Etapa'}
+                      {activeNodeForm?.name || activeNodeConsent?.title || (
+                        `Información por Completar por ${
+                          (userRolesList[0] === 'bp_ti' || isBP || /bp/i.test(activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === (initiative.current_node_id || STATUS_TO_NODE[initiative.status]))?.data?.label || ''))
+                            ? 'el BP TI'
+                            : (userRolesList[0] === 'business_owner' ? 'el Business Owner' : (userRolesList[0] === 'vp' ? 'la Vicepresidencia' : (userRolesList[0] || 'el Responsable')))
+                        }`
+                      )}
                     </h3>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider">
                       Requerido
