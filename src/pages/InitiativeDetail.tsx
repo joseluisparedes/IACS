@@ -3311,8 +3311,11 @@ export default function InitiativeDetail() {
                 })
                 .map((edge: any) => {
                   const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
+                  const isObservar = edge.target === 'observada' || targetNode?.data?.stateSubtype === 'observada';
                   const isDesestimar = edge.target === 'desestimada' || targetNode?.data?.stateSubtype === 'desestimada';
-                  const buttonLabel = edge.label || targetNode?.data?.action_label || targetNode?.data?.label || (isDesestimar ? 'Desestimar' : 'Observar');
+                  const buttonLabel = (isObservar && /desestimar/i.test(edge.label || '')) 
+                    ? 'Observar' 
+                    : (edge.label || targetNode?.data?.action_label || targetNode?.data?.label || (isDesestimar ? 'Desestimar' : 'Observar'));
 
                   if (isDesestimar) {
                     return (
@@ -5514,7 +5517,38 @@ export default function InitiativeDetail() {
                   <div className="space-y-2">
                     {userOutgoingEdges.map((edge) => {
                       const targetNode = activeWorkflow?.graph_json?.nodes?.find((n) => n.id === edge.target);
-                      const buttonLabel = edge.label || targetNode?.data?.action_label || targetNode?.data?.label || 'Avanzar';
+                      const isObservar = edge.target === 'observada' || targetNode?.data?.stateSubtype === 'observada';
+                      const isDesestimar = edge.target === 'desestimada' || targetNode?.data?.stateSubtype === 'desestimada';
+                      const buttonLabel = (isObservar && /desestimar/i.test(edge.label || '')) 
+                        ? 'Observar' 
+                        : (edge.label || targetNode?.data?.action_label || targetNode?.data?.label || 'Avanzar');
+
+                      if (isObservar) {
+                        return (
+                          <button
+                            key={edge.id}
+                            onClick={() => handleWorkflowTransition(edge, targetNode, buttonLabel)}
+                            className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-amber-600/20 cursor-pointer"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span>{buttonLabel}</span>
+                          </button>
+                        );
+                      }
+
+                      if (isDesestimar) {
+                        return (
+                          <button
+                            key={edge.id}
+                            onClick={() => handleWorkflowTransition(edge, targetNode, buttonLabel)}
+                            className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-800 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            <span>{buttonLabel}</span>
+                          </button>
+                        );
+                      }
+
                       return (
                         <button
                           key={edge.id}
