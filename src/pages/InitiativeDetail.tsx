@@ -3,8 +3,10 @@ import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom"
 import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, ChevronRight, Check, HelpCircle, Eye, Calendar, Video as VideoIcon, Music as AudioIcon, Volume2, Building2, Building, MapPin, User, MessageSquare, Sparkles, ShieldCheck, FileCheck2, FileSignature, Lock, Copy, Layers, Target, Cpu, UserCheck, Info, Calculator, GitBranch, Upload, Trash2, Archive } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
-import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from "../lib/utils";
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, formatRoleName, SYSTEM_ROLES_MAP } from "../lib/utils";
 import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
+import { ModernDatePicker } from "../components/ModernDatePicker";
+import ReactMarkdown from "react-markdown";
 import { useReactToPrint } from "react-to-print";
 import type { StageForm, StageConsent, InitiativeStageRecord } from "../types";
 import { DEFAULT_OBSERVATION_CATEGORIES } from "../components/workflow/NodeConfigPanel";
@@ -46,104 +48,15 @@ function DateInputDDMMYYYY({
   disabled?: boolean;
   className?: string;
 }) {
-  const hiddenDateRef = useRef<HTMLInputElement>(null);
-
-  const toDDMMYYYY = (val: string): string => {
-    if (!val) return "";
-    const trimmed = val.trim();
-    const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
-    if (ymd) {
-      return `${ymd[3].padStart(2, "0")}/${ymd[2].padStart(2, "0")}/${ymd[1]}`;
-    }
-    const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
-    if (dmy) {
-      return `${dmy[1].padStart(2, "0")}/${dmy[2].padStart(2, "0")}/${dmy[3]}`;
-    }
-    return trimmed;
-  };
-
-  const toYYYYMMDD = (val: string): string => {
-    if (!val) return "";
-    const trimmed = val.trim();
-    const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
-    if (dmy) {
-      return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
-    }
-    const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
-    if (ymd) {
-      return `${ymd[1]}-${ymd[2].padStart(2, "0")}-${ymd[3].padStart(2, "0")}`;
-    }
-    return "";
-  };
-
-  const displayVal = toDDMMYYYY(value);
-  const isoVal = toYYYYMMDD(value);
-
-  const handleNativeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const pickerVal = e.target.value;
-    if (pickerVal) {
-      const formatted = toDDMMYYYY(pickerVal);
-      onChange(formatted);
-      if (onBlur) onBlur(formatted);
-    }
-  };
-
-  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange(e.target.value);
-  };
-
-  const handleTextBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    const formatted = toDDMMYYYY(e.target.value);
-    onChange(formatted);
-    if (onBlur) onBlur(formatted);
-  };
-
-  const openCalendar = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (hiddenDateRef.current && !disabled) {
-      if (typeof hiddenDateRef.current.showPicker === 'function') {
-        try {
-          hiddenDateRef.current.showPicker();
-        } catch {
-          hiddenDateRef.current.focus();
-          hiddenDateRef.current.click();
-        }
-      } else {
-        hiddenDateRef.current.focus();
-        hiddenDateRef.current.click();
-      }
-    }
-  };
-
   return (
-    <div className="relative flex items-center w-full">
-      <input
-        type="text"
-        value={displayVal}
-        onChange={handleTextChange}
-        onBlur={handleTextBlur}
-        placeholder="dd/mm/aaaa"
-        disabled={disabled}
-        className={`${className || ''} pr-10`}
-      />
-      <button
-        type="button"
-        onClick={openCalendar}
-        disabled={disabled}
-        className="absolute right-3 text-slate-400 hover:text-slate-600 cursor-pointer disabled:opacity-50 p-1 rounded hover:bg-slate-100 transition-colors"
-        title="Seleccionar fecha del calendario"
-      >
-        <Calendar className="w-4 h-4 text-slate-500" />
-      </button>
-      <input
-        ref={hiddenDateRef}
-        type="date"
-        value={isoVal}
-        onChange={handleNativeChange}
-        tabIndex={-1}
-        className="sr-only absolute pointer-events-none opacity-0 w-0 h-0"
-      />
-    </div>
+    <ModernDatePicker
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      disabled={disabled}
+      className={className}
+      placeholder="dd/mm/aaaa"
+    />
   );
 }
 
@@ -815,67 +728,67 @@ export interface TimelineStageDef {
 const WORKFLOW_STAGES_TIMELINE: TimelineStageDef[] = [
   { 
     key: 'borrador', 
-    label: '1. Registro', 
+    label: 'Registro', 
     subtitle: 'Key User',
     subNodes: [
-      { id: 'borrador', label: '1. Ficha de Registro', role: 'Key User' }
+      { id: 'borrador', label: 'Ficha de Registro', role: 'Key User' }
     ]
   },
   { 
     key: 'eval_bp', 
-    label: '2. Viabilidad BP TI', 
+    label: 'Viabilidad BP TI', 
     subtitle: 'Business Partner',
     subNodes: [
-      { id: 'eval_bp', label: '2. Viabilidad BP TI', role: 'BP TI' },
+      { id: 'eval_bp', label: 'Viabilidad BP TI', role: 'BP TI' },
       { id: 'observada', label: 'Observación BP TI', role: 'BP TI' }
     ]
   },
   { 
     key: 'aprob_bo', 
-    label: '3. Patrocinio BO', 
+    label: 'Patrocinio BO', 
     subtitle: 'Business Owner',
     subNodes: [
-      { id: 'aprob_bo', label: '3. Patrocinio BO', role: 'Business Owner' }
+      { id: 'aprob_bo', label: 'Patrocinio BO', role: 'Business Owner' }
     ]
   },
   { 
     key: 'aprob_vp', 
-    label: '4. Aprobación VP', 
+    label: 'Aprobación VP', 
     subtitle: 'Vicepresidencia',
     subNodes: [
-      { id: 'aprob_vp', label: '4. Aprobación VP', role: 'VP Negocio' }
+      { id: 'aprob_vp', label: 'Aprobación VP', role: 'VP Negocio' }
     ]
   },
   { 
     key: 'asig_demanda', 
-    label: '5. Demanda TI', 
+    label: 'Demanda TI', 
     subtitle: 'Gestor Demanda',
     subNodes: [
-      { id: 'asig_demanda', label: '5. Asignación Gestor Demanda', role: 'Gestor Demanda' },
+      { id: 'asig_demanda', label: 'Asignación Gestor Demanda', role: 'Gestor Demanda' },
       { id: 'asig_dominio', label: 'Asignación Líder Dominio', role: 'Gestor Demanda' }
     ]
   },
   { 
     key: 'ventana_est', 
-    label: '6. Estimación', 
+    label: 'Estimación', 
     subtitle: 'Líder Dominio',
     subNodes: [
-      { id: 'ventana_est', label: '6. Compromiso Estimación', role: 'Líder Dominio' },
-      { id: 'est_con_presupuesto', label: '7A. Estimación con Presupuesto', role: 'Líder Dominio' },
-      { id: 'est_sin_presupuesto', label: '7B. Estimación sin Presupuesto', role: 'Líder Dominio' },
-      { id: 'val_est_bp', label: '8A. Validación Estimación BP', role: 'BP TI' },
-      { id: 'vobo_est_bo', label: '8B. VoBo Estimación BO', role: 'Business Owner' }
+      { id: 'ventana_est', label: 'Compromiso Estimación', role: 'Líder Dominio' },
+      { id: 'est_con_presupuesto', label: 'Estimación con Presupuesto', role: 'Líder Dominio' },
+      { id: 'est_sin_presupuesto', label: 'Estimación sin Presupuesto', role: 'Líder Dominio' },
+      { id: 'val_est_bp', label: 'Validación Estimación BP', role: 'BP TI' },
+      { id: 'vobo_est_bo', label: 'VoBo Estimación BO', role: 'Business Owner' }
     ]
   },
   { 
     key: 'planificacion', 
-    label: '7. Planificación', 
+    label: 'Planificación', 
     subtitle: 'Producción',
     subNodes: [
-      { id: 'plan_fechas', label: '9. Planificación de Fechas', role: 'Líder Dominio' },
-      { id: 'val_plan_bp', label: '10. Validación Planificación BP', role: 'BP TI' },
-      { id: 'aprob_plan_bo', label: '11. Aprobación Final Fechas', role: 'Business Owner' },
-      { id: 'planificacion', label: '12. Pase a Producción / Cartera', role: 'Gestor Demanda' }
+      { id: 'plan_fechas', label: 'Planificación de Fechas', role: 'Líder Dominio' },
+      { id: 'val_plan_bp', label: 'Validación Planificación BP', role: 'BP TI' },
+      { id: 'aprob_plan_bo', label: 'Aprobación Final Fechas', role: 'Business Owner' },
+      { id: 'planificacion', label: 'Pase a Producción / Cartera', role: 'Gestor Demanda' }
     ]
   }
 ];
@@ -3354,7 +3267,7 @@ export default function InitiativeDetail() {
 
           {/* Action buttons bar: Left group (forward / editing) and Right group (observe / desestimar) */}
           <div className="flex flex-wrap items-center justify-between gap-3 w-full pt-1">
-            {/* Left-aligned actions */}
+            {/* Left-aligned actions: Consulta & Observaciones */}
             <div className="flex flex-wrap items-center gap-2.5">
               {/* View AI Chat / Unstructured Input Button */}
               {(chatHistory.length > 0 || (unstructuredText && unstructuredText.trim().length > 0)) && (
@@ -3369,6 +3282,54 @@ export default function InitiativeDetail() {
                 </button>
               )}
 
+              {/* Observar requerimiento — situado al lado de Ver conversación con Teo */}
+              {!isEditMode && userOutgoingEdges
+                .filter((edge: any) => {
+                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
+                  return edge.target === 'observada' || targetNode?.data?.stateSubtype === 'observada';
+                })
+                .map((edge: any) => {
+                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
+                  const buttonLabel = (edge.label && !/desestimar/i.test(edge.label)) 
+                    ? edge.label 
+                    : (targetNode?.data?.action_label || 'Observar requerimiento');
+
+                  return (
+                    <button
+                      key={edge.id}
+                      onClick={() => openObserveModal(edge, targetNode, buttonLabel)}
+                      className="flex items-center gap-2 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer shadow-2xs"
+                      title="Registrar una observación obligatoria y pausar el flujo"
+                    >
+                      <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      {buttonLabel}
+                    </button>
+                  );
+                })}
+
+              {/* Desestimar requerimiento */}
+              {!isEditMode && userOutgoingEdges
+                .filter((edge: any) => {
+                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
+                  return edge.target === 'desestimada' || targetNode?.data?.stateSubtype === 'desestimada';
+                })
+                .map((edge: any) => {
+                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
+                  const buttonLabel = edge.label || targetNode?.data?.action_label || targetNode?.data?.label || 'Desestimar';
+
+                  return (
+                    <button
+                      key={edge.id}
+                      onClick={openDesestimarModal}
+                      className="flex items-center gap-2 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
+                      title={buttonLabel}
+                    >
+                      <Ban className="w-4 h-4" />
+                      {buttonLabel}
+                    </button>
+                  );
+                })}
+
               {/* Botón Unificado de Edición Directa (Controlado por canEditCurrentStage) */}
               {!isEditMode && canEditCurrentStage && initiative?.status !== 'Planificación' && initiative?.status !== 'Desestimada' && (
                 <button
@@ -3380,36 +3341,15 @@ export default function InitiativeDetail() {
                   Editar
                 </button>
               )}
+            </div>
 
-              {/* Botones de Transición para Avanzar Estado */}
-              {!isEditMode && userOutgoingEdges
-                .filter((edge: any) => {
-                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
-                  const isDesestimar = edge.target === 'desestimada' || targetNode?.data?.stateSubtype === 'desestimada';
-                  const isObservar = edge.target === 'observada' || targetNode?.data?.stateSubtype === 'observada';
-                  return !isDesestimar && !isObservar;
-                })
-                .map((edge: any) => {
-                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
-                  const buttonLabel = edge.label || targetNode?.data?.action_label || targetNode?.data?.label || 'Avanzar';
-                  return (
-                    <button
-                      key={edge.id}
-                      onClick={() => handleWorkflowTransition(edge, targetNode, buttonLabel)}
-                      className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
-                      title={`Mover iniciativa a ${targetNode?.data?.label || edge.target}`}
-                    >
-                      <Send className="w-4 h-4" />
-                      {buttonLabel}
-                    </button>
-                  );
-                })}
-
+            {/* Right-aligned actions: Cambios de Estado y Avances alineados todo a la derecha */}
+            <div className="flex flex-wrap items-center gap-2.5 ml-auto">
               {initiative?.status === 'En demanda' && (
                 <>
                   <button
                     onClick={generatePDF}
-                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-blue-500/20"
+                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-blue-500/20"
                   >
                     <FileText className="w-4 h-4" />
                     Generar Informe (PDF)
@@ -3479,6 +3419,30 @@ export default function InitiativeDetail() {
                 </>
               )}
 
+              {/* Botones de Transición para Avanzar Estado (Alineados a la Derecha) */}
+              {!isEditMode && userOutgoingEdges
+                .filter((edge: any) => {
+                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
+                  const isDesestimar = edge.target === 'desestimada' || targetNode?.data?.stateSubtype === 'desestimada';
+                  const isObservar = edge.target === 'observada' || targetNode?.data?.stateSubtype === 'observada';
+                  return !isDesestimar && !isObservar;
+                })
+                .map((edge: any) => {
+                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
+                  const buttonLabel = edge.label || targetNode?.data?.action_label || targetNode?.data?.label || 'Avanzar';
+                  return (
+                    <button
+                      key={edge.id}
+                      onClick={() => handleWorkflowTransition(edge, targetNode, buttonLabel)}
+                      className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
+                      title={`Mover iniciativa a ${targetNode?.data?.label || edge.target}`}
+                    >
+                      <Send className="w-4 h-4" />
+                      {buttonLabel}
+                    </button>
+                  );
+                })}
+
               {isEditMode && (
                 <>
                   <button
@@ -3524,13 +3488,6 @@ export default function InitiativeDetail() {
 
               {isRegistrador && isMine && isObserved && !isEditMode && (
                 <>
-                  <button
-                    onClick={startEditMode}
-                    className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
-                  >
-                    <Pencil className="w-4 h-4" />
-                    Editar
-                  </button>
                   {userOutgoingEdges.length === 0 && (
                     <button
                       onClick={handleReenviar}
@@ -3542,51 +3499,6 @@ export default function InitiativeDetail() {
                   )}
                 </>
               )}
-            </div>
-
-            {/* Right-aligned corrective actions: Observar / Desestimar (Flush to right margin) */}
-            <div className="flex flex-wrap items-center gap-2.5 ml-auto">
-              {!isEditMode && userOutgoingEdges
-                .filter((edge: any) => {
-                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
-                  const isObservar = edge.target === 'observada' || targetNode?.data?.stateSubtype === 'observada';
-                  const isDesestimar = edge.target === 'desestimada' || targetNode?.data?.stateSubtype === 'desestimada';
-                  return isObservar || isDesestimar;
-                })
-                .map((edge: any) => {
-                  const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
-                  const isObservar = edge.target === 'observada' || targetNode?.data?.stateSubtype === 'observada';
-                  const isDesestimar = edge.target === 'desestimada' || targetNode?.data?.stateSubtype === 'desestimada';
-                  const buttonLabel = (isObservar && /desestimar/i.test(edge.label || '')) 
-                    ? 'Observar' 
-                    : (edge.label || targetNode?.data?.action_label || targetNode?.data?.label || (isDesestimar ? 'Desestimar' : 'Observar'));
-
-                  if (isDesestimar) {
-                    return (
-                      <button
-                        key={edge.id}
-                        onClick={openDesestimarModal}
-                        className="flex items-center gap-2 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
-                        title={buttonLabel}
-                      >
-                        <Ban className="w-4 h-4" />
-                        {buttonLabel}
-                      </button>
-                    );
-                  }
-
-                  return (
-                    <button
-                      key={edge.id}
-                      onClick={() => openObserveModal(edge, targetNode, buttonLabel)}
-                      className="flex items-center gap-2 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer shadow-2xs"
-                      title={buttonLabel}
-                    >
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      {buttonLabel}
-                    </button>
-                  );
-                })}
             </div>
           </div>
         </div>
@@ -3731,7 +3643,7 @@ export default function InitiativeDetail() {
           </div>
         )}
 
-        <div className="overflow-x-auto pb-2">
+        <div className="overflow-x-auto pt-3 pb-3">
           <div className="flex items-start w-full min-w-[760px] relative">
             {WORKFLOW_STAGES_TIMELINE.map((stage, idx) => {
               const isStageObserved = isObservedState && idx === activeTimelineStepIndex;
@@ -3805,8 +3717,10 @@ export default function InitiativeDetail() {
                         <Ban className="w-4 h-4 stroke-[2.5]" />
                       ) : isCompleted ? (
                         <Check className="w-4 h-4 stroke-[3]" />
+                      ) : isCurrent ? (
+                        <div className="w-2.5 h-2.5 rounded-full bg-white shadow-xs" />
                       ) : (
-                        idx + 1
+                        <div className="w-2 h-2 rounded-full bg-slate-300" />
                       )}
                     </div>
 
@@ -6475,7 +6389,13 @@ export default function InitiativeDetail() {
                           <span>Archivo adjunto: {msg.attachment.name}</span>
                         </div>
                       )}
-                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                      {msg.role === 'user' ? (
+                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                      ) : (
+                        <div className="prose prose-xs sm:prose-sm max-w-none text-[#334155] leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4 [&>li]:mb-1 [&>strong]:text-slate-900 [&>strong]:font-bold">
+                          <ReactMarkdown>{msg.text}</ReactMarkdown>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))

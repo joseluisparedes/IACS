@@ -3153,7 +3153,13 @@ export default function InitiativeForm() {
                           <span>Archivo adjunto: {msg.attachment.name}</span>
                         </div>
                       )}
-                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                      {msg.role === 'user' ? (
+                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                      ) : (
+                        <div className="prose prose-xs sm:prose-sm max-w-none text-[#334155] leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4 [&>li]:mb-1 [&>strong]:text-slate-900 [&>strong]:font-bold">
+                          <ReactMarkdown>{msg.text}</ReactMarkdown>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))

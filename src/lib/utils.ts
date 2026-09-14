@@ -95,3 +95,26 @@ export function isDateLike(val: any): boolean {
   );
 }
 
+/**
+ * Standard system roles display map and formatter
+ */
+export const SYSTEM_ROLES_MAP: Record<string, string> = {
+  admin: 'Administrador',
+  registrador: 'Key User',
+  key_user: 'Key User',
+  bp_ti: 'Business Partner TI',
+  business_owner: 'Business Owner',
+  vp: 'Vicepresidencia',
+  gestor_demanda: 'Gestor de Demanda TI',
+  gestor_de_demanda: 'Gestor de Demanda TI',
+  lider_dominio: 'Líder de Dominio',
+  lider_de_dominio: 'Líder de Dominio',
+  produccion: 'Producción / Planificación',
+  invitado: 'Invitado'
+};
+
+export function formatRoleName(role?: string | null): string {
+  if (!role) return 'Responsable';
+  const clean = String(role).trim().toLowerCase();
+  return SYSTEM_ROLES_MAP[clean] || SYSTEM_ROLES_MAP[clean.replace(/\s+/g, '_')] || role;
+}

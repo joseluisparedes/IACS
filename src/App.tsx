@@ -21,7 +21,7 @@ import { WorkflowCatalogManager } from './pages/WorkflowCatalogManager';
 import MaintenanceScreen from './components/MaintenanceScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
-import { formatDateTimeDDMMYYYY } from './lib/utils';
+import { formatDateTimeDDMMYYYY, formatRoleName, SYSTEM_ROLES_MAP } from './lib/utils';
 
 const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura', '/admin/pdf-template', '/admin/workflow-editor', '/admin/workflow-simulator', '/admin/formularios-consentimientos'];
 
@@ -230,16 +230,10 @@ function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const userName = profile?.name || 'Usuario';
-  const roleNamesMap: Record<string, string> = {
-    'registrador': 'Key user',
-    'bp_ti': 'Business Partner TI',
-    'admin': 'Admin'
-  };
-
   const showDraftsCounter = isAdmin || isRegistrador;
   
   const uniqueRoles = Array.from(new Set(profile?.profile_roles?.map((r: any) => r.role)));
-  const formattedRoles = uniqueRoles.map((r: any) => roleNamesMap[r] || r);
+  const formattedRoles = uniqueRoles.map((r: any) => formatRoleName(r));
   const userRoleStr = isAdmin ? 'Admin' : (formattedRoles.length > 0 ? formattedRoles.join(', ') : 'Invitado');
   const userInitials = userName.substring(0, 2).toUpperCase();
 
@@ -259,7 +253,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 ? dirs.filter(d => r.direcciones_ids.includes(d.id))
                 : [];
              return {
-                role: roleNamesMap[r.role] || r.role,
+                role: formatRoleName(r.role),
                 vpName: r.is_transversal ? 'Alcance Transversal (Global)' : (vp?.name || 'Sin VP'),
                 direcciones: r.is_transversal ? ['Todas las Vicepresidencias y Direcciones'] : dirsForRole.map(d => d.name)
              };
