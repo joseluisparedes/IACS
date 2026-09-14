@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, ChevronRight, Check, HelpCircle, Eye, Calendar, Video as VideoIcon, Music as AudioIcon, Volume2, Building2, Building, MapPin, User, MessageSquare, Sparkles, ShieldCheck, FileCheck2, FileSignature, Lock, Copy, Layers, Target, Cpu, UserCheck, Info, Calculator, GitBranch } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, ChevronRight, Check, HelpCircle, Eye, Calendar, Video as VideoIcon, Music as AudioIcon, Volume2, Building2, Building, MapPin, User, MessageSquare, Sparkles, ShieldCheck, FileCheck2, FileSignature, Lock, Copy, Layers, Target, Cpu, UserCheck, Info, Calculator, GitBranch, Upload, Trash2, Archive } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from "../lib/utils";
@@ -1244,10 +1244,60 @@ export default function InitiativeDetail() {
     return defaultPending;
   }, [latestStageRecords, isEndWorkflowState, initiative?.current_node_id]);
 
+  const isObservedState = useMemo(() => {
+    const currNode = activeWorkflow?.graph_json?.nodes?.find(
+      (n: any) => n.id === (initiative?.current_node_id || STATUS_TO_NODE[initiative?.status])
+    );
+    return currNode?.data?.stateSubtype === "observada" || initiative?.status === "Observada" || initiative?.current_node_id === 'observada';
+  }, [activeWorkflow, initiative?.current_node_id, initiative?.status]);
+
+  const isDesestimadaState = useMemo(() => {
+    const currNode = activeWorkflow?.graph_json?.nodes?.find(
+      (n: any) => n.id === (initiative?.current_node_id || STATUS_TO_NODE[initiative?.status])
+    );
+    return currNode?.data?.stateSubtype === "desestimada" || initiative?.status === "Desestimada" || initiative?.current_node_id === 'desestimada';
+  }, [activeWorkflow, initiative?.current_node_id, initiative?.status]);
+
+  const observedStageKey = useMemo(() => {
+    if (!isObservedState) return null;
+    const fromNode = initiative?.form_data?._current_observation?.from_node_id;
+    const fromStage = initiative?.form_data?._current_observation?.from_stage;
+    if (fromNode || fromStage) {
+      return getTimelineStageKey(fromNode, fromStage);
+    }
+    const history = initiative?.form_data?._observation_history || [];
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      if (h.action === 'Observada' && (h.from_node_id || h.from_stage)) {
+        return getTimelineStageKey(h.from_node_id, h.from_stage);
+      }
+    }
+    return 'eval_bp';
+  }, [isObservedState, initiative?.form_data]);
+
+  const desestimadaStageKey = useMemo(() => {
+    if (!isDesestimadaState) return null;
+    const fromNode = initiative?.form_data?._current_observation?.from_node_id;
+    const fromStage = initiative?.form_data?._current_observation?.from_stage;
+    if (fromNode || fromStage) {
+      return getTimelineStageKey(fromNode, fromStage);
+    }
+    const history = initiative?.form_data?._observation_history || [];
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      if (h.action === 'Desestimada' && (h.from_node_id || h.from_stage)) {
+        return getTimelineStageKey(h.from_node_id, h.from_stage);
+      }
+    }
+    return 'eval_bp';
+  }, [isDesestimadaState, initiative?.form_data]);
+
   const currentTimelineStageKey = useMemo(() => {
     if (isEndWorkflowState) return 'planificacion';
+    if (isObservedState && observedStageKey) return observedStageKey;
+    if (isDesestimadaState && desestimadaStageKey) return desestimadaStageKey;
     return getTimelineStageKey(initiative?.current_node_id, initiative?.status);
-  }, [initiative?.current_node_id, initiative?.status, isEndWorkflowState]);
+  }, [initiative?.current_node_id, initiative?.status, isEndWorkflowState, isObservedState, observedStageKey, isDesestimadaState, desestimadaStageKey]);
 
   const activeTimelineStepIndex = useMemo(() => {
     if (isEndWorkflowState) {
@@ -1309,6 +1359,15 @@ export default function InitiativeDetail() {
   const [isEditingBP, setIsEditingBP] = useState(false);
   const [showDesestimarModal, setShowDesestimarModal] = useState(false);
   const [desestimarComment, setDesestimarComment] = useState("");
+  // Observación & Subsanación state
+  const [showObserveModal, setShowObserveModal] = useState(false);
+  const [observeComment, setObserveComment] = useState("");
+  const [observeCategory, setObserveCategory] = useState("General");
+  const [pendingObserveTransition, setPendingObserveTransition] = useState<{ edge: any; targetNode: any; buttonLabel: string } | null>(null);
+  const [subsanacionComment, setSubsanacionComment] = useState("");
+  const [subsanacionFiles, setSubsanacionFiles] = useState<Array<{ name: string; url: string; size?: number; type?: string }>>([]);
+  const [isUploadingSubsanacionFile, setIsUploadingSubsanacionFile] = useState(false);
+  const [subsanacionUploadError, setSubsanacionUploadError] = useState<string | null>(null);
   const [showVoboRejectInput, setShowVoboRejectInput] = useState(false);
   const [voboRejectReason, setVoboRejectReason] = useState("");
   const [isVoboPreviewOpen, setIsVoboPreviewOpen] = useState(false);
@@ -2338,21 +2397,183 @@ export default function InitiativeDetail() {
       return;
     }
 
+    const currNodeId = (initiative as any)?.current_node_id || STATUS_TO_NODE[initiative?.status] || 'borrador';
+    const currNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === currNodeId);
+    const currStageName = currNode?.data?.label || initiative.status;
+
     const currentFormData = initiative.form_data || {};
     const newHistoryEntry = {
       date: new Date().toISOString(),
       user_name: profile?.name || 'Desconocido',
       user_role: profile?.profile_roles?.[0]?.role || 'Desconocido',
       action: 'Desestimada',
-      details: desestimarComment.trim()
+      details: desestimarComment.trim(),
+      from_node_id: currNodeId,
+      from_stage: currStageName,
     };
 
     const newFormData = { 
       ...currentFormData, 
+      _current_observation: {
+        id: `des_${Date.now()}`,
+        date: new Date().toISOString(),
+        observed_by: profile?.name || 'Desconocido',
+        user_role: profile?.profile_roles?.[0]?.role || 'Desconocido',
+        action: 'Desestimada',
+        details: desestimarComment.trim(),
+        from_stage: currStageName,
+        from_node_id: currNodeId,
+      },
       _observation_history: [...(currentFormData._observation_history || []), newHistoryEntry]
     };
-    updateInitiativeData("Desestimada", { form_data: newFormData });
+    updateInitiativeData("Desestimada", { 
+      current_node_id: 'desestimada', 
+      target_node_id: 'desestimada', 
+      form_data: newFormData 
+    });
     setShowDesestimarModal(false);
+    showToast("Iniciativa desestimada.", "warning");
+  };
+
+  const openObserveModal = (edge?: any, targetNode?: any, buttonLabel?: string) => {
+    setObserveComment("");
+    setObserveCategory("General");
+    setPendingObserveTransition(edge ? { edge, targetNode, buttonLabel: buttonLabel || 'Observar' } : null);
+    setShowObserveModal(true);
+  };
+
+  const handleObserveConfirm = async () => {
+    if (!observeComment.trim()) {
+      showToast("Debes ingresar el motivo o detalle de la observación.", "warning");
+      return;
+    }
+
+    const currNodeId = (initiative as any)?.current_node_id || STATUS_TO_NODE[initiative?.status] || 'borrador';
+    const currNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === currNodeId);
+    const currStageName = currNode?.data?.label || initiative.status;
+
+    const currentFormData = initiative.form_data || {};
+    const observationId = `obs_${Date.now()}`;
+
+    const observationData = {
+      id: observationId,
+      date: new Date().toISOString(),
+      observed_by: profile?.name || profile?.email || 'Usuario del Sistema',
+      observed_by_id: profile?.id || null,
+      user_role: profile?.profile_roles?.[0]?.role || (isAdmin ? 'Administrador' : isBP ? 'BP TI' : 'Key user'),
+      action: 'Observada',
+      category: observeCategory,
+      details: observeComment.trim(),
+      from_stage: currStageName,
+      from_node_id: currNodeId,
+      resolved: false,
+    };
+
+    const newHistoryEntry = {
+      date: new Date().toISOString(),
+      user_name: profile?.name || 'Usuario del Sistema',
+      user_role: profile?.profile_roles?.[0]?.role || (isAdmin ? 'Administrador' : isBP ? 'BP TI' : 'Key user'),
+      action: 'Observada',
+      details: `[${observeCategory}] ${observeComment.trim()} (en etapa: ${currStageName})`,
+      from_node_id: currNodeId,
+      from_stage: currStageName,
+    };
+
+    if (activeNodeForm || activeNodeConsent) {
+      try {
+        await supabase.from("initiative_stage_records").insert({
+          initiative_id: id,
+          node_id: currNodeId,
+          stage_name: currStageName,
+          form_id: activeNodeForm?.id || null,
+          consent_id: activeNodeConsent?.id || null,
+          form_data: stageFormData,
+          consent_accepted: activeNodeConsent ? stageConsentAccepted : false,
+          consent_text_snapshot: activeNodeConsent?.statement || null,
+          action_taken: 'observado',
+          user_id: profile?.id || null,
+          user_name: profile?.name || profile?.email || "Usuario del Sistema",
+          user_role: profile?.profile_roles?.[0]?.role || (isAdmin ? "Administrador" : isBP ? "BP TI" : "Key user"),
+          submitted_at: new Date().toISOString(),
+        });
+      } catch (recErr) {
+        console.warn("Stage record observation insert fallback:", recErr);
+      }
+    }
+
+    const targetNodeId = pendingObserveTransition?.edge?.target || 'observada';
+    const targetNode = pendingObserveTransition?.targetNode || activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === targetNodeId);
+    const targetStatusName = targetNode?.data?.label || "Observada";
+
+    const newFormData = {
+      ...currentFormData,
+      _current_observation: observationData,
+      _observation_history: [...(currentFormData._observation_history || []), newHistoryEntry],
+    };
+
+    setShowObserveModal(false);
+    updateInitiativeData(targetStatusName, {
+      current_node_id: targetNodeId,
+      target_node_id: targetNodeId,
+      transition_label: pendingObserveTransition?.buttonLabel || 'Observar',
+      form_data: newFormData,
+    });
+    showToast("Iniciativa observada exitosamente.", "warning");
+  };
+
+  const handleSubsanacionFileUpload = async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
+    let files: File[] = [];
+    if ('dataTransfer' in e) {
+      files = Array.from(e.dataTransfer.files);
+    } else if (e.target && (e.target as HTMLInputElement).files) {
+      files = Array.from((e.target as HTMLInputElement).files || []);
+    }
+    if (files.length === 0) return;
+
+    setSubsanacionUploadError(null);
+    const MAX_SIZE = 25 * 1024 * 1024; // 25 MB
+    const allowedExtensions = ['.pdf', '.docx', '.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.drawio'];
+
+    for (const file of files) {
+      const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+      if (!allowedExtensions.includes(ext)) {
+        setSubsanacionUploadError(`Formato no permitido para "${file.name}". Formatos válidos: PDF, DOCX, XLSX, PNG, JPG, DRAWIO.`);
+        return;
+      }
+      if (file.size > MAX_SIZE) {
+        setSubsanacionUploadError(`El archivo "${file.name}" supera el límite máximo permitido de 25 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
+        return;
+      }
+    }
+
+    setIsUploadingSubsanacionFile(true);
+    try {
+      const uploaded: Array<{ name: string; url: string; size?: number; type?: string }> = [];
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/chat/attach-file', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        uploaded.push({
+          name: file.name,
+          url: data.url,
+          size: file.size,
+          type: data.type || file.type,
+        });
+      }
+      setSubsanacionFiles(prev => [...prev, ...uploaded]);
+      showToast(`${uploaded.length} archivo(s) adjuntado(s) exitosamente.`, 'success');
+    } catch (err: any) {
+      setSubsanacionUploadError('Error al subir archivo: ' + (err.message || 'Error de conexión'));
+      showToast('Error al subir archivo.', 'error');
+    } finally {
+      setIsUploadingSubsanacionFile(false);
+    }
+  };
+
+  const handleRemoveSubsanacionFile = (index: number) => {
+    setSubsanacionFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleReenviar = () => {
@@ -2379,22 +2600,36 @@ export default function InitiativeDetail() {
         const currentFormData = initiative.form_data || {};
         const currentSummary = initiative.summary || {};
 
+        const resolutionComment = subsanacionComment.trim() || 'Subsanó la iniciativa y la reenvió para su revisión.';
         const newHistoryEntry = {
           date: new Date().toISOString(),
           user_name: profile?.name || 'Desconocido',
           user_role: 'Key user',
           action: 'Reenviada a Aprobación',
-          details: 'Subsanó la iniciativa y la reenvió para su revisión.',
+          details: resolutionComment,
+          files: subsanacionFiles.length > 0 ? subsanacionFiles : undefined,
           snapshot: {
             form_data: { ...currentFormData },
             summary: { ...currentSummary }
           }
         };
 
-        // Clear any remaining suggested changes and set back to Pending
+        const currentObs = currentFormData._current_observation;
         const newFormData = { ...initiative.form_data };
         delete newFormData._suggested_changes;
+        if (currentObs) {
+          newFormData._current_observation = {
+            ...currentObs,
+            resolved: true,
+            resolved_at: new Date().toISOString(),
+            resolved_by: profile?.name || 'Key user',
+            resolution_comment: resolutionComment,
+            resolution_files: subsanacionFiles,
+          };
+        }
         newFormData._observation_history = [...(newFormData._observation_history || []), newHistoryEntry];
+        setSubsanacionComment("");
+        setSubsanacionFiles([]);
         
         updateInitiativeData("Pendiente de aprobación", { form_data: newFormData });
       }
@@ -2531,8 +2766,16 @@ export default function InitiativeDetail() {
     }
 
     if (isObservar) {
-      handleObserve();
+      openObserveModal(edge, actualTargetNode, actualButtonLabel);
       return;
+    }
+
+    // Validación al salir de estado Observada
+    if (isObservedState) {
+      if (!subsanacionComment.trim() && subsanacionFiles.length === 0) {
+        showToast("Por favor ingresa la respuesta de subsanación o adjunta un archivo de respaldo antes de continuar.", "warning");
+        return;
+      }
     }
 
     // Validaciones si estamos en Borrador
@@ -2592,6 +2835,40 @@ export default function InitiativeDetail() {
       "bg-[#4F5AF5] hover:bg-[#3F49E0]",
       <Send className="w-6 h-6 text-[#4F5AF5]" />,
       async () => {
+        let updatedFd = { ...(initiative?.form_data || {}), ...editedFormData, ...stageFormData };
+
+        // Si la iniciativa estaba en estado Observada, consolidar la resolución
+        if (isObservedState) {
+          const currentObs = initiative?.form_data?._current_observation;
+          const resolutionRecord = {
+            resolved_at: new Date().toISOString(),
+            resolved_by: profile?.name || profile?.email || 'Usuario del Sistema',
+            resolved_by_id: profile?.id || null,
+            resolution_comment: subsanacionComment.trim() || 'Subsanación completada con archivos adjuntos.',
+            resolution_files: subsanacionFiles,
+          };
+
+          const newHistoryEntry = {
+            date: new Date().toISOString(),
+            user_name: profile?.name || profile?.email || 'Usuario del Sistema',
+            user_role: profile?.profile_roles?.[0]?.role || (isAdmin ? "Administrador" : isBP ? "BP TI" : "Key user"),
+            action: 'Subsanada',
+            details: `Subsanación: ${subsanacionComment.trim() || 'Archivos de soporte adjuntados'}`,
+            files: subsanacionFiles.length > 0 ? subsanacionFiles : undefined,
+            from_node_id: 'observada',
+            from_stage: 'Observada',
+          };
+
+          updatedFd = {
+            ...updatedFd,
+            _current_observation: currentObs ? { ...currentObs, resolved: true, ...resolutionRecord } : null,
+            _observation_history: [...(updatedFd._observation_history || []), newHistoryEntry],
+          };
+
+          setSubsanacionComment("");
+          setSubsanacionFiles([]);
+        }
+
         // Registrar custodia legal en stage_records si aplica formulario de etapa
         if (activeNodeForm || activeNodeConsent) {
           try {
@@ -2629,7 +2906,7 @@ export default function InitiativeDetail() {
           target_node_id: targetId,
           gateway_node_id: isGw ? edge.target : undefined,
           transition_label: actualButtonLabel,
-          form_data: { ...(initiative?.form_data || {}), ...editedFormData, ...stageFormData }
+          form_data: updatedFd
         });
       }
     );
@@ -3005,18 +3282,20 @@ export default function InitiativeDetail() {
                 <>
                   <button
                     onClick={startEditMode}
-                    className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                    className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F8FAFC] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer"
                   >
                     <Pencil className="w-4 h-4" />
                     Editar
                   </button>
-                  <button
-                    onClick={handleReenviar}
-                    className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
-                  >
-                    <Send className="w-4 h-4" />
-                    Reenviar a Aprobación
-                  </button>
+                  {userOutgoingEdges.length === 0 && (
+                    <button
+                      onClick={handleReenviar}
+                      className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
+                    >
+                      <Send className="w-4 h-4" />
+                      Reenviar a Aprobación
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -3052,7 +3331,7 @@ export default function InitiativeDetail() {
                   return (
                     <button
                       key={edge.id}
-                      onClick={handleObserve}
+                      onClick={() => openObserveModal(edge, targetNode, buttonLabel)}
                       className="flex items-center gap-2 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer shadow-2xs"
                       title={buttonLabel}
                     >
@@ -3156,12 +3435,64 @@ export default function InitiativeDetail() {
       </div>
 
       {/* ─── Corporate Lifecycle Stepper Rail (Visual Enterprise Flow) ─── */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs">
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs space-y-3.5">
+        {/* Banner de Estado Excepcional: Observada */}
+        {isObservedState && (
+          <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50/50 border border-amber-200/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs animate-pulse">
+                <AlertTriangle className="w-4.5 h-4.5 stroke-[2.5]" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-900">
+                    Iniciativa en Estado de Observación
+                  </span>
+                  <span className="text-[10px] font-bold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300/60">
+                    Avance Pausado
+                  </span>
+                </div>
+                <p className="text-xs text-amber-800 mt-0.5 font-medium">
+                  Detenida temporalmente en etapa: <strong className="font-bold">{WORKFLOW_STAGES_TIMELINE[activeTimelineStepIndex]?.label || 'Evaluación'}</strong>. Se requiere subsanar las observaciones para continuar con el flujo corporativo.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Banner de Estado Excepcional: Desestimada */}
+        {isDesestimadaState && (
+          <div className="p-3.5 rounded-xl bg-gradient-to-r from-rose-50 to-red-50/50 border border-rose-200/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Ban className="w-4.5 h-4.5 stroke-[2.5]" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-rose-900">
+                    Iniciativa Desestimada
+                  </span>
+                  <span className="text-[10px] font-bold bg-rose-200/80 text-rose-900 px-2 py-0.5 rounded-full border border-rose-300/60">
+                    Ciclo Cancelado
+                  </span>
+                </div>
+                <p className="text-xs text-rose-800 mt-0.5 font-medium">
+                  Esta iniciativa fue desestimada en la etapa <strong className="font-bold">{WORKFLOW_STAGES_TIMELINE[activeTimelineStepIndex]?.label || 'Evaluación'}</strong>. Las etapas posteriores quedan canceladas y no admiten avances.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto pb-2">
           <div className="flex items-start w-full min-w-[760px] relative">
             {WORKFLOW_STAGES_TIMELINE.map((stage, idx) => {
+              const isStageObserved = isObservedState && idx === activeTimelineStepIndex;
+              const isStageDesestimada = isDesestimadaState && idx === activeTimelineStepIndex;
+              const isFutureAfterDesestimada = isDesestimadaState && idx > activeTimelineStepIndex;
+
               const isCompleted = isEndWorkflowState || idx < activeTimelineStepIndex;
-              const isCurrent = !isEndWorkflowState && idx === activeTimelineStepIndex;
+              const isCurrent = !isEndWorkflowState && !isObservedState && !isDesestimadaState && idx === activeTimelineStepIndex;
               const isSelected = selectedTimelineStageKey === stage.key;
               const isLast = idx === WORKFLOW_STAGES_TIMELINE.length - 1;
               const isSegmentCompleted = isEndWorkflowState || idx < activeTimelineStepIndex;
@@ -3169,12 +3500,12 @@ export default function InitiativeDetail() {
               const hasMultipleSubNodes = stageVisibleSubNodes.length > 1;
 
               return (
-                <div key={stage.key} className="flex-1 relative flex flex-col items-center">
+                <div key={stage.key} className={`flex-1 relative flex flex-col items-center ${isFutureAfterDesestimada ? 'opacity-35' : ''}`}>
                   {/* Segment connector to next step — ONLY rendered if NOT the last step! Mathematically bounded! */}
                   {!isLast && (
                     <div 
                       className={`absolute top-[18px] left-1/2 w-full h-[3px] -translate-y-1/2 z-0 transition-all duration-300 ${
-                        isSegmentCompleted ? 'bg-emerald-500' : 'bg-slate-200'
+                        isSegmentCompleted ? 'bg-emerald-500' : isFutureAfterDesestimada ? 'bg-slate-200 border-t border-dashed border-slate-300' : 'bg-slate-200'
                       }`}
                     />
                   )}
@@ -3193,7 +3524,11 @@ export default function InitiativeDetail() {
                     }}
                     className="flex flex-col items-center relative z-10 w-full px-1 group cursor-pointer focus:outline-none transition-all"
                     title={
-                      isEndWorkflowState
+                      isStageObserved
+                        ? `Etapa en observación (${stage.label})`
+                        : isStageDesestimada
+                        ? `Etapa cancelada / desestimada (${stage.label})`
+                        : isEndWorkflowState
                         ? `Etapa completada con éxito (${stage.label})`
                         : idx === 0
                         ? 'Ver Solicitud y Ficha de Registro (Key User)'
@@ -3205,7 +3540,11 @@ export default function InitiativeDetail() {
                     }
                   >
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 group-hover:scale-105 ${
-                      isSelected
+                      isStageObserved
+                        ? 'bg-amber-500 text-white ring-4 ring-amber-100 shadow-sm animate-pulse'
+                        : isStageDesestimada
+                        ? 'bg-rose-600 text-white ring-4 ring-rose-100 shadow-sm'
+                        : isSelected
                         ? 'ring-4 ring-indigo-200 shadow-md ' + (isCompleted ? 'bg-emerald-600 text-white' : isCurrent ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-white')
                         : isCompleted
                         ? 'bg-emerald-600 text-white shadow-xs'
@@ -3213,11 +3552,23 @@ export default function InitiativeDetail() {
                         ? 'bg-indigo-600 text-white ring-4 ring-indigo-100 shadow-sm'
                         : 'bg-white text-slate-400 border-2 border-slate-300 group-hover:border-indigo-400 group-hover:text-indigo-600'
                     }`}>
-                      {isCompleted ? <Check className="w-4 h-4 stroke-[3]" /> : idx + 1}
+                      {isStageObserved ? (
+                        <AlertTriangle className="w-4 h-4 stroke-[2.5]" />
+                      ) : isStageDesestimada ? (
+                        <Ban className="w-4 h-4 stroke-[2.5]" />
+                      ) : isCompleted ? (
+                        <Check className="w-4 h-4 stroke-[3]" />
+                      ) : (
+                        idx + 1
+                      )}
                     </div>
 
                     <span className={`text-[11px] font-bold mt-2 text-center leading-tight transition-colors px-1 ${
-                      isSelected 
+                      isStageObserved
+                        ? 'text-amber-800 font-black'
+                        : isStageDesestimada
+                        ? 'text-rose-800 font-black'
+                        : isSelected 
                         ? 'text-indigo-600 font-black' 
                         : isCurrent 
                         ? 'text-slate-900 font-black' 
@@ -3228,8 +3579,14 @@ export default function InitiativeDetail() {
                       {stage.label}
                     </span>
 
-                    <span className="text-[10px] text-slate-400 font-medium text-center mt-0.5 leading-tight">
-                      {stage.subtitle}
+                    <span className={`text-[10px] font-medium text-center mt-0.5 leading-tight ${
+                      isStageObserved
+                        ? 'text-amber-600 font-bold'
+                        : isStageDesestimada
+                        ? 'text-rose-600 font-bold'
+                        : 'text-slate-400'
+                    }`}>
+                      {isStageObserved ? 'Observada' : isStageDesestimada ? 'Desestimada' : stage.subtitle}
                     </span>
 
                     {/* Indicador de sub-etapas desplegables: SOLO si tiene más de 1 sub-estado */}
@@ -3419,6 +3776,147 @@ export default function InitiativeDetail() {
 
           {activeDetailTab === 'info' && (
             <div className="space-y-6">
+              {/* ── PANEL EJECUTIVO DE OBSERVACIÓN Y SUBSANACIÓN (Solo si la iniciativa está Observada) ── */}
+              {isObservedState && (
+                <div className="bg-white rounded-2xl border-2 border-amber-300 shadow-md shadow-amber-500/5 overflow-hidden">
+                  {/* Encabezado del dictamen de observación */}
+                  <div className="px-6 py-4 bg-gradient-to-r from-amber-50 via-orange-50/30 to-amber-50/10 border-b border-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                        <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-black text-slate-900">Observación Activa en la Iniciativa</h3>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider">
+                            {initiative?.form_data?._current_observation?.category || 'General'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-amber-800 font-medium mt-0.5">
+                          Formulada por {initiative?.form_data?._current_observation?.observed_by || 'Responsable'} ({initiative?.form_data?._current_observation?.user_role || 'BP TI'})
+                          {initiative?.form_data?._current_observation?.date ? ` el ${formatDateDDMMYYYY(initiative.form_data._current_observation.date)}` : ''}
+                          {initiative?.form_data?._current_observation?.from_stage ? ` desde etapa "${initiative.form_data._current_observation.from_stage}"` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-6 space-y-5">
+                    {/* Detalle del cuestionamiento formulado */}
+                    <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800 block mb-1">
+                        Detalle del Cuestionamiento / Requerimiento:
+                      </span>
+                      <p className="text-sm font-semibold text-slate-800 whitespace-pre-wrap leading-relaxed">
+                        {initiative?.form_data?._current_observation?.details || 'Se requiere subsanar la iniciativa para continuar con el flujo de aprobación.'}
+                      </p>
+                    </div>
+
+                    {/* Formulario de Subsanación */}
+                    <div className="space-y-4 pt-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-black text-slate-800 uppercase tracking-wider">
+                          Respuesta de Subsanación / Justificación Técnica
+                        </label>
+                        <span className="text-[11px] text-slate-400 font-medium">Texto y/o archivos de respaldo</span>
+                      </div>
+
+                      <textarea
+                        value={subsanacionComment}
+                        onChange={(e) => setSubsanacionComment(e.target.value)}
+                        placeholder="Describe detalladamente las correcciones realizadas, aclaraciones técnicas o ajustes incorporados..."
+                        rows={3}
+                        className="w-full p-3.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent text-sm text-slate-800 leading-relaxed resize-none transition-all"
+                      />
+
+                      {/* Zona de subida de archivos (Cyber Neo - Max 25 MB) */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-700">
+                          Archivos Adjuntos de Soporte (Máx. 25 MB por archivo)
+                        </label>
+                        
+                        <div
+                          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleSubsanacionFileUpload(e); }}
+                          className="border-2 border-dashed border-slate-300 hover:border-amber-400 rounded-xl p-4 sm:p-5 text-center transition-colors bg-slate-50/50 hover:bg-amber-50/30 group"
+                        >
+                          <input
+                            type="file"
+                            id="subsanacionFileInput"
+                            multiple
+                            accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.drawio"
+                            onChange={handleSubsanacionFileUpload}
+                            className="hidden"
+                          />
+                          <label htmlFor="subsanacionFileInput" className="cursor-pointer flex flex-col items-center gap-2">
+                            <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-500 group-hover:text-amber-600 group-hover:border-amber-300 shadow-2xs transition-all">
+                              {isUploadingSubsanacionFile ? (
+                                <Loader2 className="w-5 h-5 animate-spin text-amber-600" />
+                              ) : (
+                                <Upload className="w-5 h-5" />
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-600">
+                              <span className="font-bold text-amber-700 hover:text-amber-800">Haz clic para subir</span> o arrastra archivos aquí
+                            </div>
+                            <span className="text-[10px] text-slate-400">
+                              Formatos permitidos: PDF, Word (.docx), Excel (.xlsx), Imágenes (.png, .jpg), Diagramas (.drawio)
+                            </span>
+                          </label>
+                        </div>
+
+                        {subsanacionUploadError && (
+                          <p className="text-xs text-rose-600 font-semibold mt-1">
+                            {subsanacionUploadError}
+                          </p>
+                        )}
+
+                        {/* Lista de archivos adjuntos */}
+                        {subsanacionFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-2 pt-2">
+                            {subsanacionFiles.map((file, fIdx) => (
+                              <div
+                                key={fIdx}
+                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 shadow-2xs animate-in fade-in"
+                              >
+                                <Paperclip className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <a
+                                  href={file.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:text-amber-700 hover:underline max-w-[200px] truncate"
+                                  title={file.name}
+                                >
+                                  {file.name}
+                                </a>
+                                {file.size && (
+                                  <span className="text-[10px] text-slate-400 font-normal">
+                                    ({(file.size / (1024 * 1024)).toFixed(1)} MB)
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSubsanacionFile(fIdx)}
+                                  className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors ml-1"
+                                  title="Remover archivo"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Notificación guía para el envío */}
+                      <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/80 flex items-center gap-2.5 text-xs text-amber-900 font-medium">
+                        <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Una vez completada tu explicación o adjuntos los archivos, utiliza los botones de acción en la barra superior para reenviar o avanzar la iniciativa.</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {selectedTimelineStageKey && selectedTimelineStageKey !== 'borrador' ? (
                 <div className="space-y-6">
                   {(() => {
@@ -4564,6 +5062,27 @@ export default function InitiativeDetail() {
                               </div>
                             )}
 
+                            {/* Archivos adjuntos de soporte en la observación o subsanación */}
+                            {h.files && Array.isArray(h.files) && h.files.length > 0 && (
+                              <div className="mt-2.5 flex flex-wrap gap-2">
+                                {h.files.map((file: any, fIdx: number) => (
+                                  <a
+                                    key={fIdx}
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-indigo-50/50 border border-slate-200 hover:border-indigo-200 text-xs font-semibold text-slate-700 hover:text-indigo-600 transition-colors shadow-2xs"
+                                  >
+                                    <Paperclip className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                    <span className="truncate max-w-[200px]">{file.name}</span>
+                                    {file.size && (
+                                      <span className="text-[10px] text-slate-400 font-normal">({(file.size / (1024 * 1024)).toFixed(1)} MB)</span>
+                                    )}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+
                             {/* Comparación de snapshot si existe */}
                             {h.snapshot && (
                               <div className="mt-3 pt-2 border-t border-slate-100 flex justify-end">
@@ -5033,6 +5552,84 @@ export default function InitiativeDetail() {
           onClose={() => setCompareSnapshot(null)} 
           fieldsMap={fieldsMap}
         />
+      )}
+
+      {/* Observation Modal */}
+      {showObserveModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col border border-amber-200">
+            <div className="px-6 py-4 border-b border-amber-100 flex justify-between items-center bg-gradient-to-r from-amber-50 to-orange-50/30">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                  <AlertTriangle className="w-4 h-4 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base">Registrar Observación</h3>
+                  <span className="text-[11px] text-amber-800 font-medium block">Etapa origen: {currentStatusLabel}</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowObserveModal(false)} 
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Categoría de la Observación
+                </label>
+                <select
+                  value={observeCategory}
+                  onChange={(e) => setObserveCategory(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all"
+                >
+                  <option value="General">General</option>
+                  <option value="Documentación incompleta">Documentación incompleta</option>
+                  <option value="Alcance técnico">Alcance técnico</option>
+                  <option value="Presupuesto / Costos">Presupuesto / Costos</option>
+                  <option value="Visto Bueno / VoBo">Visto Bueno / VoBo</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Motivo y Detalle de la Observación <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={observeComment}
+                  onChange={(e) => setObserveComment(e.target.value)}
+                  placeholder="Detalla con precisión qué aspecto de la iniciativa debe ser corregido, aclarado o complementado..."
+                  rows={4}
+                  className="w-full p-3.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none text-sm text-slate-800 leading-relaxed"
+                />
+              </div>
+
+              <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/80 flex items-start gap-2.5 text-xs text-amber-900 leading-relaxed">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>Esta observación quedará formalmente registrada en la custodia legal de IACS y se habilitará la sección de subsanación con soporte de archivos para el responsable.</span>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowObserveModal(false)}
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleObserveConfirm}
+                className="px-5 py-2 text-sm font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-all shadow-sm shadow-amber-600/20 flex items-center gap-2 cursor-pointer"
+              >
+                <AlertTriangle className="w-4 h-4" />
+                Confirmar Observación
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Desestimar Modal */}

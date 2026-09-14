@@ -1105,6 +1105,46 @@ export const NodeConfigPanel: React.FC = () => {
                 <p className="text-[10px] text-slate-400 mt-1">
                   Define el ícono, coloración y reglas de transición de este estado.
                 </p>
+
+                {(nodeData.stateSubtype === 'observada' || nodeData.stateSubtype === 'desestimada') && (
+                  <div className="mt-2.5 p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={nodeData.requireObservationComment !== false}
+                        onChange={(e) => updateNodeData(selectedNode!.id, { requireObservationComment: e.target.checked })}
+                        className="w-3.5 h-3.5 rounded text-[#4F5AF5] mt-0.5 cursor-pointer"
+                      />
+                      <div className="text-[10px]">
+                        <span className="font-bold text-slate-700 block">
+                          Requerir justificación / detalle obligatorio
+                        </span>
+                        <span className="text-slate-400">
+                          Abre un modal para ingresar los motivos antes de transicionar a este estado.
+                        </span>
+                      </div>
+                    </label>
+
+                    {nodeData.stateSubtype === 'observada' && (
+                      <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-slate-200/60">
+                        <input
+                          type="checkbox"
+                          checked={nodeData.allowObservationFiles !== false}
+                          onChange={(e) => updateNodeData(selectedNode!.id, { allowObservationFiles: e.target.checked })}
+                          className="w-3.5 h-3.5 rounded text-[#4F5AF5] mt-0.5 cursor-pointer"
+                        />
+                        <div className="text-[10px]">
+                          <span className="font-bold text-slate-700 block">
+                            Permitir adjuntar archivos de soporte en la subsanación
+                          </span>
+                          <span className="text-slate-400">
+                            Habilita la subida de documentos probatorios (máx. 25 MB, PDF, Word, Excel, diagramas).
+                          </span>
+                        </div>
+                      </label>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

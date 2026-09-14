@@ -1,58 +1,64 @@
 import type { Node, Edge } from '@xyflow/react';
 
+// Mapa de coordenadas estándar maestras oficiales de IACS
+export const DEFAULT_MASTER_COORDINATES: Record<string, { x: number; y: number }> = {
+  start: { x: 60, y: 180 },
+  borrador: { x: 240, y: 140 },
+  ai_chat: { x: 240, y: 340 },
+  eval_bp: { x: 520, y: 140 },
+  aprob_bo: { x: 800, y: 140 },
+  aprob_vp: { x: 1080, y: 140 },
+  asig_demanda: { x: 1360, y: 140 },
+  ventana_est: { x: 1640, y: 140 },
+  gw_presupuesto: { x: 1920, y: 140 },
+  est_con_presupuesto: { x: 2180, y: 40 },
+  est_sin_presupuesto: { x: 2180, y: 240 },
+  val_est_bp: { x: 2480, y: 140 },
+  vobo_est_bo: { x: 2760, y: 140 },
+  plan_fechas: { x: 3040, y: 140 },
+  val_plan_bp: { x: 3320, y: 140 },
+  aprob_plan_bo: { x: 3600, y: 140 },
+  planificacion: { x: 3880, y: 140 },
+  end: { x: 4140, y: 180 },
+  // Canal inferior para observaciones y descarte
+  observada: { x: 1640, y: 440 },
+  desestimada: { x: 1920, y: 440 },
+};
+
 /**
- * Organiza las posiciones de los nodos y handles de las aristas
- * de forma limpia, jerárquica y sin solapamientos.
+ * Organiza EXCLUSIVAMENTE las posiciones (x, y) de los nodos según las coordenadas
+ * maestras predeterminadas (o las coordenadas personalizadas configuradas en el flujo).
+ * NO modifica flechas, nombres, handles ni conexiones del flujo.
  */
 export function organizeWorkflowGraph(
   nodes: Node[],
-  edges: Edge[]
+  edges: Edge[],
+  customMasterCoords?: Record<string, { x: number; y: number }>
 ): { nodes: Node[]; edges: Edge[] } {
-  // Mapa de coordenadas estándar probadas para el ciclo oficial de 7 macro-fases y 12 estados
-  const KNOWN_COORDINATES: Record<string, { x: number; y: number }> = {
-    start: { x: 50, y: 195 },
-    borrador: { x: 270, y: 150 },
-    ai_chat: { x: 270, y: 350 },
-    eval_bp: { x: 570, y: 150 },
-    aprob_bo: { x: 870, y: 150 },
-    aprob_vp: { x: 1170, y: 150 },
-    asig_demanda: { x: 1470, y: 150 },
-    ventana_est: { x: 1770, y: 150 },
-    gw_presupuesto: { x: 2070, y: 150 },
-    est_con_presupuesto: { x: 2360, y: 50 },
-    est_sin_presupuesto: { x: 2360, y: 260 },
-    val_est_bp: { x: 2670, y: 150 },
-    vobo_est_bo: { x: 2970, y: 150 },
-    plan_fechas: { x: 3270, y: 150 },
-    val_plan_bp: { x: 3570, y: 150 },
-    aprob_plan_bo: { x: 3870, y: 150 },
-    planificacion: { x: 4170, y: 150 },
-    end: { x: 4460, y: 195 },
-    // Canal inferior para observaciones y descarte (sin cruces con el flujo principal)
-    observada: { x: 1770, y: 480 },
-    desestimada: { x: 2070, y: 480 },
+  const coordinatesMap = {
+    ...DEFAULT_MASTER_COORDINATES,
+    ...(customMasterCoords || {}),
   };
 
-  // Posicionar nodos
   let customIndex = 0;
   const newNodes = nodes.map((node) => {
-    let position = KNOWN_COORDINATES[node.id];
+    let position = coordinatesMap[node.id];
 
     if (!position) {
-      // Posicionamiento dinámico para nodos adicionales creados por el usuario
+      // Posicionamiento dinámico para nodos adicionales creados posteriormente por el usuario
       const subtype = (node.data as any)?.stateSubtype;
       const isObservada = subtype === 'observada' || node.id.includes('obs');
       const isDesestimada = subtype === 'desestimada' || node.id.includes('desest');
 
       if (isObservada || isDesestimada) {
         position = {
-          x: 2370 + customIndex * 280,
-          y: 480,
+          x: 2200 + customIndex * 280,
+          y: 440,
         };
       } else {
         position = {
-          x: 4460 + (customIndex + 1) * 280,
-          y: 150,
+          x: 4140 + (customIndex + 1) * 280,
+          y: 140,
         };
       }
       customIndex++;
@@ -64,73 +70,6 @@ export function organizeWorkflowGraph(
     };
   });
 
-  const nodeMap = new Map<string, Node>();
-  newNodes.forEach((n) => nodeMap.set(n.id, n));
-
-  // Ajustar aristas con handles inteligentes según la geometría de origen y destino
-  const newEdges = edges.map((edge) => {
-    const sourceNode = nodeMap.get(edge.source);
-    const targetNode = nodeMap.get(edge.target);
-
-    let sourceHandle = edge.sourceHandle || 'right';
-    let targetHandle = edge.targetHandle || 'left';
-
-    if (sourceNode && targetNode) {
-      const dx = targetNode.position.x - sourceNode.position.x;
-      const dy = targetNode.position.y - sourceNode.position.y;
-
-      // Si el destino es observada (hacia abajo)
-      if (targetNode.id === 'observada') {
-        sourceHandle = 'bottom';
-        targetHandle = 'top';
-      }
-      // Si el origen es observada (hacia arriba o hacia la izquierda)
-      else if (sourceNode.id === 'observada') {
-        if (targetNode.id === 'desestimada') {
-          sourceHandle = 'right';
-          targetHandle = 'left';
-        } else {
-          sourceHandle = 'top';
-          targetHandle = 'bottom';
-        }
-      }
-      // Gateway a ramas superior e inferior
-      else if (sourceNode.id === 'gw_presupuesto') {
-        if (dy < -30) {
-          sourceHandle = 'top';
-          targetHandle = 'left';
-        } else if (dy > 30) {
-          sourceHandle = 'bottom';
-          targetHandle = 'left';
-        } else {
-          sourceHandle = 'right';
-          targetHandle = 'left';
-        }
-      }
-      // Ramas convergiendo a val_est_bp
-      else if (sourceNode.id === 'est_con_presupuesto' || sourceNode.id === 'est_sin_presupuesto') {
-        sourceHandle = 'right';
-        targetHandle = 'left';
-      }
-      // Avance estándar de izquierda a derecha
-      else if (dx > 40) {
-        sourceHandle = 'right';
-        targetHandle = 'left';
-      }
-      // Retorno (de derecha a izquierda)
-      else if (dx < -40) {
-        sourceHandle = 'bottom';
-        targetHandle = 'bottom';
-      }
-    }
-
-    return {
-      ...edge,
-      type: 'workflow',
-      sourceHandle,
-      targetHandle,
-    };
-  });
-
-  return { nodes: newNodes, edges: newEdges };
+  // Retornar nodos con posiciones ajustadas y aristas completamente INTACTAS
+  return { nodes: newNodes, edges };
 }

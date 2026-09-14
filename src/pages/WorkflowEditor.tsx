@@ -42,7 +42,8 @@ import {
   CheckCircle2, 
   X,
   Copy,
-  Layers
+  Layers,
+  Pin
 } from 'lucide-react';
 import type { WorkflowNodeType } from '../types';
 
@@ -242,18 +243,42 @@ const WorkflowEditorContent: React.FC = () => {
     }
   }, [loading, activeWorkflow?.id, reactFlowInstance]);
 
-  // Auto-organización inteligente del diagrama
+  // Auto-organización inteligente del diagrama (Acomoda exclusivamente las posiciones sin alterar aristas)
   const handleAutoLayout = useCallback(() => {
     if (nodes.length === 0) return;
-    const { nodes: organizedNodes, edges: organizedEdges } = organizeWorkflowGraph(nodes, edges);
+    const masterCoords = (activeWorkflow?.graph_json as any)?.master_coordinates;
+    const { nodes: organizedNodes, edges: organizedEdges } = organizeWorkflowGraph(nodes, edges, masterCoords);
     setNodes(organizedNodes);
     setEdges(organizedEdges);
     setIsDirty(true);
     setTimeout(() => {
       reactFlowInstance.fitView({ padding: 0.15, duration: 400 });
     }, 50);
-    showToast('¡Diagrama reorganizado limpiamente! Presiona "Guardar" para conservar los cambios. ✨');
-  }, [nodes, edges, setNodes, setEdges, setIsDirty, reactFlowInstance]);
+    showToast('¡Posiciones acomodadas al estándar predeterminado! Presiona "Guardar" para conservar.');
+  }, [nodes, edges, setNodes, setEdges, setIsDirty, reactFlowInstance, activeWorkflow]);
+
+  // Fijar las posiciones actuales del diagrama como las coordenadas maestras predeterminadas
+  const handleSaveAsMasterCoordinates = useCallback(() => {
+    if (nodes.length === 0 || !activeWorkflow) return;
+    const coordsMap: Record<string, { x: number; y: number }> = {};
+    nodes.forEach((n) => {
+      coordsMap[n.id] = { x: Math.round(n.position.x), y: Math.round(n.position.y) };
+    });
+
+    const updatedGraphJson = {
+      nodes: activeWorkflow.graph_json?.nodes || nodes,
+      edges: activeWorkflow.graph_json?.edges || edges,
+      ...(activeWorkflow.graph_json || {}),
+      master_coordinates: coordsMap,
+    };
+
+    setActiveWorkflow({
+      ...activeWorkflow,
+      graph_json: updatedGraphJson,
+    });
+    setIsDirty(true);
+    showToast('¡Distribución actual fijada como coordenadas predeterminadas! Presiona "Guardar" para publicar el estándar.');
+  }, [nodes, edges, activeWorkflow, setActiveWorkflow, setIsDirty, showToast]);
 
   // Guardar Borrador con tolerancia a fallos y fallback directo a Supabase
   const handleSave = async () => {
@@ -292,11 +317,12 @@ const WorkflowEditorContent: React.FC = () => {
 
       // Intento 1: API Express del Backend
       try {
+        const masterCoordsToSave = (activeWorkflow?.graph_json as any)?.master_coordinates;
         const res = await fetch(`/api/workflow/definitions/${activeWorkflow.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            graph_json: { nodes, edges },
+            graph_json: { nodes, edges, ...(masterCoordsToSave ? { master_coordinates: masterCoordsToSave } : {}) },
             name: activeWorkflow.name,
             description: activeWorkflow.description,
             node_roles: nodeRolesToSave,
@@ -323,10 +349,11 @@ const WorkflowEditorContent: React.FC = () => {
 
       // Intento 2: Fallback directo a Supabase (Gobernanza Cyber Neo / The Architect)
       if (!saveSuccess) {
+        const masterCoordsToSave = (activeWorkflow?.graph_json as any)?.master_coordinates;
         const { data: updatedWf, error: sbErr } = await supabase
           .from('workflow_definitions')
           .update({
-            graph_json: { nodes, edges },
+            graph_json: { nodes, edges, ...(masterCoordsToSave ? { master_coordinates: masterCoordsToSave } : {}) },
             name: activeWorkflow.name,
             description: activeWorkflow.description,
             updated_at: new Date().toISOString(),
@@ -587,16 +614,25 @@ const WorkflowEditorContent: React.FC = () => {
               <button
                 type="button"
                 onClick={handleAutoLayout}
-                className="px-3 py-1.5 bg-white/95 backdrop-blur-xs border border-indigo-200 text-[#4F5AF5] text-xs font-semibold rounded-xl shadow-xs hover:bg-indigo-50 transition-colors flex items-center gap-1.5"
-                title="Alinear y ordenar todas las cajas y flechas automáticamente sin solapamientos"
+                className="px-3 py-1.5 bg-white/95 backdrop-blur-xs border border-indigo-200 text-[#4F5AF5] text-xs font-semibold rounded-xl shadow-xs hover:bg-indigo-50 transition-colors flex items-center gap-1.5 cursor-pointer"
+                title="Alinear y acomodar todas las cajas a sus posiciones predeterminadas sin alterar flechas ni datos"
               >
                 <Sparkles className="w-3.5 h-3.5 text-[#4F5AF5]" />
                 <span>Organizar Diagrama</span>
               </button>
               <button
                 type="button"
+                onClick={handleSaveAsMasterCoordinates}
+                className="px-3 py-1.5 bg-white/95 backdrop-blur-xs border border-slate-200 text-slate-700 text-xs font-medium rounded-xl shadow-xs hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
+                title="Fijar la distribución actual como el nuevo estándar predeterminado para el botón Organizar"
+              >
+                <Pin className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Fijar como Default</span>
+              </button>
+              <button
+                type="button"
                 onClick={handleCloneAsNewDraft}
-                className="px-3 py-1.5 bg-white/90 backdrop-blur-xs border border-slate-200 text-slate-700 text-xs font-medium rounded-xl shadow-xs hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-white/90 backdrop-blur-xs border border-slate-200 text-slate-700 text-xs font-medium rounded-xl shadow-xs hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
                 title="Crear un nuevo borrador a partir de este esquema"
               >
                 <Copy className="w-3.5 h-3.5 text-slate-500" />
