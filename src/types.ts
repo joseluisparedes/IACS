@@ -90,7 +90,20 @@ export interface WorkflowNodeData {
   consent_id?: string;
   action_label?: string;
   aiConfig?: { promptTemplate?: string; outputFields?: string[] };
-  gatewayConfig?: GatewayConfig;
+  requireObservationComment?: boolean;
+  allowObservationFiles?: boolean;
+  observationCategories?: string[];
+  observationFileOptions?: {
+    allowMultiple?: boolean;
+    maxFiles?: number;
+    fileTypes?: {
+      pdf?: { enabled: boolean; maxMb: number };
+      docx?: { enabled: boolean; maxMb: number };
+      xlsx?: { enabled: boolean; maxMb: number };
+      image?: { enabled: boolean; maxMb: number };
+      txt?: { enabled: boolean; maxMb: number };
+    };
+  };
   [key: string]: unknown;
 }
 

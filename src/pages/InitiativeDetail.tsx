@@ -7,6 +7,7 @@ import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from "../lib/utils";
 import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
 import { useReactToPrint } from "react-to-print";
 import type { StageForm, StageConsent, InitiativeStageRecord } from "../types";
+import { DEFAULT_OBSERVATION_CATEGORIES } from "../components/workflow/NodeConfigPanel";
 
 
 const STATUS_STYLE: Record<string, string> = {
@@ -1363,6 +1364,7 @@ export default function InitiativeDetail() {
   const [showObserveModal, setShowObserveModal] = useState(false);
   const [observeComment, setObserveComment] = useState("");
   const [observeCategory, setObserveCategory] = useState("General");
+  const [customObserveCategory, setCustomObserveCategory] = useState("");
   const [pendingObserveTransition, setPendingObserveTransition] = useState<{ edge: any; targetNode: any; buttonLabel: string } | null>(null);
   const [subsanacionComment, setSubsanacionComment] = useState("");
   const [subsanacionFiles, setSubsanacionFiles] = useState<Array<{ name: string; url: string; size?: number; type?: string }>>([]);
@@ -1703,6 +1705,69 @@ export default function InitiativeDetail() {
   const canDesestimar = useMemo(() => {
     return userOutgoingEdges.some((e: any) => e.target === 'desestimada');
   }, [userOutgoingEdges]);
+
+  const observadaNode = useMemo(() => {
+    return activeWorkflow?.graph_json?.nodes?.find(
+      (n: any) => n.id === 'observada' || n.data?.stateSubtype === 'observada'
+    );
+  }, [activeWorkflow]);
+
+  const canManageObservada = useMemo(() => {
+    if (isAdmin) return true;
+    if (!activeWorkflow || !initiative) return false;
+    const currNodeId = (initiative as any)?.current_node_id || STATUS_TO_NODE[initiative?.status] || 'observada';
+
+    // 1. Check in workflow_node_roles
+    const hasRoleInWfRoles = activeWorkflow.workflow_node_roles?.some(
+      (r: any) => (r.node_id === currNodeId || r.node_id === 'observada') && userRolesList.includes(r.role_name?.toLowerCase())
+    );
+    if (hasRoleInWfRoles) return true;
+
+    // 2. Check in node data.roles
+    const nodeObj = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === currNodeId || n.id === 'observada');
+    const nodeRoles: any[] = nodeObj?.data?.roles || [];
+    const hasRoleInNode = nodeRoles.some((r: any) => userRolesList.includes((r.role_name || r.role || '').toLowerCase()));
+    if (hasRoleInNode) return true;
+
+    // 3. Fallback: BP TI
+    if (userRolesList.includes('bp_ti') || isBP) return true;
+
+    return false;
+  }, [isAdmin, activeWorkflow, initiative, userRolesList, isBP]);
+
+  const observadaResponsibleRoleName = useMemo(() => {
+    const nodeObj = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === 'observada' || n.data?.stateSubtype === 'observada');
+    const nodeRoles: any[] = nodeObj?.data?.roles || [];
+    if (nodeRoles.length > 0) {
+      return nodeRoles.map((r: any) => r.role_name || r.role).join(', ');
+    }
+    return 'BP TI / Administrador';
+  }, [activeWorkflow]);
+
+  const observationFileOptions = useMemo(() => {
+    return observadaNode?.data?.observationFileOptions || {
+      allowMultiple: true,
+      maxFiles: 5,
+      fileTypes: {
+        pdf: { enabled: true, maxMb: 25 },
+        docx: { enabled: true, maxMb: 25 },
+        xlsx: { enabled: true, maxMb: 25 },
+        image: { enabled: true, maxMb: 25 },
+        txt: { enabled: true, maxMb: 10 },
+      },
+    };
+  }, [observadaNode]);
+
+  const observationAcceptedExtensions = useMemo(() => {
+    const ft = observationFileOptions.fileTypes || {};
+    const exts: string[] = [];
+    if (ft.pdf?.enabled !== false) exts.push('.pdf');
+    if (ft.docx?.enabled !== false) exts.push('.docx');
+    if (ft.xlsx?.enabled !== false) exts.push('.xlsx', '.xls');
+    if (ft.image?.enabled !== false) exts.push('.png', '.jpg', '.jpeg', '.webp', '.drawio');
+    if (ft.txt?.enabled !== false) exts.push('.txt');
+    return exts.join(',');
+  }, [observationFileOptions]);
 
   // Helper to get eligible users for role_user fields (with global & scoped permission support)
   const getEligibleRoleUsers = useCallback((field: any, currentFd?: any) => {
@@ -2437,7 +2502,10 @@ export default function InitiativeDetail() {
 
   const openObserveModal = (edge?: any, targetNode?: any, buttonLabel?: string) => {
     setObserveComment("");
-    setObserveCategory("General");
+    setCustomObserveCategory("");
+    const targetObservada = targetNode || activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === 'observada' || n.data?.stateSubtype === 'observada');
+    const cats: string[] = targetObservada?.data?.observationCategories || DEFAULT_OBSERVATION_CATEGORIES;
+    setObserveCategory(cats[0] || "General");
     setPendingObserveTransition(edge ? { edge, targetNode, buttonLabel: buttonLabel || 'Observar' } : null);
     setShowObserveModal(true);
   };
@@ -2447,6 +2515,10 @@ export default function InitiativeDetail() {
       showToast("Debes ingresar el motivo o detalle de la observación.", "warning");
       return;
     }
+
+    const finalCategory = observeCategory === '__custom__'
+      ? (customObserveCategory.trim() || 'General')
+      : (observeCategory || 'General');
 
     const currNodeId = (initiative as any)?.current_node_id || STATUS_TO_NODE[initiative?.status] || 'borrador';
     const currNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === currNodeId);
@@ -2462,7 +2534,7 @@ export default function InitiativeDetail() {
       observed_by_id: profile?.id || null,
       user_role: profile?.profile_roles?.[0]?.role || (isAdmin ? 'Administrador' : isBP ? 'BP TI' : 'Key user'),
       action: 'Observada',
-      category: observeCategory,
+      category: finalCategory,
       details: observeComment.trim(),
       from_stage: currStageName,
       from_node_id: currNodeId,
@@ -2474,7 +2546,7 @@ export default function InitiativeDetail() {
       user_name: profile?.name || 'Usuario del Sistema',
       user_role: profile?.profile_roles?.[0]?.role || (isAdmin ? 'Administrador' : isBP ? 'BP TI' : 'Key user'),
       action: 'Observada',
-      details: `[${observeCategory}] ${observeComment.trim()} (en etapa: ${currStageName})`,
+      details: `[${finalCategory}] ${observeComment.trim()} (en etapa: ${currStageName})`,
       from_node_id: currNodeId,
       from_stage: currStageName,
     };
@@ -2531,17 +2603,38 @@ export default function InitiativeDetail() {
     if (files.length === 0) return;
 
     setSubsanacionUploadError(null);
-    const MAX_SIZE = 25 * 1024 * 1024; // 25 MB
-    const allowedExtensions = ['.pdf', '.docx', '.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.drawio'];
+    const ft = observationFileOptions.fileTypes || {};
+    const allowMultiple = observationFileOptions.allowMultiple !== false;
+    const maxFiles = observationFileOptions.maxFiles || 5;
+
+    if (!allowMultiple && (subsanacionFiles.length + files.length) > 1) {
+      setSubsanacionUploadError("Solo se permite adjuntar 1 archivo en esta subsanación.");
+      return;
+    }
+
+    if ((subsanacionFiles.length + files.length) > maxFiles) {
+      setSubsanacionUploadError(`Se superó el límite máximo de ${maxFiles} archivo(s) permitidos.`);
+      return;
+    }
 
     for (const file of files) {
       const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-      if (!allowedExtensions.includes(ext)) {
-        setSubsanacionUploadError(`Formato no permitido para "${file.name}". Formatos válidos: PDF, DOCX, XLSX, PNG, JPG, DRAWIO.`);
+      let typeKey: 'pdf' | 'docx' | 'xlsx' | 'image' | 'txt' | null = null;
+      if (ext === '.pdf') typeKey = 'pdf';
+      else if (ext === '.docx') typeKey = 'docx';
+      else if (ext === '.xlsx' || ext === '.xls') typeKey = 'xlsx';
+      else if (['.png', '.jpg', '.jpeg', '.webp', '.drawio'].includes(ext)) typeKey = 'image';
+      else if (ext === '.txt') typeKey = 'txt';
+
+      if (!typeKey || ft[typeKey]?.enabled === false) {
+        setSubsanacionUploadError(`El formato "${ext}" (${file.name}) no está autorizado para esta subsanación.`);
         return;
       }
-      if (file.size > MAX_SIZE) {
-        setSubsanacionUploadError(`El archivo "${file.name}" supera el límite máximo permitido de 25 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
+
+      const maxMb = Math.min(25, ft[typeKey]?.maxMb || 25);
+      const limitBytes = maxMb * 1024 * 1024;
+      if (file.size > limitBytes) {
+        setSubsanacionUploadError(`El archivo "${file.name}" supera el límite configurado de ${maxMb} MB (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
         return;
       }
     }
@@ -3815,108 +3908,132 @@ export default function InitiativeDetail() {
                       </p>
                     </div>
 
-                    {/* Formulario de Subsanación */}
-                    <div className="space-y-4 pt-2">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-xs font-black text-slate-800 uppercase tracking-wider">
-                          Respuesta de Subsanación / Justificación Técnica
-                        </label>
-                        <span className="text-[11px] text-slate-400 font-medium">Texto y/o archivos de respaldo</span>
-                      </div>
-
-                      <textarea
-                        value={subsanacionComment}
-                        onChange={(e) => setSubsanacionComment(e.target.value)}
-                        placeholder="Describe detalladamente las correcciones realizadas, aclaraciones técnicas o ajustes incorporados..."
-                        rows={3}
-                        className="w-full p-3.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent text-sm text-slate-800 leading-relaxed resize-none transition-all"
-                      />
-
-                      {/* Zona de subida de archivos (Cyber Neo - Max 25 MB) */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-bold text-slate-700">
-                          Archivos Adjuntos de Soporte (Máx. 25 MB por archivo)
-                        </label>
-                        
-                        <div
-                          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleSubsanacionFileUpload(e); }}
-                          className="border-2 border-dashed border-slate-300 hover:border-amber-400 rounded-xl p-4 sm:p-5 text-center transition-colors bg-slate-50/50 hover:bg-amber-50/30 group"
-                        >
-                          <input
-                            type="file"
-                            id="subsanacionFileInput"
-                            multiple
-                            accept=".pdf,.docx,.xlsx,.xls,.png,.jpg,.jpeg,.drawio"
-                            onChange={handleSubsanacionFileUpload}
-                            className="hidden"
-                          />
-                          <label htmlFor="subsanacionFileInput" className="cursor-pointer flex flex-col items-center gap-2">
-                            <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-500 group-hover:text-amber-600 group-hover:border-amber-300 shadow-2xs transition-all">
-                              {isUploadingSubsanacionFile ? (
-                                <Loader2 className="w-5 h-5 animate-spin text-amber-600" />
-                              ) : (
-                                <Upload className="w-5 h-5" />
-                              )}
-                            </div>
-                            <div className="text-xs text-slate-600">
-                              <span className="font-bold text-amber-700 hover:text-amber-800">Haz clic para subir</span> o arrastra archivos aquí
-                            </div>
-                            <span className="text-[10px] text-slate-400">
-                              Formatos permitidos: PDF, Word (.docx), Excel (.xlsx), Imágenes (.png, .jpg), Diagramas (.drawio)
-                            </span>
+                    {/* Formulario de Subsanación — Solo editable por los roles con permiso sobre la caja de Observación */}
+                    {canManageObservada ? (
+                      <div className="space-y-4 pt-2">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-black text-slate-800 uppercase tracking-wider">
+                            Respuesta de Subsanación / Justificación Técnica
                           </label>
+                          <span className="text-[11px] text-slate-400 font-medium">Texto y/o archivos de respaldo</span>
                         </div>
 
-                        {subsanacionUploadError && (
-                          <p className="text-xs text-rose-600 font-semibold mt-1">
-                            {subsanacionUploadError}
-                          </p>
-                        )}
+                        <textarea
+                          value={subsanacionComment}
+                          onChange={(e) => setSubsanacionComment(e.target.value)}
+                          placeholder="Describe detalladamente las correcciones realizadas, aclaraciones técnicas o ajustes incorporados..."
+                          rows={3}
+                          className="w-full p-3.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent text-sm text-slate-800 leading-relaxed resize-none transition-all"
+                        />
 
-                        {/* Lista de archivos adjuntos */}
-                        {subsanacionFiles.length > 0 && (
-                          <div className="flex flex-wrap gap-2 pt-2">
-                            {subsanacionFiles.map((file, fIdx) => (
-                              <div
-                                key={fIdx}
-                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 shadow-2xs animate-in fade-in"
-                              >
-                                <Paperclip className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                <a
-                                  href={file.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="hover:text-amber-700 hover:underline max-w-[200px] truncate"
-                                  title={file.name}
-                                >
-                                  {file.name}
-                                </a>
-                                {file.size && (
-                                  <span className="text-[10px] text-slate-400 font-normal">
-                                    ({(file.size / (1024 * 1024)).toFixed(1)} MB)
-                                  </span>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveSubsanacionFile(fIdx)}
-                                  className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors ml-1"
-                                  title="Remover archivo"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
+                        {/* Zona de subida de archivos (Cyber Neo - Max 25 MB y tipos parametrizados) */}
+                        {observadaNode?.data?.allowObservationFiles !== false && (
+                          <div className="space-y-2">
+                            <label className="block text-xs font-bold text-slate-700">
+                              Archivos Adjuntos de Soporte
+                            </label>
+                            
+                            <div
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleSubsanacionFileUpload(e); }}
+                              className="border-2 border-dashed border-slate-300 hover:border-amber-400 rounded-xl p-4 sm:p-5 text-center transition-colors bg-slate-50/50 hover:bg-amber-50/30 group"
+                            >
+                              <input
+                                type="file"
+                                id="subsanacionFileInput"
+                                multiple={observationFileOptions.allowMultiple !== false}
+                                accept={observationAcceptedExtensions}
+                                onChange={handleSubsanacionFileUpload}
+                                className="hidden"
+                              />
+                              <label htmlFor="subsanacionFileInput" className="cursor-pointer flex flex-col items-center gap-2">
+                                <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-500 group-hover:text-amber-600 group-hover:border-amber-300 shadow-2xs transition-all">
+                                  {isUploadingSubsanacionFile ? (
+                                    <Loader2 className="w-5 h-5 animate-spin text-amber-600" />
+                                  ) : (
+                                    <Upload className="w-5 h-5" />
+                                  )}
+                                </div>
+                                <div className="text-xs text-slate-600">
+                                  <span className="font-bold text-amber-700 hover:text-amber-800">Haz clic para subir</span> o arrastra archivos aquí
+                                </div>
+                                <span className="text-[10px] text-slate-400">
+                                  Formatos autorizados: {[
+                                    observationFileOptions.fileTypes?.pdf?.enabled !== false && `PDF (${observationFileOptions.fileTypes?.pdf?.maxMb || 25} MB)`,
+                                    observationFileOptions.fileTypes?.docx?.enabled !== false && `Word (${observationFileOptions.fileTypes?.docx?.maxMb || 25} MB)`,
+                                    observationFileOptions.fileTypes?.xlsx?.enabled !== false && `Excel (${observationFileOptions.fileTypes?.xlsx?.maxMb || 25} MB)`,
+                                    observationFileOptions.fileTypes?.image?.enabled !== false && `Imágenes / Diagramas (${observationFileOptions.fileTypes?.image?.maxMb || 25} MB)`,
+                                    observationFileOptions.fileTypes?.txt?.enabled !== false && `Texto (${observationFileOptions.fileTypes?.txt?.maxMb || 10} MB)`,
+                                  ].filter(Boolean).join(' • ') || 'Configuración estándar (máx. 25 MB)'}
+                                </span>
+                              </label>
+                            </div>
+
+                            {subsanacionUploadError && (
+                              <p className="text-xs text-rose-600 font-semibold mt-1">
+                                {subsanacionUploadError}
+                              </p>
+                            )}
+
+                            {/* Lista de archivos adjuntos */}
+                            {subsanacionFiles.length > 0 && (
+                              <div className="flex flex-wrap gap-2 pt-2">
+                                {subsanacionFiles.map((file, fIdx) => (
+                                  <div
+                                    key={fIdx}
+                                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-900 shadow-2xs animate-in fade-in"
+                                  >
+                                    <Paperclip className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                    <a
+                                      href={file.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="hover:text-amber-700 hover:underline max-w-[200px] truncate"
+                                      title={file.name}
+                                    >
+                                      {file.name}
+                                    </a>
+                                    {file.size && (
+                                      <span className="text-[10px] text-amber-700/80 font-normal">
+                                        ({(file.size / (1024 * 1024)).toFixed(1)} MB)
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveSubsanacionFile(fIdx)}
+                                      className="text-amber-500 hover:text-rose-600 p-0.5 rounded transition-colors ml-1 cursor-pointer"
+                                      title="Remover archivo"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            )}
                           </div>
                         )}
-                      </div>
 
-                      {/* Notificación guía para el envío */}
-                      <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/80 flex items-center gap-2.5 text-xs text-amber-900 font-medium">
-                        <Info className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span>Una vez completada tu explicación o adjuntos los archivos, utiliza los botones de acción en la barra superior para reenviar o avanzar la iniciativa.</span>
+                        {/* Notificación guía para el envío */}
+                        <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/80 flex items-center gap-2.5 text-xs text-amber-900 font-medium">
+                          <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>Una vez completada tu explicación o adjuntos los archivos, utiliza los botones de acción en la barra superior para reenviar o avanzar la iniciativa.</span>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      /* Modo Lectura / Auditoría para usuarios sin rol asignado en la caja de Observación (ej. el observador) */
+                      <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80 flex items-start gap-3">
+                        <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-bold text-amber-900">Iniciativa en Proceso de Subsanación</h4>
+                          <p className="text-xs text-amber-800 leading-relaxed">
+                            Esta iniciativa se encuentra observada y en custodia de <strong>{observadaResponsibleRoleName}</strong> para la resolución de los requerimientos y carga de sustento.
+                          </p>
+                          <p className="text-[11px] text-amber-700/80">
+                            Los campos de respuesta y adjuntos están habilitados únicamente para los roles con permiso sobre el estado "Observada".
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -5614,17 +5731,36 @@ export default function InitiativeDetail() {
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   Categoría de la Observación
                 </label>
-                <select
-                  value={observeCategory}
-                  onChange={(e) => setObserveCategory(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all"
-                >
-                  <option value="General">General</option>
-                  <option value="Documentación incompleta">Documentación incompleta</option>
-                  <option value="Alcance técnico">Alcance técnico</option>
-                  <option value="Presupuesto / Costos">Presupuesto / Costos</option>
-                  <option value="Visto Bueno / VoBo">Visto Bueno / VoBo</option>
-                </select>
+                {(() => {
+                  const targetObservada = pendingObserveTransition?.targetNode || activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === 'observada' || n.data?.stateSubtype === 'observada');
+                  const categoriesList: string[] = targetObservada?.data?.observationCategories || DEFAULT_OBSERVATION_CATEGORIES;
+
+                  return (
+                    <div className="space-y-2">
+                      <select
+                        value={observeCategory}
+                        onChange={(e) => setObserveCategory(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all"
+                      >
+                        {categoriesList.map((cat: string) => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                        <option value="__custom__">Otra (especificar)...</option>
+                      </select>
+
+                      {observeCategory === '__custom__' && (
+                        <input
+                          type="text"
+                          value={customObserveCategory}
+                          onChange={(e) => setCustomObserveCategory(e.target.value)}
+                          placeholder="Escribe la categoría personalizada..."
+                          className="w-full px-3.5 py-2 bg-white border border-amber-300 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 animate-in fade-in"
+                          autoFocus
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div>

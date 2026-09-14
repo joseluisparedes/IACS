@@ -27,7 +27,10 @@ import {
   ShieldCheck,
   ExternalLink,
   GitFork,
-  Send
+  Send,
+  Paperclip,
+  RotateCcw,
+  Tag
 } from 'lucide-react';
 import { useWorkflowStore } from '../../lib/workflowStore';
 import { supabase } from '../../lib/supabase';
@@ -49,6 +52,26 @@ const DEFAULT_ROLES: DynamicRole[] = [
   { code: 'admin', name: 'Administrador', color: 'rose', is_system: true },
   { code: 'invitado', name: 'Invitado (Solo lectura)', color: 'slate', is_system: true },
 ];
+
+export const DEFAULT_OBSERVATION_CATEGORIES: string[] = [
+  'General',
+  'Documentación incompleta',
+  'Alcance técnico',
+  'Presupuesto / Costos',
+  'Visto Bueno / VoBo',
+];
+
+export const DEFAULT_OBSERVATION_FILE_OPTIONS = {
+  allowMultiple: true,
+  maxFiles: 5,
+  fileTypes: {
+    pdf: { enabled: true, maxMb: 25 },
+    docx: { enabled: true, maxMb: 25 },
+    xlsx: { enabled: true, maxMb: 25 },
+    image: { enabled: true, maxMb: 25 },
+    txt: { enabled: true, maxMb: 10 },
+  },
+};
 
 const ROLE_SWATCHES: Record<string, { swatch: string; bg: string; text: string; border: string }> = {
   indigo: { swatch: '#6366F1', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
@@ -81,6 +104,7 @@ export const NodeConfigPanel: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<'all' | 'assigned'>('all');
   const [availableStageForms, setAvailableStageForms] = useState<StageForm[]>([]);
   const [availableStageConsents, setAvailableStageConsents] = useState<StageConsent[]>([]);
+  const [newObservationCategory, setNewObservationCategory] = useState('');
   const [availableFields, setAvailableFields] = useState<Array<{ key: string; label: string }>>([
     { key: 'requiere_presupuesto', label: '¿Requiere Presupuesto? (requiere_presupuesto)' },
     { key: 'tipo_solucion', label: 'Tipo de Solución (tipo_solucion)' },
@@ -1107,7 +1131,7 @@ export const NodeConfigPanel: React.FC = () => {
                 </p>
 
                 {(nodeData.stateSubtype === 'observada' || nodeData.stateSubtype === 'desestimada') && (
-                  <div className="mt-2.5 p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
+                  <div className="mt-2.5 p-3 bg-slate-50 border border-slate-200/80 rounded-xl space-y-3">
                     <label className="flex items-start gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1126,22 +1150,256 @@ export const NodeConfigPanel: React.FC = () => {
                     </label>
 
                     {nodeData.stateSubtype === 'observada' && (
-                      <label className="flex items-start gap-2 cursor-pointer pt-1 border-t border-slate-200/60">
-                        <input
-                          type="checkbox"
-                          checked={nodeData.allowObservationFiles !== false}
-                          onChange={(e) => updateNodeData(selectedNode!.id, { allowObservationFiles: e.target.checked })}
-                          className="w-3.5 h-3.5 rounded text-[#4F5AF5] mt-0.5 cursor-pointer"
-                        />
-                        <div className="text-[10px]">
-                          <span className="font-bold text-slate-700 block">
-                            Permitir adjuntar archivos de soporte en la subsanación
-                          </span>
-                          <span className="text-slate-400">
-                            Habilita la subida de documentos probatorios (máx. 25 MB, PDF, Word, Excel, diagramas).
-                          </span>
+                      <>
+                        {/* ── 1. GESTIÓN DE CATEGORÍAS DE OBSERVACIÓN ── */}
+                        <div className="pt-2 border-t border-slate-200/60 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-700 flex items-center gap-1.5">
+                              <Tag className="w-3 h-3 text-amber-600" />
+                              Categorías de Observación
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateNodeData(selectedNode!.id, {
+                                  observationCategories: [...DEFAULT_OBSERVATION_CATEGORIES],
+                                });
+                              }}
+                              className="text-[9px] font-semibold text-slate-400 hover:text-amber-700 flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Restablecer categorías sugeridas"
+                            >
+                              <RotateCcw className="w-2.5 h-2.5" />
+                              Restablecer
+                            </button>
+                          </div>
+
+                          {/* Lista de categorías actuales */}
+                          <div className="flex flex-wrap gap-1.5">
+                            {(nodeData.observationCategories || DEFAULT_OBSERVATION_CATEGORIES).map((cat, catIdx) => (
+                              <span
+                                key={catIdx}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[10px] font-medium shadow-2xs"
+                              >
+                                <span>{cat}</span>
+                                {(nodeData.observationCategories || DEFAULT_OBSERVATION_CATEGORIES).length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const cur = nodeData.observationCategories || DEFAULT_OBSERVATION_CATEGORIES;
+                                      updateNodeData(selectedNode!.id, {
+                                        observationCategories: cur.filter((c) => c !== cat),
+                                      });
+                                    }}
+                                    className="text-amber-500 hover:text-rose-600 transition-colors p-0.5 cursor-pointer"
+                                    title={`Eliminar categoría ${cat}`}
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Input para agregar nueva categoría */}
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <input
+                              type="text"
+                              value={newObservationCategory}
+                              onChange={(e) => setNewObservationCategory(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const trimmed = newObservationCategory.trim();
+                                  if (!trimmed) return;
+                                  const cur = nodeData.observationCategories || DEFAULT_OBSERVATION_CATEGORIES;
+                                  if (!cur.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+                                    updateNodeData(selectedNode!.id, {
+                                      observationCategories: [...cur, trimmed],
+                                    });
+                                  }
+                                  setNewObservationCategory('');
+                                }
+                              }}
+                              placeholder="Nueva categoría..."
+                              className="flex-1 px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const trimmed = newObservationCategory.trim();
+                                if (!trimmed) return;
+                                const cur = nodeData.observationCategories || DEFAULT_OBSERVATION_CATEGORIES;
+                                if (!cur.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+                                  updateNodeData(selectedNode!.id, {
+                                    observationCategories: [...cur, trimmed],
+                                  });
+                                }
+                                setNewObservationCategory('');
+                              }}
+                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold transition-all shrink-0 cursor-pointer"
+                            >
+                              Añadir
+                            </button>
+                          </div>
                         </div>
-                      </label>
+
+                        {/* ── 2. CONFIGURACIÓN DE ARCHIVOS ADJUNTOS EN SUBSANACIÓN ── */}
+                        <div className="pt-2 border-t border-slate-200/60 space-y-2.5">
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={nodeData.allowObservationFiles !== false}
+                              onChange={(e) => updateNodeData(selectedNode!.id, { allowObservationFiles: e.target.checked })}
+                              className="w-3.5 h-3.5 rounded text-[#4F5AF5] mt-0.5 cursor-pointer"
+                            />
+                            <div className="text-[10px]">
+                              <span className="font-bold text-slate-700 block">
+                                Permitir adjuntar archivos de soporte en la subsanación
+                              </span>
+                              <span className="text-slate-400">
+                                Habilita la subida de documentos probatorios de subsanación.
+                              </span>
+                            </div>
+                          </label>
+
+                          {nodeData.allowObservationFiles !== false && (() => {
+                            const curOpts = nodeData.observationFileOptions || DEFAULT_OBSERVATION_FILE_OPTIONS;
+                            const fileTypesMap = curOpts.fileTypes || DEFAULT_OBSERVATION_FILE_OPTIONS.fileTypes;
+
+                            const fileTypeDefs: Array<{
+                              key: 'pdf' | 'docx' | 'xlsx' | 'image' | 'txt';
+                              label: string;
+                              ext: string;
+                              color: string;
+                            }> = [
+                              { key: 'pdf', label: 'PDF', ext: '.pdf', color: 'text-rose-600' },
+                              { key: 'docx', label: 'Word', ext: '.docx', color: 'text-blue-600' },
+                              { key: 'xlsx', label: 'Excel', ext: '.xlsx,.xls', color: 'text-emerald-600' },
+                              { key: 'image', label: 'Imágenes / Diagramas', ext: '.png,.jpg,.drawio', color: 'text-violet-600' },
+                              { key: 'txt', label: 'Texto Plano', ext: '.txt', color: 'text-slate-600' },
+                            ];
+
+                            return (
+                              <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-2.5">
+                                <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
+                                  <span className="text-[10px] font-bold text-slate-700 flex items-center gap-1">
+                                    <Paperclip className="w-3 h-3 text-indigo-500" />
+                                    Formatos y Límites en MB
+                                  </span>
+                                  <div className="flex items-center gap-1.5">
+                                    <label className="text-[9px] font-medium text-slate-500 flex items-center gap-1 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={curOpts.allowMultiple !== false}
+                                        onChange={(e) => {
+                                          updateNodeData(selectedNode!.id, {
+                                            observationFileOptions: {
+                                              ...curOpts,
+                                              allowMultiple: e.target.checked,
+                                            },
+                                          });
+                                        }}
+                                        className="w-3 h-3 rounded text-[#4F5AF5] cursor-pointer"
+                                      />
+                                      <span>Múltiples</span>
+                                    </label>
+                                    {curOpts.allowMultiple !== false && (
+                                      <div className="flex items-center gap-1 text-[9px] text-slate-400">
+                                        <span>(máx</span>
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          max={10}
+                                          value={curOpts.maxFiles || 5}
+                                          onChange={(e) => {
+                                            const val = Math.min(10, Math.max(1, parseInt(e.target.value) || 1));
+                                            updateNodeData(selectedNode!.id, {
+                                              observationFileOptions: {
+                                                ...curOpts,
+                                                maxFiles: val,
+                                              },
+                                            });
+                                          }}
+                                          className="w-7 px-0.5 py-0.5 text-center text-[10px] bg-slate-50 border border-slate-200 rounded font-bold"
+                                        />
+                                        <span>)</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  {fileTypeDefs.map((def) => {
+                                    const cfg = fileTypesMap[def.key] || { enabled: true, maxMb: 25 };
+                                    return (
+                                      <div
+                                        key={def.key}
+                                        className={`flex items-center justify-between p-1.5 rounded-lg border text-[10px] transition-all ${
+                                          cfg.enabled
+                                            ? 'bg-slate-50/70 border-slate-200'
+                                            : 'bg-slate-100/50 border-slate-200/40 opacity-50'
+                                        }`}
+                                      >
+                                        <label className="flex items-center gap-1.5 cursor-pointer min-w-0">
+                                          <input
+                                            type="checkbox"
+                                            checked={cfg.enabled}
+                                            onChange={(e) => {
+                                              updateNodeData(selectedNode!.id, {
+                                                observationFileOptions: {
+                                                  ...curOpts,
+                                                  fileTypes: {
+                                                    ...fileTypesMap,
+                                                    [def.key]: {
+                                                      ...cfg,
+                                                      enabled: e.target.checked,
+                                                    },
+                                                  },
+                                                },
+                                              });
+                                            }}
+                                            className="w-3 h-3 rounded text-[#4F5AF5] cursor-pointer"
+                                          />
+                                          <span className="font-bold text-slate-700">{def.label}</span>
+                                          <span className="text-[9px] text-slate-400 font-mono">({def.ext})</span>
+                                        </label>
+
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <span className="text-[9px] text-slate-400">Máx:</span>
+                                          <input
+                                            type="number"
+                                            min={1}
+                                            max={25}
+                                            value={cfg.maxMb || 25}
+                                            disabled={!cfg.enabled}
+                                            onChange={(e) => {
+                                              const val = Math.min(25, Math.max(1, parseInt(e.target.value) || 1));
+                                              updateNodeData(selectedNode!.id, {
+                                                observationFileOptions: {
+                                                  ...curOpts,
+                                                  fileTypes: {
+                                                    ...fileTypesMap,
+                                                    [def.key]: {
+                                                      ...cfg,
+                                                      maxMb: val,
+                                                    },
+                                                  },
+                                                },
+                                              });
+                                            }}
+                                            className="w-9 px-1 py-0.5 text-center text-[10px] bg-white border border-slate-200 rounded font-bold disabled:opacity-50"
+                                          />
+                                          <span className="text-[9px] text-slate-500 font-semibold">MB</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </>
                     )}
                   </div>
                 )}
