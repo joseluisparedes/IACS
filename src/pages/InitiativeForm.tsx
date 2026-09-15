@@ -742,13 +742,9 @@ function Stepper({ current, path, hasInitialFields = true }: { current: number; 
     );
   }
 
-  const steps = !hasInitialFields ? [
-    { n: "1", label: "Asistente IA", activeOn: 2 },
-    { n: "2", label: "Resumen y Validación", activeOn: 3 },
-    { n: "3", label: "Revisión BP", activeOn: 4 },
-  ] : [
-    { n: "1", label: "Formulario inicial", activeOn: 1 },
-    { n: "2", label: "Asistente IA", activeOn: 2 },
+  const steps = [
+    { n: "1", label: "Formulario y Documentos", activeOn: 1 },
+    { n: "2", label: "Asistente IA (Teo)", activeOn: 2 },
     { n: "3", label: "Resumen y Validación", activeOn: 3 },
     { n: "4", label: "Revisión BP", activeOn: 4 },
   ];
@@ -801,25 +797,45 @@ export default function InitiativeForm() {
   const [loadingFields, setLoadingFields] = useState(true);
 
   const step1FieldsCount = useMemo(() => {
-    const vpField = fields.find(f => f.key === 'vicepresidencia');
-    const dirField = fields.find(f => f.key === 'direccion');
     const dynamicStep1 = fields.filter(f => 
       f.ask_in_initial_form === true && 
       !['registrador', 'solicitante', 'vicepresidencia', 'direccion'].includes(f.key.toLowerCase())
     );
-    return (vpField?.ask_in_initial_form ? 1 : 0) + (dirField?.ask_in_initial_form ? 1 : 0) + dynamicStep1.length;
+    return 2 + dynamicStep1.length;
   }, [fields]);
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [confirmedFields, setConfirmedFields] = useState<Record<string, boolean>>({});
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type?: string } | null>(null);
   const [keyUserConsent, setKeyUserConsent] = useState<any>(null);
-  const [selectedPath, setSelectedPath] = useState<'select' | 'direct' | 'unstructured'>('select');
+  const [selectedPath, setSelectedPath] = useState<'direct' | 'unstructured'>('direct');
+  const [initialDocFile, setInitialDocFile] = useState<File | null>(null);
+  const [initialDocNotes, setInitialDocNotes] = useState<string>("");
+  const [isAnalyzingInitialDoc, setIsAnalyzingInitialDoc] = useState<boolean>(false);
+  const initialDocInputRef = useRef<HTMLInputElement>(null);
+
+  const handleInitialDocSelect = (file: File) => {
+    if (!file) return;
+    const maxMb = 25.0;
+    if (file.size > maxMb * 1024 * 1024) {
+      showToast(`El archivo supera el límite máximo permitido de ${maxMb} MB.`, "error");
+      return;
+    }
+    const nameLower = file.name.toLowerCase();
+    const validExts = ['.docx', '.doc', '.pdf', '.xlsx', '.xls', '.txt'];
+    if (!validExts.some(ext => nameLower.endsWith(ext))) {
+      showToast("Formato no permitido. Utiliza Word (.docx), PDF, Excel o TXT.", "error");
+      return;
+    }
+    setInitialDocFile(file);
+    showToast(`Archivo "${file.name}" cargado para análisis.`, "success");
+  };
+
   useEffect(() => {
-    (window as any).isInitiativeProcessInProgress = (selectedPath !== 'select' || !!id);
+    (window as any).isInitiativeProcessInProgress = (step > 1 || !!initialDocFile || !!id);
     return () => {
       (window as any).isInitiativeProcessInProgress = false;
     };
-  }, [selectedPath, id]);
+  }, [step, initialDocFile, id]);
   // Countdown before generating summary after chat finishes
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownHistoryRef = useRef<any[]>([]);
@@ -1241,7 +1257,7 @@ export default function InitiativeForm() {
             setSummary(null);
             setAiWarnings({});
             setStep(1);
-            setSelectedPath('select');
+            setSelectedPath('direct');
           }
         }
       })
@@ -1931,14 +1947,78 @@ export default function InitiativeForm() {
     }
   };
 
-  const handleStartChatWithValidation = (e: React.FormEvent) => {
+  const handleStartChatWithValidation = async (e: React.FormEvent) => {
     e.preventDefault();
     const { isValid, errors } = validateAllFields(false);
     if (!isValid) {
       setFormErrors(errors);
+      showToast("Por favor completa los campos obligatorios del formulario.", "error");
       return;
     }
     setFormErrors([]);
+
+    // If an initial document or notes are provided, process via analyze-initial-document
+    if (initialDocFile || initialDocNotes.trim()) {
+      setIsAnalyzingInitialDoc(true);
+      try {
+        const fd = new FormData();
+        if (initialDocFile) fd.append("file", initialDocFile);
+        fd.append("vicepresidencia", formData.vicepresidencia || "");
+        fd.append("direccion", formData.direccion || "");
+        fd.append("notes", initialDocNotes.trim());
+        fd.append("registrador", profile?.name || "Key user");
+
+        const res = await fetch("/api/chat/analyze-initial-document", {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || "Error al procesar el documento inicial.");
+        }
+        const data = await res.json();
+
+        // Update formData with extracted values
+        let updatedFormData = { ...formData, ...(data.extractedValues || {}) };
+        if (data.attachment) {
+          const existing = updatedFormData.attachments || [];
+          if (!existing.some((a: any) => a.name === data.attachment.name)) {
+            updatedFormData.attachments = [...existing, data.attachment];
+          }
+        }
+        setFormData(updatedFormData);
+
+        // Build initial summary
+        const summaryObj = {
+          titulo: updatedFormData.titulo || "Iniciativa de TI",
+          objetivo: updatedFormData.objetivo || "Optimización de procesos",
+          descripcion_de_la_necesidad: updatedFormData.descripcion_de_la_necesidad || initialDocNotes || "",
+          vicepresidencia: updatedFormData.vicepresidencia,
+          direccion: updatedFormData.direccion,
+          ...(data.extractedValues || {})
+        };
+        setSummary(summaryObj);
+
+        // Set initial chat message from Teo
+        const newHist = [{
+          role: "model" as const,
+          text: data.greetingMessage,
+          options: data.options || []
+        }];
+        setChatHistory(newHist);
+
+        setStep(2);
+        await autoSave(newHist, summaryObj, updatedFormData);
+      } catch (err: any) {
+        console.error("Error analyzing initial doc:", err);
+        showToast(err.message || "Error al analizar el documento con Teo.", "error");
+      } finally {
+        setIsAnalyzingInitialDoc(false);
+      }
+      return;
+    }
+
+    // Otherwise standard start chat session
     handleStartChat(e);
   };
 
@@ -2024,228 +2104,31 @@ export default function InitiativeForm() {
         className="hidden"
         onChange={handleFileAttach}
       />
-      {selectedPath !== 'select' && <Stepper current={step} path={selectedPath} hasInitialFields={step1FieldsCount > 0} />}
+      <Stepper current={step} path={selectedPath} hasInitialFields={step1FieldsCount > 0} />
 
-      {/* ── Step 1: Formulario inicial ──────────────────────────────────── */}
-      {/* ── Step 1: Formulario inicial o Selección de Flujo ────────────────── */}
-      {step === 1 && selectedPath === 'select' && (
-        <div className="space-y-6">
-          <div className="text-center max-w-xl mx-auto py-4 animate-in fade-in slide-in-from-top-4 duration-300">
-            <h2 className="text-2xl font-bold text-[#1E293B] mb-2">¿Cómo deseas registrar tu necesidad?</h2>
-            <p className="text-sm text-[#64748B]">Elige el método que mejor se adapte a tu situación actual.</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in zoom-in-95 duration-300 delay-100">
-            {/* Opción A */}
-            <button
-              onClick={() => {
-                setSelectedPath('unstructured');
-                setFormData(prev => ({ ...prev, selectedPath: 'unstructured' }));
-              }}
-              className="group bg-white p-8 rounded-2xl border border-[#E2E8F0] hover:border-[#4F5AF5] hover:shadow-xl hover:shadow-[#4F5AF5]/5 transition-all text-left flex flex-col justify-between min-h-[240px] shadow-sm relative overflow-hidden"
-            >
-              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#4F5AF5]/5 to-transparent rounded-bl-full" />
-              <div>
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#EEF2FF] to-[#E0E7FF] text-[#4F5AF5] flex items-center justify-center mb-5 group-hover:scale-110 transition-transform shadow-sm relative z-10">
-                  <BrainCircuit className="w-6 h-6" />
-                </div>
-                <h3 className="text-base font-bold text-[#1E293B] group-hover:text-[#4F5AF5] transition-colors mb-2">Yo tengo todo claro</h3>
-                <p className="text-xs text-[#64748B] leading-relaxed font-normal">
-                  Redacta tu requerimiento en texto libre. La Inteligencia Artificial interpretará tus palabras para completar el formulario y te alertará si falta algún dato esencial.
-                </p>
-              </div>
-              <div className="mt-4 flex items-center text-xs font-bold text-[#4F5AF5] gap-1 group-hover:gap-2 transition-all">
-                Comenzar con texto libre <ChevronRight className="w-4 h-4" />
-              </div>
-            </button>
-
-            {/* Opción B */}
-            <button
-              onClick={() => {
-                const newForm = { ...formData, selectedPath: 'direct' };
-                setSelectedPath('direct');
-                setFormData(newForm);
-                setAiWarnings({});
-                if (step1FieldsCount === 0) {
-                  startChatSession(newForm);
-                } else {
-                  setStep(1);
-                }
-              }}
-              className="group bg-white p-8 rounded-2xl border border-[#E2E8F0] hover:border-[#4F5AF5] hover:shadow-xl hover:shadow-[#4F5AF5]/5 transition-all text-left flex flex-col justify-between min-h-[240px] shadow-sm relative overflow-hidden"
-            >
-              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#EB5F46]/5 to-transparent rounded-bl-full" />
-              <div>
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#FFF0ED] to-[#FFE2DD] text-[#EB5F46] flex items-center justify-center mb-5 group-hover:scale-110 transition-transform shadow-sm relative z-10">
-                  <PlusCircle className="w-6 h-6" />
-                </div>
-                <h3 className="text-base font-bold text-[#1E293B] group-hover:text-[#EB5F46] transition-colors mb-2">Necesito acompañamiento</h3>
-                <p className="text-xs text-[#64748B] leading-relaxed font-normal">
-                  Rellena el formulario paso a paso manualmente. Ideal si necesitas ayuda estructurando tu idea desde cero con la guía interactiva del asistente.
-                </p>
-              </div>
-              <div className="mt-4 flex items-center text-xs font-bold text-[#EB5F46] gap-1 group-hover:gap-2 transition-all">
-                Rellenar formulario paso a paso <ChevronRight className="w-4 h-4" />
-              </div>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === 1 && selectedPath === 'unstructured' && !isAnalyzing && (
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-          {/* Header */}
-          <div className="px-8 pt-8 pb-6 border-b border-[#F1F5F9]">
-            <button
-              onClick={() => setSelectedPath('select')}
-              className="flex items-center gap-1 text-[#64748B] hover:text-[#1E293B] text-xs font-semibold mb-3.5 transition-colors"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" /> Volver a opciones
-            </button>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#EEF2FF] flex items-center justify-center text-[#4F5AF5]">
-                <BrainCircuit className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-[#1E293B]">Describe tu necesidad en texto libre</h2>
-                <p className="text-xs text-[#94A3B8]">La IA analizará lo que escribas para rellenar los campos de la iniciativa.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-8 space-y-6">
-            <div>
-              <label className={labelCls}>Detalla tu propuesta de requerimiento o idea</label>
-              <textarea
-                value={unstructuredText}
-                onChange={e => setUnstructuredText(e.target.value)}
-                placeholder="Ej: Necesitamos una aplicación web para el área de Operaciones que automatice la carga de facturas en PDF, extraiga el total y lo envíe por correo al BP. Esto nos ahorrará 10 horas semanales. Lo requerimos a más tardar el 15 de agosto. La VP de Operaciones ya dio su visto bueno..."
-                className="w-full min-h-[220px] border border-[#E2E8F0] bg-white rounded-xl p-4 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] focus:border-[#4F5AF5] transition-colors resize-y leading-relaxed"
-                disabled={isAnalyzing}
-              />
-            </div>
-
-            {/* ATTACHMENT STRIP FOR STEP 1 */}
-            {useAttachments && Object.values(fileTypes).some(t => t.enabled) && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-semibold text-[#64748B]">Documentación o archivos de sustento (opcional):</span>
-                    {(() => {
-                      const parts: string[] = [];
-                      if (fileTypes.pdf?.enabled) parts.push(`PDF (máx. ${fileTypes.pdf.maxMb} MB)`);
-                      if (fileTypes.docx?.enabled) parts.push(`DOCX (máx. ${fileTypes.docx.maxMb} MB)`);
-                      if (fileTypes.xlsx?.enabled) parts.push(`Excel (máx. ${fileTypes.xlsx.maxMb} MB)`);
-                      if (fileTypes.txt?.enabled) parts.push(`TXT (máx. ${fileTypes.txt.maxMb} MB)`);
-                      if (fileTypes.image?.enabled) parts.push(`Imagen (máx. ${fileTypes.image.maxMb} MB)`);
-                      return parts.length > 0 ? (
-                        <p className="text-[10px] text-[#94A3B8] mt-0.5">{parts.join(' · ')}</p>
-                      ) : null;
-                    })()}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isAnalyzing || isProcessingFile}
-                    className="flex items-center gap-1.5 text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold transition-colors shrink-0"
-                  >
-                    <Paperclip className="w-3.5 h-3.5" /> Adjuntar archivo
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  {(formData.attachments || []).map((file: any, fileIdx: number) => (
-                    <div key={fileIdx} className="flex items-center gap-2 bg-[#EEF2FF] border border-[#C7D2FE] rounded-xl px-3 py-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                      {file.type?.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" /> : <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />}
-                      <span className="text-xs font-semibold text-[#4F5AF5] flex-1 truncate">{file.name}</span>
-                      <span className="text-[10px] text-[#64748B] shrink-0">{file.size ? (file.size / 1024).toFixed(0) + ' KB' : ''}</span>
-                      <span className="text-[10px] text-emerald-600 font-semibold shrink-0">✓ Listo</span>
-                      <button onClick={() => removeAttachment(file.name)} className="text-[#94A3B8] hover:text-red-500 transition-colors ml-1">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {isProcessingFile && uploadingFile && (
-                    <div className="flex items-center gap-2 bg-[#F1F5F9] border border-[#CBD5E1] rounded-xl px-3 py-2 animate-pulse">
-                      {uploadingFile.type?.startsWith('image/') ? <ImageIcon className="w-4 h-4 text-[#64748B] shrink-0" /> : <FileText className="w-4 h-4 text-[#64748B] shrink-0" />}
-                      <span className="text-xs font-semibold text-[#64748B] flex-1 truncate">{uploadingFile.name}</span>
-                      <span className="text-[10px] text-[#64748B] shrink-0">{uploadingFile.size ? (uploadingFile.size / 1024).toFixed(0) + ' KB' : ''}</span>
-                      <span className="flex items-center gap-1.5 text-[10px] text-[#4F5AF5] font-semibold shrink-0">
-                        <div className="w-3.5 h-3.5 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
-                        Cargando...
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {attachError && (
-                  <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-1.5 animate-in fade-in duration-200">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{attachError}</span>
-                    <button onClick={() => setAttachError(null)} className="ml-auto text-red-400 hover:text-red-600">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {error && (
-              <div className="bg-red-50 border border-red-100 text-red-700 text-xs px-4 py-3 rounded-lg flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex justify-end gap-3">
-            <button
-              onClick={() => setSelectedPath('select')}
-              disabled={isAnalyzing}
-              className="py-2.5 px-5 rounded-lg border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC] text-sm font-semibold transition-colors disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleAnalyzeText}
-              disabled={isAnalyzing || !unstructuredText.trim() || isProcessingFile}
-              className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
-            >
-              {isAnalyzing ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  La IA está procesando la información ingresada...
-                </>
-              ) : (
-                <>
-                  Analizar Propuesta <ChevronRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === 1 && selectedPath === 'unstructured' && isAnalyzing && (
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-16 flex flex-col items-center text-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-[#EEF2FF] flex items-center justify-center overflow-hidden shrink-0">
+      {/* ── Visual State: Teo analizando documento inicial ── */}
+      {isAnalyzingInitialDoc && (
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-16 flex flex-col items-center text-center gap-4 animate-in fade-in duration-300">
+          <div className="w-16 h-16 rounded-full bg-[#EEF2FF] flex items-center justify-center overflow-hidden shrink-0 shadow-sm border border-[#C7D2FE]">
             {aiAvatar ? (
               <img src={aiAvatar} alt={aiName} className="w-full h-full object-cover animate-bounce" />
             ) : (
-              <Bot className="w-7 h-7 text-[#4F5AF5] animate-bounce" />
+              <Bot className="w-8 h-8 text-[#4F5AF5] animate-bounce" />
             )}
           </div>
-          <h3 className="text-lg font-bold text-[#1E293B]">Analizando Propuesta</h3>
-          <p className="text-sm text-[#64748B]">{aiName} está procesando la información ingresada...</p>
-          <div className="flex gap-1.5 mt-2">
+          <h3 className="text-lg font-bold text-[#1E293B]">Teo está analizando tu documento</h3>
+          <p className="text-sm text-[#64748B] max-w-md">
+            Leyendo la información {initialDocFile?.name ? `de "${initialDocFile.name}"` : ""} y estructurando los requerimientos para iniciar la conversación...
+          </p>
+          <div className="flex gap-1.5 mt-3">
             {[0, 1, 2, 3, 4].map(i => (
-              <div key={i} className="w-1.5 h-6 rounded-full bg-[#4F5AF5]/20 animate-pulse" style={{ animationDelay: `${i * 100}ms` }} />
+              <div key={i} className="w-2 h-7 rounded-full bg-[#4F5AF5] animate-pulse" style={{ animationDelay: `${i * 120}ms` }} />
             ))}
           </div>
         </div>
       )}
 
-      {((step === 1 && selectedPath === 'direct') || (step >= 2 && selectedPath === 'unstructured') || step === 3) && !isAiTyping && (
+      {((step === 1 && selectedPath === 'direct') || (step >= 2 && selectedPath === 'unstructured') || step === 3) && !isAiTyping && !isAnalyzingInitialDoc && (
         <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden animate-in fade-in duration-200">
           {/* Header */}
           <div className="px-8 pt-8 pb-6 border-b border-[#F1F5F9] flex justify-between items-start gap-4">
@@ -2255,31 +2138,17 @@ export default function InitiativeForm() {
               </div>
               <div>
                 <h2 className="text-lg font-bold text-[#1E293B]">
-                  {selectedPath === 'unstructured' 
-                    ? '2. Revisión con IA' 
-                    : step === 3 
-                      ? (step1FieldsCount === 0 ? '2. Revisión con IA' : '3. Revisión con IA') 
-                      : '1. Formulario inicial'}
+                  {step === 3 
+                    ? '3. Revisión y Envío a Aprobación' 
+                    : '1. Registro de Requerimiento y Documentación'}
                 </h2>
                 <p className="text-xs text-[#94A3B8]">
-                  {selectedPath === 'unstructured' || step === 3
-                    ? 'Revisa y completa la información de la iniciativa validada por la IA.' 
-                    : 'Completa la información base antes de conversar con la IA.'}
+                  {step === 3
+                    ? 'Revisa y completa la información de la iniciativa validada por Teo.' 
+                    : 'Ingresa los datos base y adjunta el documento de sustento para que Teo lo analice.'}
                 </p>
               </div>
             </div>
-            {!id && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedPath('select');
-                  setAiWarnings({});
-                }}
-                className="text-xs font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors border border-[#E2E8F0] hover:border-[#4F5AF5] px-3 py-1.5 rounded-lg flex items-center gap-1"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" /> Volver a opciones
-              </button>
-            )}
           </div>
 
           <form onSubmit={handleStartChatWithValidation}>
@@ -2311,7 +2180,6 @@ export default function InitiativeForm() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {/* Campos Fijos Obligatorios */}
-                  {(step === 3 || selectedPath === 'unstructured' || fields.find(f => f.key === 'vicepresidencia')?.ask_in_initial_form) && (
                   <div>
                     <label className={labelCls}>Vicepresidencia <span className="text-red-500 ml-1">*</span></label>
                     <select
@@ -2341,8 +2209,7 @@ export default function InitiativeForm() {
                       </div>
                     )}
                   </div>
-                  )}
-                  {(step === 3 || selectedPath === 'unstructured' || fields.find(f => f.key === 'direccion')?.ask_in_initial_form) && (
+
                   <div>
                     <label className={labelCls}>Dirección <span className="text-red-500 ml-1">*</span></label>
                     <select
@@ -2372,7 +2239,6 @@ export default function InitiativeForm() {
                       </div>
                     )}
                   </div>
-                  )}
 
                   {/* Campos Dinámicos */}
                   {((selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3)) 
@@ -2463,6 +2329,104 @@ export default function InitiativeForm() {
                     );
                   })}
                 </div>
+
+                {/* ── Document Dropzone & Notes (Only on Step 1) ── */}
+                {step === 1 && (
+                  <div className="mt-8 space-y-5 border-t border-[#E2E8F0] pt-6">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <FileText className="w-4 h-4 text-[#4F5AF5]" />
+                        <h3 className="text-sm font-bold text-[#1E293B]">Documento de Sustento o Especificación (Word, PDF, Excel, TXT)</h3>
+                      </div>
+                      <p className="text-xs text-[#64748B] leading-relaxed mb-4">
+                        Carga el documento de tu requerimiento. Teo leerá y comprenderá automáticamente todo su contenido (texto, tablas, imágenes y especificaciones) para estructurar tu iniciativa antes de conversar.
+                      </p>
+
+                      {/* Dropzone Card */}
+                      <div
+                        onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                        onDrop={e => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                            handleInitialDocSelect(e.dataTransfer.files[0]);
+                          }
+                        }}
+                        onClick={() => initialDocInputRef.current?.click()}
+                        className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
+                          initialDocFile
+                            ? 'border-emerald-300 bg-emerald-50/40 shadow-xs'
+                            : 'border-[#CBD5E1] hover:border-[#4F5AF5] bg-slate-50/70 hover:bg-[#EEF2FF]/20'
+                        }`}
+                      >
+                        <input
+                          ref={initialDocInputRef}
+                          type="file"
+                          accept=".docx,.doc,.pdf,.xlsx,.xls,.txt"
+                          className="hidden"
+                          onChange={e => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleInitialDocSelect(e.target.files[0]);
+                            }
+                          }}
+                        />
+
+                        {initialDocFile ? (
+                          <div className="flex items-center justify-between bg-white border border-emerald-200 rounded-xl p-3.5 shadow-sm">
+                            <div className="flex items-center gap-3 text-left min-w-0">
+                              <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                                <FileText className="w-5 h-5" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-[#1E293B] truncate">{initialDocFile.name}</p>
+                                <p className="text-[11px] text-[#64748B]">
+                                  {(initialDocFile.size / 1024 / 1024).toFixed(2)} MB · <span className="text-emerald-600 font-semibold">Listo para análisis por Teo</span>
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                setInitialDocFile(null);
+                                if (initialDocInputRef.current) initialDocInputRef.current.value = "";
+                              }}
+                              className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                              title="Quitar documento"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center gap-2 py-2">
+                            <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center justify-center text-[#4F5AF5]">
+                              <Paperclip className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-[#1E293B]">
+                                Arrastra tu documento Word (.docx) o PDF aquí, o <span className="text-[#4F5AF5] underline">haz clic para examinar</span>
+                              </p>
+                              <p className="text-[11px] text-[#94A3B8] mt-0.5">
+                                Soporta Word (.docx), PDF, Excel (.xlsx) y TXT (hasta 25 MB)
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Optional Context Notes */}
+                    <div className="pt-2">
+                      <label className={labelCls}>Notas adicionales o contexto complementario (opcional)</label>
+                      <textarea
+                        value={initialDocNotes}
+                        onChange={e => setInitialDocNotes(e.target.value)}
+                        placeholder="Si tienes detalles adicionales, urgencia o contexto que complementar para Teo, anótalo aquí..."
+                        className="w-full border border-[#E2E8F0] bg-white rounded-xl p-3 text-xs text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] focus:border-[#4F5AF5] transition-colors resize-y min-h-[75px]"
+                      />
+                    </div>
+                  </div>
+                )}
               </>
             )}
             </div>
@@ -2564,10 +2528,11 @@ export default function InitiativeForm() {
                 ) : (
                   <button
                     type="submit"
-                    disabled={loadingFields || fields.length === 0 || isAnyFileUploading || isProcessingFile}
-                    className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20"
+                    disabled={loadingFields || fields.length === 0 || isAnyFileUploading || isProcessingFile || isAnalyzingInitialDoc}
+                    className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
                   >
-                    {unstructuredText.trim() !== "" ? "Revisar Resumen" : "Continuar con asistente IA"}
+                    <Bot className="w-4 h-4" />
+                    {initialDocFile ? "Analizar documento y conversar con Teo" : "Continuar con Teo"}
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 )}
@@ -2597,17 +2562,10 @@ export default function InitiativeForm() {
               {!id && (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (step1FieldsCount > 0) {
-                      setStep(1);
-                    } else {
-                      setSelectedPath('select');
-                      setStep(1);
-                    }
-                  }}
-                  className="text-xs text-white/80 hover:text-white flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg transition-colors"
+                  onClick={() => setStep(1)}
+                  className="text-xs text-white/80 hover:text-white flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
                 >
-                  <ArrowLeft className="w-3 h-3" /> {step1FieldsCount > 0 ? "Volver al formulario" : "Volver a opciones"}
+                  <ArrowLeft className="w-3 h-3" /> Volver al formulario
                 </button>
               )}
               <div className="flex items-center gap-1.5">

@@ -1844,6 +1844,239 @@ Responde estrictamente en formato JSON:
     }
   });
 
+  // ── Unified Initial Document Analysis & Structuring with Teo ─────────────────
+  app.post("/api/chat/analyze-initial-document", upload.single("file"), async (req, res) => {
+    try {
+      const vicepresidencia = req.body.vicepresidencia || "";
+      const direccion = req.body.direccion || "";
+      const notes = req.body.notes || "";
+      const registrador = req.body.registrador || "";
+
+      let extractedDocText = "";
+      let attachmentInfo: any = null;
+
+      if (req.file) {
+        const mime = req.file.mimetype || "";
+        const originalName = req.file.originalname;
+        const nameLower = originalName.toLowerCase();
+
+        // 1. Text extraction
+        if (mime === "application/pdf" || nameLower.endsWith(".pdf")) {
+          try {
+            const parsed = await pdfParse(req.file.buffer);
+            extractedDocText = parsed.text || "";
+          } catch (pdfErr: any) {
+            console.warn("Error parsing PDF in analyze-initial-document:", pdfErr.message);
+          }
+        } else if (
+          mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+          nameLower.endsWith(".docx")
+        ) {
+          try {
+            const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+            extractedDocText = result.value || "";
+          } catch (docxErr: any) {
+            console.warn("Error parsing DOCX in analyze-initial-document:", docxErr.message);
+          }
+        } else if (mime === "text/plain" || nameLower.endsWith(".txt")) {
+          extractedDocText = req.file.buffer.toString("utf-8");
+        } else if (nameLower.endsWith(".xlsx") || nameLower.endsWith(".xls")) {
+          try {
+            const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+            for (const sName of wb.SheetNames.slice(0, 3)) {
+              const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sName]);
+              if (csv && csv.trim()) extractedDocText += `[Hoja ${sName}]\n${csv}\n`;
+            }
+          } catch (xlErr: any) {
+            console.warn("Error parsing Excel in analyze-initial-document:", xlErr.message);
+          }
+        }
+
+        // Sanitize extracted text
+        extractedDocText = extractedDocText
+          .replace(/\[\/?(SYSTEM|INSTRUCTION|PROMPT|ASSISTANT|ADMIN).*?\]/gi, "")
+          .replace(/(?:ignore|olvida)\s+(?:all\s+)?(?:previous\s+)?instructions/gi, "[instrucción no permitida]")
+          .trim();
+
+        // 2. Upload to Supabase Storage
+        let fileUrl: string | null = null;
+        const ext = originalName.split(".").pop() || "bin";
+        const uniqueName = `uploads/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
+        try {
+          const { error: uploadError } = await supabase.storage
+            .from("iacs-attachments")
+            .upload(uniqueName, req.file.buffer, {
+              contentType: mime || "application/octet-stream",
+              upsert: false,
+            });
+
+          if (!uploadError) {
+            const { data: publicData } = supabase.storage
+              .from("iacs-attachments")
+              .getPublicUrl(uniqueName);
+            fileUrl = publicData?.publicUrl || null;
+          }
+        } catch (uploadEx: any) {
+          console.warn("Attachment storage notice in analyze-initial-document:", uploadEx?.message);
+        }
+
+        attachmentInfo = {
+          name: originalName,
+          filename: originalName,
+          type: mime,
+          url: fileUrl,
+          size: req.file.size,
+          content: extractedDocText ? extractedDocText.substring(0, 4000) : `[Documento adjunto: ${originalName}]`
+        };
+      }
+
+      // If neither file nor notes provided
+      if (!extractedDocText && !notes.trim()) {
+        return res.json({
+          success: true,
+          extractedValues: { vicepresidencia, direccion },
+          missingFields: [],
+          greetingMessage: `¡Hola${registrador ? " " + registrador : ""}! Soy **Teo**, tu asistente inteligente de TI y Arquitectura en IACS.\n\nHe registrado la **Vicepresidencia: ${vicepresidencia || "No especificada"}** y **Dirección: ${direccion || "No especificada"}**.\n\nPara ayudarte a estructurar tu iniciativa de forma ágil y completa, cuéntame: **¿cuál es la necesidad u oportunidad de mejora que deseas implementar?**`,
+          options: ["Es una automatización de proceso", "Es un nuevo software o desarrollo", "Es una mejora a un sistema actual"],
+          attachment: attachmentInfo
+        });
+      }
+
+      // Fetch dynamic fields from stage form
+      const [stageFormRes, training] = await Promise.all([
+        supabase.from("stage_forms").select("*").eq("code", "form_registro_iniciativa").maybeSingle(),
+        getTrainingConfig()
+      ]);
+
+      const stageFields = stageFormRes?.data?.fields || [];
+      const fieldsListStr = stageFields.length > 0
+        ? stageFields.map((f: any) => `- Clave: "${f.key}", Campo: "${f.label}" (${f.type || 'text'})${f.required ? ' [OBLIGATORIO]' : ''}`).join("\n")
+        : `- Clave: "titulo", Campo: "Título de la iniciativa" [OBLIGATORIO]\n- Clave: "objetivo", Campo: "Objetivo central" [OBLIGATORIO]\n- Clave: "descripcion_de_la_necesidad", Campo: "Descripción o desafío actual" [OBLIGATORIO]\n- Clave: "beneficio_cualitativo", Campo: "Beneficio cualitativo" [OBLIGATORIO]\n- Clave: "beneficio_cuantitativo_anual", Campo: "Beneficio cuantitativo / ahorro anual"\n- Clave: "fecha_requerida", Campo: "Fecha estimada requerida (DD/MM/AAAA)"\n- Clave: "categoria", Campo: "Categoría de la iniciativa"`;
+
+      const prompt = `Eres TEO, el Arquitecto de TI e Inteligencia Artificial de IACS.
+El usuario está iniciando el registro de una iniciativa institucional y ha cargado la siguiente información preliminar:
+
+- **Vicepresidencia**: ${vicepresidencia || "No especificada"}
+- **Dirección**: ${direccion || "No especificada"}
+- **Usuario Registrador**: ${registrador || "Key User"}
+${notes ? `- **Notas adicionales del usuario**: "${notes}"` : ""}
+${req.file ? `- **Documento adjunto**: "${req.file.originalname}" (${(req.file.size / 1024).toFixed(0)} KB)` : ""}
+
+--- CONTENIDO EXTRAÍDO DEL DOCUMENTO / SUSTENTO ---
+"""
+${extractedDocText ? extractedDocText.slice(0, 24000) : "No hay texto en el documento."}
+"""
+-----------------------------------------------------
+
+CAMPOS REQUERIDOS POR EL SISTEMA PARA EL REGISTRO:
+${fieldsListStr}
+
+${getDateContextSection()}
+
+TUS TAREAS OBLIGATORIAS:
+1. **Extracción y Estructuración**: Lee a fondo el documento y notas. Identifica y extrae todos los valores posibles para los campos de la iniciativa (ej: titulo, objetivo, descripcion_de_la_necesidad, beneficio_cualitativo, beneficio_cuantitativo_anual, fecha_requerida, categoria, etc.). Formula un título ejecutivo, claro y formal (sin redundancias).
+2. **Detección de Vacíos / Pendientes**: Determina con precisión qué información crítica o campos OBLIGATORIOS NO se encuentran explícitos o están incompletos en el documento (por ejemplo: si falta cuantificar el beneficio, o no hay fecha de entrega tentativa, o faltan detalles del proceso afectado).
+3. **Saludo de Bienvenida de Teo (greetingMessage)**:
+   - Redacta un mensaje cercano, profesional y ejecutivo en Markdown.
+   - Confirma que has leído el documento "${req.file?.originalname || 'proporcionado'}" y el alcance para la Vicepresidencia ${vicepresidencia}.
+   - Presenta en viñetas concisas el título propuesto y el alcance general comprendido.
+   - Formula directamente de 1 a 3 preguntas puntuales y claras sobre lo que AÚN ESTÁ PENDIENTE para completar el registro.
+4. **Opciones rápidas**: Sugiere entre 2 y 3 opciones cortas de respuesta para el usuario.
+
+RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
+{
+  "extractedValues": {
+    "titulo": "Título formal de la iniciativa",
+    "objetivo": "Objetivo principal extraído...",
+    "descripcion_de_la_necesidad": "Problema o situación actual...",
+    "beneficio_cualitativo": "Mejoras operativas identificadas...",
+    "beneficio_cuantitativo_anual": "Monto o ahorro estimado si lo menciona...",
+    "fecha_requerida": "DD/MM/AAAA (solo si se deduce con certeza, sino omitir)",
+    "categoria": "Categoría adecuada"
+  },
+  "missingFields": [
+    { "key": "nombre_campo", "label": "Etiqueta", "reason": "Por qué falta o qué detalle se requiere" }
+  ],
+  "greetingMessage": "¡Hola! He analizado a detalle el documento...\\n\\n- **Título preliminar:** ...\\n- **Alcance:** ...\\n\\nPara culminar el registro, ¿podrías precisarme lo siguiente?\\n1. ...\\n2. ...",
+  "options": ["Opción 1", "Opción 2"]
+}`;
+
+      let aiResult: any = null;
+
+      // 1. Try Azure OpenAI GPT-5.1
+      if (isAzureConfigured()) {
+        try {
+          const content = await callAzureOpenAI(
+            [{ role: "user", content: prompt }],
+            { jsonFormat: true, timeoutMs: 25000, temperature: 0.2 }
+          );
+          if (content) {
+            aiResult = JSON.parse(content);
+          }
+        } catch (azureErr: any) {
+          console.warn("Azure OpenAI analyze-initial-document failed, trying Gemini fallback:", azureErr?.message);
+        }
+      }
+
+      // 2. Try Gemini fallback
+      if (!aiResult && process.env.GEMINI_API_KEY) {
+        try {
+          const geminiRes = await getGenAI().models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: { responseMimeType: "application/json" }
+          });
+          if (geminiRes.text) {
+            aiResult = JSON.parse(geminiRes.text);
+          }
+        } catch (geminiErr: any) {
+          console.warn("Gemini analyze-initial-document failed, trying Groq fallback:", geminiErr?.message);
+        }
+      }
+
+      // 3. Deterministic Fallback if AI offline
+      if (!aiResult || !aiResult.greetingMessage) {
+        const fallbackTitle = notes.trim().slice(0, 60) || (req.file ? `Iniciativa de ${req.file.originalname.replace(/\.[^/.]+$/, "")}` : "Iniciativa de TI");
+        aiResult = {
+          extractedValues: {
+            vicepresidencia,
+            direccion,
+            titulo: fallbackTitle,
+            descripcion_de_la_necesidad: notes || (extractedDocText ? extractedDocText.slice(0, 500) : "Requerimiento según documentación adjunta."),
+            objetivo: "Optimizar y digitalizar procesos institucionales."
+          },
+          missingFields: [
+            { key: "beneficio_cuantitativo_anual", label: "Beneficio cuantitativo", reason: "Falta estimar el impacto económico o ahorro anual." },
+            { key: "fecha_requerida", label: "Fecha requerida", reason: "Falta definir la fecha estimada de necesidad." }
+          ],
+          greetingMessage: `¡Hola${registrador ? " " + registrador : ""}! Soy **Teo**, tu asistente inteligente de TI.\n\nHe leído y registrado el documento **${req.file?.originalname || 'de sustento'}** para la **Vicepresidencia ${vicepresidencia}** y **Dirección ${direccion}**.\n\n- **Título sugerido:** ${fallbackTitle}\n- **Documentación:** Analizada y adjuntada correctamente.\n\nPara completar tu iniciativa de acuerdo a los estándares de arquitectura, ¿podrías detallarme cuál es la fecha estimada en la que necesitas esta solución y qué beneficios o ahorros esperas obtener?`,
+          options: ["Ahorro de horas hombre", "Cumplimiento regulatorio", "Mejora en atención a usuarios"]
+        };
+      }
+
+      // Ensure vicepresidencia and direccion are preserved in extracted values
+      aiResult.extractedValues = {
+        ...aiResult.extractedValues,
+        vicepresidencia: vicepresidencia || aiResult.extractedValues?.vicepresidencia,
+        direccion: direccion || aiResult.extractedValues?.direccion
+      };
+
+      return res.json({
+        success: true,
+        extractedValues: aiResult.extractedValues || {},
+        missingFields: aiResult.missingFields || [],
+        greetingMessage: aiResult.greetingMessage,
+        options: aiResult.options || [],
+        attachment: attachmentInfo
+      });
+
+    } catch (err: any) {
+      console.error("Error in /api/chat/analyze-initial-document:", err);
+      return res.status(500).json({ error: "Error al procesar el documento inicial: " + err.message });
+    }
+  });
+
   function sanitizeInitialDataForAI(initialData: any): any {
     if (!initialData) return initialData;
     const sanitized = { ...initialData };
