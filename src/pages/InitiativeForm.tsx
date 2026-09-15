@@ -2433,9 +2433,18 @@ export default function InitiativeForm() {
                     disabled={loadingFields || fields.length === 0 || isAnyFileUploading || isProcessingFile || isAnalyzingInitialDoc}
                     className="flex items-center justify-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
                   >
-                    <Bot className="w-4 h-4" />
-                    {fields.some(f => f.field_type === 'file' && formData[f.key]) ? "Analizar documento y conversar con Teo" : "Continuar con Teo"}
-                    <ChevronRight className="w-4 h-4" />
+                    {isAnalyzingInitialDoc ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Teo está analizando tu documento...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bot className="w-4 h-4" />
+                        <span>{fields.some(f => f.field_type === 'file' && formData[f.key]) ? "Analizar documento y conversar con Teo" : "Continuar con Teo"}</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
                 )}
               </div>

@@ -175,7 +175,7 @@ async function callAzureOpenAI(
   messages: Array<{ role: string; content: any }>,
   options: { maxTokens?: number; temperature?: number; jsonFormat?: boolean; timeoutMs?: number } = {}
 ): Promise<string> {
-  const timeoutMs = options.timeoutMs || 20000;
+  const timeoutMs = options.timeoutMs || 90000;
   const url = `${AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '')}/openai/deployments/${AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version=${AZURE_OPENAI_API_VERSION}`;
   
   const body: any = {
@@ -232,7 +232,7 @@ function getGroq(): Groq | null {
 let _geminiCooldownUntil = 0;
 let _groqCooldownUntil = 0;
 
-function withTimeout<T>(promise: Promise<T>, ms: number = 20000): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number = 90000): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`AI Call Timeout (${ms}ms)`)), ms);
     promise
@@ -241,19 +241,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number = 20000): Promise<T> {
   });
 }
 
-async function callAIForJSON(prompt: string): Promise<string> {
+async function callAIForJSON(prompt: string, customTimeoutMs?: number): Promise<string> {
   const now = Date.now();
+  const azureTimeout = customTimeoutMs || 90000;
 
   // 1. Primary Enterprise Engine: Azure OpenAI (GPT-5.1)
   if (isAzureConfigured() && now > _azureCooldownUntil) {
     try {
-      console.log(`[AI Primary] Calling Azure OpenAI (${AZURE_OPENAI_DEPLOYMENT})...`);
+      console.log(`[AI Primary] Calling Azure OpenAI (${AZURE_OPENAI_DEPLOYMENT}) with ${azureTimeout}ms timeout...`);
       const content = await callAzureOpenAI(
         [
           { role: "system", content: "Eres un asistente de IA experto en análisis de procesos y negocios de TI. Responde estrictamente en formato JSON." },
           { role: "user", content: prompt }
         ],
-        { jsonFormat: true, timeoutMs: 20000 }
+        { jsonFormat: true, timeoutMs: azureTimeout }
       );
       if (content && content.trim()) return content;
     } catch (azureErr: any) {
@@ -2024,7 +2025,7 @@ RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
       let aiResult: any = null;
 
       try {
-        const jsonStr = await callAIForJSON(prompt);
+        const jsonStr = await callAIForJSON(prompt, 90000);
         if (jsonStr) {
           aiResult = JSON.parse(jsonStr);
         }
