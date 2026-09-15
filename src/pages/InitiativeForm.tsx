@@ -808,34 +808,14 @@ export default function InitiativeForm() {
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type?: string } | null>(null);
   const [keyUserConsent, setKeyUserConsent] = useState<any>(null);
   const [selectedPath, setSelectedPath] = useState<'direct' | 'unstructured'>('direct');
-  const [initialDocFile, setInitialDocFile] = useState<File | null>(null);
-  const [initialDocNotes, setInitialDocNotes] = useState<string>("");
   const [isAnalyzingInitialDoc, setIsAnalyzingInitialDoc] = useState<boolean>(false);
-  const initialDocInputRef = useRef<HTMLInputElement>(null);
-
-  const handleInitialDocSelect = (file: File) => {
-    if (!file) return;
-    const maxMb = 25.0;
-    if (file.size > maxMb * 1024 * 1024) {
-      showToast(`El archivo supera el límite máximo permitido de ${maxMb} MB.`, "error");
-      return;
-    }
-    const nameLower = file.name.toLowerCase();
-    const validExts = ['.docx', '.doc', '.pdf', '.xlsx', '.xls', '.txt'];
-    if (!validExts.some(ext => nameLower.endsWith(ext))) {
-      showToast("Formato no permitido. Utiliza Word (.docx), PDF, Excel o TXT.", "error");
-      return;
-    }
-    setInitialDocFile(file);
-    showToast(`Archivo "${file.name}" cargado para análisis.`, "success");
-  };
 
   useEffect(() => {
-    (window as any).isInitiativeProcessInProgress = (step > 1 || !!initialDocFile || !!id);
+    (window as any).isInitiativeProcessInProgress = (step > 1 || !!id);
     return () => {
       (window as any).isInitiativeProcessInProgress = false;
     };
-  }, [step, initialDocFile, id]);
+  }, [step, id]);
   // Countdown before generating summary after chat finishes
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownHistoryRef = useRef<any[]>([]);
@@ -1957,20 +1937,36 @@ export default function InitiativeForm() {
     }
     setFormErrors([]);
 
-    // If an initial document or notes are provided, process via analyze-initial-document
-    if (initialDocFile || initialDocNotes.trim()) {
+    // Detect if the user uploaded a file in any field of type 'file' (e.g. "ARCHIVOS CON LA NECESIDAD")
+    const fileField = fields.find(f => f.field_type === 'file' && formData[f.key]);
+    let uploadedFileMeta: { url: string; name: string; type?: string; size?: number } | null = null;
+    if (fileField && formData[fileField.key]) {
+      try {
+        const parsed = typeof formData[fileField.key] === 'string' ? JSON.parse(formData[fileField.key]) : formData[fileField.key];
+        if (parsed && (parsed.url || parsed.name)) {
+          uploadedFileMeta = parsed;
+        }
+      } catch (e) {
+        if (typeof formData[fileField.key] === 'string' && formData[fileField.key].startsWith('http')) {
+          uploadedFileMeta = { url: formData[fileField.key], name: formData[fileField.key].split('/').pop() || 'archivo' };
+        }
+      }
+    }
+
+    // If an attached file was uploaded in the form, process via analyze-initial-document
+    if (uploadedFileMeta && uploadedFileMeta.url) {
       setIsAnalyzingInitialDoc(true);
       try {
-        const fd = new FormData();
-        if (initialDocFile) fd.append("file", initialDocFile);
-        fd.append("vicepresidencia", formData.vicepresidencia || "");
-        fd.append("direccion", formData.direccion || "");
-        fd.append("notes", initialDocNotes.trim());
-        fd.append("registrador", profile?.name || "Key user");
-
         const res = await fetch("/api/chat/analyze-initial-document", {
           method: "POST",
-          body: fd,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileUrl: uploadedFileMeta.url,
+            fileName: uploadedFileMeta.name,
+            vicepresidencia: formData.vicepresidencia || "",
+            direccion: formData.direccion || "",
+            registrador: profile?.name || "Key user"
+          }),
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
@@ -1992,7 +1988,7 @@ export default function InitiativeForm() {
         const summaryObj = {
           titulo: updatedFormData.titulo || "Iniciativa de TI",
           objetivo: updatedFormData.objetivo || "Optimización de procesos",
-          descripcion_de_la_necesidad: updatedFormData.descripcion_de_la_necesidad || initialDocNotes || "",
+          descripcion_de_la_necesidad: updatedFormData.descripcion_de_la_necesidad || "",
           vicepresidencia: updatedFormData.vicepresidencia,
           direccion: updatedFormData.direccion,
           ...(data.extractedValues || {})
@@ -2118,7 +2114,7 @@ export default function InitiativeForm() {
           </div>
           <h3 className="text-lg font-bold text-[#1E293B]">Teo está analizando tu documento</h3>
           <p className="text-sm text-[#64748B] max-w-md">
-            Leyendo la información {initialDocFile?.name ? `de "${initialDocFile.name}"` : ""} y estructurando los requerimientos para iniciar la conversación...
+            Leyendo la información del archivo adjunto y estructurando los requerimientos para iniciar la conversación...
           </p>
           <div className="flex gap-1.5 mt-3">
             {[0, 1, 2, 3, 4].map(i => (
@@ -2329,104 +2325,6 @@ export default function InitiativeForm() {
                     );
                   })}
                 </div>
-
-                {/* ── Document Dropzone & Notes (Only on Step 1) ── */}
-                {step === 1 && (
-                  <div className="mt-8 space-y-5 border-t border-[#E2E8F0] pt-6">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <FileText className="w-4 h-4 text-[#4F5AF5]" />
-                        <h3 className="text-sm font-bold text-[#1E293B]">Documento de Sustento o Especificación (Word, PDF, Excel, TXT)</h3>
-                      </div>
-                      <p className="text-xs text-[#64748B] leading-relaxed mb-4">
-                        Carga el documento de tu requerimiento. Teo leerá y comprenderá automáticamente todo su contenido (texto, tablas, imágenes y especificaciones) para estructurar tu iniciativa antes de conversar.
-                      </p>
-
-                      {/* Dropzone Card */}
-                      <div
-                        onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
-                        onDrop={e => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                            handleInitialDocSelect(e.dataTransfer.files[0]);
-                          }
-                        }}
-                        onClick={() => initialDocInputRef.current?.click()}
-                        className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
-                          initialDocFile
-                            ? 'border-emerald-300 bg-emerald-50/40 shadow-xs'
-                            : 'border-[#CBD5E1] hover:border-[#4F5AF5] bg-slate-50/70 hover:bg-[#EEF2FF]/20'
-                        }`}
-                      >
-                        <input
-                          ref={initialDocInputRef}
-                          type="file"
-                          accept=".docx,.doc,.pdf,.xlsx,.xls,.txt"
-                          className="hidden"
-                          onChange={e => {
-                            if (e.target.files && e.target.files[0]) {
-                              handleInitialDocSelect(e.target.files[0]);
-                            }
-                          }}
-                        />
-
-                        {initialDocFile ? (
-                          <div className="flex items-center justify-between bg-white border border-emerald-200 rounded-xl p-3.5 shadow-sm">
-                            <div className="flex items-center gap-3 text-left min-w-0">
-                              <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                                <FileText className="w-5 h-5" />
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold text-[#1E293B] truncate">{initialDocFile.name}</p>
-                                <p className="text-[11px] text-[#64748B]">
-                                  {(initialDocFile.size / 1024 / 1024).toFixed(2)} MB · <span className="text-emerald-600 font-semibold">Listo para análisis por Teo</span>
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation();
-                                setInitialDocFile(null);
-                                if (initialDocInputRef.current) initialDocInputRef.current.value = "";
-                              }}
-                              className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                              title="Quitar documento"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center gap-2 py-2">
-                            <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 shadow-xs flex items-center justify-center text-[#4F5AF5]">
-                              <Paperclip className="w-5 h-5" />
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold text-[#1E293B]">
-                                Arrastra tu documento Word (.docx) o PDF aquí, o <span className="text-[#4F5AF5] underline">haz clic para examinar</span>
-                              </p>
-                              <p className="text-[11px] text-[#94A3B8] mt-0.5">
-                                Soporta Word (.docx), PDF, Excel (.xlsx) y TXT (hasta 25 MB)
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Optional Context Notes */}
-                    <div className="pt-2">
-                      <label className={labelCls}>Notas adicionales o contexto complementario (opcional)</label>
-                      <textarea
-                        value={initialDocNotes}
-                        onChange={e => setInitialDocNotes(e.target.value)}
-                        placeholder="Si tienes detalles adicionales, urgencia o contexto que complementar para Teo, anótalo aquí..."
-                        className="w-full border border-[#E2E8F0] bg-white rounded-xl p-3 text-xs text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] focus:border-[#4F5AF5] transition-colors resize-y min-h-[75px]"
-                      />
-                    </div>
-                  </div>
-                )}
               </>
             )}
             </div>
@@ -2532,7 +2430,7 @@ export default function InitiativeForm() {
                     className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
                   >
                     <Bot className="w-4 h-4" />
-                    {initialDocFile ? "Analizar documento y conversar con Teo" : "Continuar con Teo"}
+                    {fields.some(f => f.field_type === 'file' && formData[f.key]) ? "Analizar documento y conversar con Teo" : "Continuar con Teo"}
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 )}

@@ -1855,15 +1855,32 @@ Responde estrictamente en formato JSON:
       let extractedDocText = "";
       let attachmentInfo: any = null;
 
-      if (req.file) {
-        const mime = req.file.mimetype || "";
-        const originalName = req.file.originalname;
+      let fileBuffer = req.file?.buffer;
+      let originalName = req.file?.originalname || req.body.fileName || "";
+      let mime = req.file?.mimetype || "";
+      let existingFileUrl = req.body.fileUrl || null;
+
+      if (!fileBuffer && existingFileUrl) {
+        try {
+          const resp = await fetch(existingFileUrl);
+          if (resp.ok) {
+            const arrBuf = await resp.arrayBuffer();
+            fileBuffer = Buffer.from(arrBuf);
+            if (!originalName) originalName = existingFileUrl.split('/').pop() || "documento";
+            if (!mime && resp.headers.get('content-type')) mime = resp.headers.get('content-type')!;
+          }
+        } catch (fetchErr: any) {
+          console.warn("Could not download file from fileUrl in analyze-initial-document:", fetchErr.message);
+        }
+      }
+
+      if (fileBuffer) {
         const nameLower = originalName.toLowerCase();
 
         // 1. Text extraction
         if (mime === "application/pdf" || nameLower.endsWith(".pdf")) {
           try {
-            const parsed = await pdfParse(req.file.buffer);
+            const parsed = await pdfParse(fileBuffer);
             extractedDocText = parsed.text || "";
           } catch (pdfErr: any) {
             console.warn("Error parsing PDF in analyze-initial-document:", pdfErr.message);
@@ -1873,16 +1890,16 @@ Responde estrictamente en formato JSON:
           nameLower.endsWith(".docx")
         ) {
           try {
-            const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+            const result = await mammoth.extractRawText({ buffer: fileBuffer });
             extractedDocText = result.value || "";
           } catch (docxErr: any) {
             console.warn("Error parsing DOCX in analyze-initial-document:", docxErr.message);
           }
         } else if (mime === "text/plain" || nameLower.endsWith(".txt")) {
-          extractedDocText = req.file.buffer.toString("utf-8");
+          extractedDocText = fileBuffer.toString("utf-8");
         } else if (nameLower.endsWith(".xlsx") || nameLower.endsWith(".xls")) {
           try {
-            const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+            const wb = XLSX.read(fileBuffer, { type: "buffer" });
             for (const sName of wb.SheetNames.slice(0, 3)) {
               const csv = XLSX.utils.sheet_to_csv(wb.Sheets[sName]);
               if (csv && csv.trim()) extractedDocText += `[Hoja ${sName}]\n${csv}\n`;
@@ -1898,27 +1915,29 @@ Responde estrictamente en formato JSON:
           .replace(/(?:ignore|olvida)\s+(?:all\s+)?(?:previous\s+)?instructions/gi, "[instrucción no permitida]")
           .trim();
 
-        // 2. Upload to Supabase Storage
-        let fileUrl: string | null = null;
-        const ext = originalName.split(".").pop() || "bin";
-        const uniqueName = `uploads/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        // 2. Upload to Supabase Storage if not already uploaded
+        let fileUrl: string | null = existingFileUrl;
+        if (!fileUrl) {
+          const ext = originalName.split(".").pop() || "bin";
+          const uniqueName = `uploads/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
-        try {
-          const { error: uploadError } = await supabase.storage
-            .from("iacs-attachments")
-            .upload(uniqueName, req.file.buffer, {
-              contentType: mime || "application/octet-stream",
-              upsert: false,
-            });
-
-          if (!uploadError) {
-            const { data: publicData } = supabase.storage
+          try {
+            const { error: uploadError } = await supabase.storage
               .from("iacs-attachments")
-              .getPublicUrl(uniqueName);
-            fileUrl = publicData?.publicUrl || null;
+              .upload(uniqueName, fileBuffer, {
+                contentType: mime || "application/octet-stream",
+                upsert: false,
+              });
+
+            if (!uploadError) {
+              const { data: publicData } = supabase.storage
+                .from("iacs-attachments")
+                .getPublicUrl(uniqueName);
+              fileUrl = publicData?.publicUrl || null;
+            }
+          } catch (uploadEx: any) {
+            console.warn("Attachment storage notice in analyze-initial-document:", uploadEx?.message);
           }
-        } catch (uploadEx: any) {
-          console.warn("Attachment storage notice in analyze-initial-document:", uploadEx?.message);
         }
 
         attachmentInfo = {
@@ -1926,13 +1945,13 @@ Responde estrictamente en formato JSON:
           filename: originalName,
           type: mime,
           url: fileUrl,
-          size: req.file.size,
+          size: fileBuffer.length,
           content: extractedDocText ? extractedDocText.substring(0, 4000) : `[Documento adjunto: ${originalName}]`
         };
       }
 
-      // If neither file nor notes provided
-      if (!extractedDocText && !notes.trim()) {
+      // If no file text was extracted, return standard greeting
+      if (!extractedDocText) {
         return res.json({
           success: true,
           extractedValues: { vicepresidencia, direccion },
