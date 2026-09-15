@@ -40,7 +40,14 @@ interface WorkflowStore {
   setLastSavedAt: (timestamp: string | null) => void;
 
   updateNodeData: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
-  updateEdgeData: (edgeId: string, label: string, condition_type?: string, condition_config?: any, allowed_roles?: string[]) => void;
+  updateEdgeData: (
+    edgeId: string,
+    label: string,
+    condition_type?: string,
+    condition_config?: any,
+    allowed_roles?: string[],
+    style_config?: { button_color?: string; label_color?: string; button_bg?: string }
+  ) => void;
   addNode: (
     type: string, 
     position: { x: number; y: number }, 
@@ -249,7 +256,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     });
   },
 
-  updateEdgeData: (edgeId, label, condition_type, condition_config, allowed_roles) => {
+  updateEdgeData: (edgeId, label, condition_type, condition_config, allowed_roles, style_config) => {
     get().pushHistory();
     set({
       edges: get().edges.map((edge) => {
@@ -262,6 +269,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
               condition_type: condition_type || edge.data?.condition_type || 'always',
               condition_config: condition_config || edge.data?.condition_config || {},
               allowed_roles: allowed_roles !== undefined ? allowed_roles : (edge.data?.allowed_roles || []),
+              style_config: style_config !== undefined ? style_config : (edge.data?.style_config || {}),
             },
           };
         }

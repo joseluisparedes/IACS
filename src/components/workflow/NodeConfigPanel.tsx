@@ -418,6 +418,117 @@ export const NodeConfigPanel: React.FC = () => {
             </select>
           </div>
 
+          {/* Personalizador Visual de la Flecha y Botón */}
+          <div className="pt-2 border-t border-slate-100 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-[11px] font-bold text-slate-700">
+                Personalizador Visual (Canvas y Botón)
+              </label>
+              {(edgeData.style_config?.button_bg || edgeData.style_config?.button_color) && (
+                <button
+                  type="button"
+                  onClick={() => updateEdgeData(selectedEdge.id, currentLabel, conditionType, edgeData.condition_config, isSourceGateway ? [] : currentAllowedRoles, {})}
+                  className="text-[10px] text-slate-400 hover:text-red-500 transition-colors"
+                >
+                  Restablecer
+                </button>
+              )}
+            </div>
+
+            <p className="text-[10px] text-slate-400 leading-tight">
+              Personaliza el color de la flecha en el diagrama y del botón que verá el usuario.
+            </p>
+
+            {/* Paleta rápida de estilos predefinidos */}
+            <div className="grid grid-cols-4 gap-1.5 pt-1">
+              {[
+                { name: 'Índigo', bg: '#EEF2FF', border: '#4F5AF5', text: '#4F5AF5' },
+                { name: 'Esmeralda', bg: '#ECFDF5', border: '#10B981', text: '#047857' },
+                { name: 'Ámbar', bg: '#FFFBEB', border: '#F59E0B', text: '#B45309' },
+                { name: 'Carmesí', bg: '#FFF1F2', border: '#F43F5E', text: '#BE123C' },
+                { name: 'Violeta', bg: '#F5F3FF', border: '#8B5CF6', text: '#6D28D9' },
+                { name: 'Cyan', bg: '#ECFEFF', border: '#06B6D4', text: '#0E7490' },
+                { name: 'Pizarra', bg: '#F8FAFC', border: '#64748B', text: '#334155' },
+                { name: 'Oscuro', bg: '#1E293B', border: '#0F172A', text: '#FFFFFF' },
+              ].map((preset) => {
+                const isCurrent = edgeData.style_config?.button_color === preset.border;
+                return (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    onClick={() => updateEdgeData(
+                      selectedEdge.id,
+                      currentLabel,
+                      conditionType,
+                      edgeData.condition_config,
+                      isSourceGateway ? [] : currentAllowedRoles,
+                      { button_bg: preset.bg, button_color: preset.border, label_color: preset.text }
+                    )}
+                    style={{ backgroundColor: preset.bg, borderColor: preset.border, color: preset.text }}
+                    className={`px-1.5 py-1 text-[10px] font-bold rounded-lg border transition-all truncate text-center ${
+                      isCurrent ? 'ring-2 ring-offset-1 ring-slate-400 scale-105 shadow-xs font-black' : 'hover:scale-102 opacity-90 hover:opacity-100'
+                    }`}
+                  >
+                    {preset.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Selector fino de color */}
+            <div className="grid grid-cols-2 gap-2 pt-1.5">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Color Flecha / Borde</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    value={edgeData.style_config?.button_color || '#4F5AF5'}
+                    onChange={(e) => updateEdgeData(
+                      selectedEdge.id,
+                      currentLabel,
+                      conditionType,
+                      edgeData.condition_config,
+                      isSourceGateway ? [] : currentAllowedRoles,
+                      {
+                        ...(edgeData.style_config || {}),
+                        button_color: e.target.value,
+                      }
+                    )}
+                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
+                  />
+                  <span className="text-[10px] font-mono text-slate-600">
+                    {edgeData.style_config?.button_color || '#4F5AF5'}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Color Texto</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    value={edgeData.style_config?.label_color || '#1E293B'}
+                    onChange={(e) => updateEdgeData(
+                      selectedEdge.id,
+                      currentLabel,
+                      conditionType,
+                      edgeData.condition_config,
+                      isSourceGateway ? [] : currentAllowedRoles,
+                      {
+                        ...(edgeData.style_config || {}),
+                        label_color: e.target.value,
+                      }
+                    )}
+                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
+                  />
+                  <span className="text-[10px] font-mono text-slate-600">
+                    {edgeData.style_config?.label_color || '#1E293B'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600">
             <span className="font-semibold block text-slate-700 mb-1">Conexión:</span>
             <div className="flex items-center gap-1.5 text-slate-500">

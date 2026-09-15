@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, ChevronRight, Check, HelpCircle, Eye, Calendar, Video as VideoIcon, Music as AudioIcon, Volume2, Building2, Building, MapPin, User, MessageSquare, Sparkles, ShieldCheck, FileCheck2, FileSignature, Lock, Copy, Layers, Target, Cpu, UserCheck, Info, Calculator, GitBranch, Upload, Trash2, Archive } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle, XCircle, AlertTriangle, Pencil, Save, Send, X, Ban, Clock, Paperclip, FileText, Image as ImageIcon, Loader2, AlertCircle, ChevronDown, ChevronRight, Check, HelpCircle, Eye, Calendar, Video as VideoIcon, Music as AudioIcon, Volume2, Building2, Building, MapPin, User, MessageSquare, Sparkles, ShieldCheck, FileCheck2, FileSignature, Lock, Copy, Layers, Target, Cpu, UserCheck, Info, Calculator, GitBranch, Upload, Trash2, Archive, FastForward, Shuffle } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, formatRoleName, SYSTEM_ROLES_MAP } from "../lib/utils";
@@ -1290,6 +1290,37 @@ export default function InitiativeDetail() {
   const [editedConfirmedFields, setEditedConfirmedFields] = useState<Record<string, boolean>>({});
   const [showChatModal, setShowChatModal] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
+
+  // Estado para Salto Libre a cualquier estado (Ítem 17)
+  const [showFreeJumpModal, setShowFreeJumpModal] = useState(false);
+  const [freeJumpTargetNodeId, setFreeJumpTargetNodeId] = useState("");
+  const [freeJumpReason, setFreeJumpReason] = useState("");
+  const [isExecutingFreeJump, setIsExecutingFreeJump] = useState(false);
+
+  const availableWorkflowNodes = useMemo(() => {
+    if (activeWorkflow?.graph_json?.nodes && activeWorkflow.graph_json.nodes.length > 0) {
+      return activeWorkflow.graph_json.nodes
+        .filter((n: any) => n.id !== 'start' && n.type !== 'startNode')
+        .map((n: any) => ({
+          id: n.id,
+          label: n.data?.label || n.id,
+          stage: n.data?.stage || '',
+          stateSubtype: n.data?.stateSubtype || '',
+        }));
+    }
+    return [
+      { id: 'borrador', label: 'Borrador', stage: 'Requerimiento' },
+      { id: 'ai_chat', label: 'Entrevista IA (TEO)', stage: 'Requerimiento' },
+      { id: 'eval_bp', label: 'Evaluación BP TI', stage: 'Evaluación' },
+      { id: 'aprob_bo', label: 'Aprobación Business Owner', stage: 'Aprobación' },
+      { id: 'aprob_vp', label: 'Aprobación VP', stage: 'Aprobación' },
+      { id: 'asig_demanda', label: 'En demanda / Asignación', stage: 'Demanda' },
+      { id: 'ventana_est', label: 'Ventana de Estimación', stage: 'Estimación' },
+      { id: 'plan_fechas', label: 'Planificación de Fechas', stage: 'Planificación' },
+      { id: 'observada', label: 'Observada', stage: 'Excepcional' },
+      { id: 'desestimada', label: 'Desestimada', stage: 'Excepcional' },
+    ];
+  }, [activeWorkflow]);
 
   const handleCopyId = () => {
     if (!initiative?.id) return;
@@ -2658,6 +2689,57 @@ export default function InitiativeDetail() {
     showToast("Iniciativa observada exitosamente.", "warning");
   };
 
+  const handleExecuteFreeJump = async () => {
+    if (!freeJumpTargetNodeId) {
+      showToast("Selecciona el estado destino al que deseas reubicar la iniciativa.", "warning");
+      return;
+    }
+    if (!freeJumpReason.trim() || freeJumpReason.trim().length < 10) {
+      showToast("Debes detallar una justificación obligatoria (mínimo 10 caracteres).", "warning");
+      return;
+    }
+
+    const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === freeJumpTargetNodeId);
+    const targetStatusName = targetNode?.data?.label || freeJumpTargetNodeId;
+    const currentStatusName = initiative?.status || 'Borrador';
+
+    setIsExecutingFreeJump(true);
+    try {
+      const jumpObservation = {
+        date: new Date().toISOString(),
+        user_name: profile?.name || profile?.email || 'Usuario del Sistema',
+        user_role: profile?.profile_roles?.[0]?.role || (isAdmin ? "Administrador" : "Usuario"),
+        action: 'Salto Libre',
+        details: `[SALTO LIBRE] Se reubicó manualmente el requerimiento de '${currentStatusName}' hacia '${targetStatusName}'. Motivo: ${freeJumpReason.trim()}`,
+        from_node_id: initiative?.current_node_id || 'inicio',
+        from_stage: currentStatusName,
+      };
+
+      const updatedHistory = [...(initiative?.form_data?._observation_history || []), jumpObservation];
+      const updatedFd = {
+        ...(initiative?.form_data || {}),
+        _observation_history: updatedHistory,
+      };
+
+      await updateInitiativeData(targetStatusName, {
+        current_node_id: freeJumpTargetNodeId,
+        target_node_id: freeJumpTargetNodeId,
+        transition_label: 'Salto Libre',
+        form_data: updatedFd,
+      });
+
+      setShowFreeJumpModal(false);
+      setFreeJumpReason("");
+      setFreeJumpTargetNodeId("");
+      showToast(`Iniciativa reubicada exitosamente en "${targetStatusName}".`, "success");
+    } catch (err: any) {
+      console.error("Error executing free jump:", err);
+      showToast("Ocurrió un error al reubicar la iniciativa.", "error");
+    } finally {
+      setIsExecutingFreeJump(false);
+    }
+  };
+
   const handleSubsanacionFileUpload = async (e: React.ChangeEvent<HTMLInputElement> | React.DragEvent) => {
     let files: File[] = [];
     if ('dataTransfer' in e) {
@@ -3343,6 +3425,19 @@ export default function InitiativeDetail() {
                   Editar
                 </button>
               )}
+
+              {/* Botón de Salto Libre a Cualquier Estado (Ítem 17) */}
+              {!isEditMode && (
+                <button
+                  type="button"
+                  onClick={() => setShowFreeJumpModal(true)}
+                  className="flex items-center gap-2 border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 px-3.5 py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-2xs cursor-pointer"
+                  title="Reubicar la iniciativa a cualquier estado del flujo con justificación obligatoria"
+                >
+                  <Shuffle className="w-4 h-4 text-purple-600" />
+                  <span>Mover estado</span>
+                </button>
+              )}
             </div>
 
             {/* Right-aligned actions: Cambios de Estado y Avances alineados todo a la derecha */}
@@ -3432,11 +3527,22 @@ export default function InitiativeDetail() {
                 .map((edge: any) => {
                   const targetNode = activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === edge.target);
                   const buttonLabel = edge.label || targetNode?.data?.action_label || targetNode?.data?.label || 'Avanzar';
+                  const edgeStyle = edge.data?.style_config;
+                  const hasCustomColor = Boolean(edgeStyle?.button_color || edgeStyle?.button_bg);
                   return (
                     <button
                       key={edge.id}
                       onClick={() => handleWorkflowTransition(edge, targetNode, buttonLabel)}
-                      className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
+                      style={hasCustomColor ? {
+                        backgroundColor: edgeStyle.button_bg || edgeStyle.button_color,
+                        borderColor: edgeStyle.button_color,
+                        color: edgeStyle.label_color || '#ffffff',
+                      } : undefined}
+                      className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm cursor-pointer border ${
+                        hasCustomColor 
+                          ? 'hover:opacity-90 shadow-md' 
+                          : 'bg-[#4F5AF5] hover:bg-[#3F49E0] text-white border-transparent shadow-[#4F5AF5]/20'
+                      }`}
                       title={`Mover iniciativa a ${targetNode?.data?.label || edge.target}`}
                     >
                       <Send className="w-4 h-4" />
@@ -6208,6 +6314,129 @@ export default function InitiativeDetail() {
               >
                 <Ban className="w-4 h-4" />
                 Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal de Salto Libre a Cualquier Estado (Ítem 17) ──────────────── */}
+      {showFreeJumpModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 border border-slate-200">
+            <div className="px-6 py-4.5 border-b border-purple-100 bg-gradient-to-r from-purple-50 via-indigo-50 to-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center text-purple-700">
+                  <Shuffle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                    Mover Estado de la Iniciativa
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Reubica manualmente la iniciativa a cualquier estado del flujo.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isExecutingFreeJump) {
+                    setShowFreeJumpModal(false);
+                    setFreeJumpReason("");
+                    setFreeJumpTargetNodeId("");
+                  }
+                }}
+                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-white/80 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-slate-700 text-sm">
+              {/* Estado actual */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                <span className="text-xs text-slate-500 font-medium">Estado actual de la iniciativa:</span>
+                <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-slate-200 text-slate-800">
+                  {initiative?.status || 'Borrador'}
+                </span>
+              </div>
+
+              {/* Selector de estado destino */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Nuevo Estado Destino <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={freeJumpTargetNodeId}
+                  onChange={(e) => setFreeJumpTargetNodeId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all cursor-pointer"
+                >
+                  <option value="">-- Selecciona el estado de destino --</option>
+                  {availableWorkflowNodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.label} {n.stage ? `(Etapa: ${n.stage})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Justificación obligatoria */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Justificación Obligatoria del Cambio <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={freeJumpReason}
+                  onChange={(e) => setFreeJumpReason(e.target.value)}
+                  placeholder="Detalla de forma explícita el motivo institucional o técnico por el cual se reubica la iniciativa..."
+                  rows={4}
+                  className="w-full p-3.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none text-sm text-slate-800 leading-relaxed"
+                />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Mínimo 10 caracteres requeridos para auditoría.
+                </span>
+              </div>
+
+              {/* Banner de auditoría */}
+              <div className="p-3 bg-purple-50/80 rounded-xl border border-purple-200/80 flex items-start gap-2.5 text-xs text-purple-900 leading-relaxed">
+                <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                <span>
+                  Esta reubicación quedará registrada en el historial de trazabilidad de la iniciativa, vinculando tu usuario y la justificación indicada.
+                </span>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={isExecutingFreeJump}
+                onClick={() => {
+                  setShowFreeJumpModal(false);
+                  setFreeJumpReason("");
+                  setFreeJumpTargetNodeId("");
+                }}
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isExecutingFreeJump || !freeJumpTargetNodeId || freeJumpReason.trim().length < 10}
+                onClick={handleExecuteFreeJump}
+                className="px-5 py-2 text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-all shadow-sm shadow-purple-600/20 flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isExecutingFreeJump ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Moviendo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Shuffle className="w-4 h-4" />
+                    <span>Confirmar y Mover</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

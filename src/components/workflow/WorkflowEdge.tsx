@@ -54,6 +54,11 @@ export const WorkflowEdge = memo(({
   const arrowMarkerId = `wf-arrow-${id}`;
   const arrowColor = isSelected ? '#4F5AF5' : (style.stroke as string) || '#94a3b8';
 
+  const styleConfig = (data as any)?.style_config || {};
+  const customBg = styleConfig.button_bg;
+  const customLabelColor = styleConfig.label_color;
+  const customBorderColor = styleConfig.button_color;
+
   return (
     <>
       <defs>
@@ -66,7 +71,7 @@ export const WorkflowEdge = memo(({
           markerHeight="7"
           orient="auto-start-reverse"
         >
-          <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={arrowColor} />
+          <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill={customBorderColor || arrowColor} />
         </marker>
       </defs>
 
@@ -76,7 +81,7 @@ export const WorkflowEdge = memo(({
         interactionWidth={isSelected ? 25 : 12}
         style={{
           ...style,
-          stroke: isSelected ? '#4F5AF5' : style.stroke || '#94a3b8',
+          stroke: isSelected ? '#4F5AF5' : customBorderColor || style.stroke || '#94a3b8',
           strokeWidth: isSelected ? 3 : 2,
           zIndex: isSelected ? 50 : 1,
           transition: 'stroke 0.2s, stroke-width 0.2s',
@@ -96,13 +101,18 @@ export const WorkflowEdge = memo(({
           onClick={handleEdgeClick}
         >
           <div
+            style={{
+              backgroundColor: isSelected ? undefined : (customBg || undefined),
+              color: isSelected ? undefined : (customLabelColor || undefined),
+              borderColor: isSelected ? undefined : (customBorderColor || undefined),
+            }}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium border shadow-xs transition-all cursor-pointer select-none ${
               isSelected
                 ? 'bg-white border-[#4F5AF5] text-[#4F5AF5] ring-2 ring-[#4F5AF5]/40 shadow-md scale-105'
                 : 'bg-white/95 border-slate-300 text-slate-700 hover:border-[#4F5AF5] hover:bg-white hover:shadow-xs'
             }`}
           >
-            <ArrowRight className={`w-3 h-3 shrink-0 ${isSelected ? 'text-[#4F5AF5]' : 'text-slate-400'}`} />
+            <ArrowRight className={`w-3 h-3 shrink-0 ${isSelected ? 'text-[#4F5AF5]' : (customLabelColor ? 'text-current' : 'text-slate-400')}`} />
             <span className="truncate max-w-[150px] font-semibold">{label || 'Transición'}</span>
 
             {conditionType && conditionType !== 'always' && (
