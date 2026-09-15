@@ -2376,24 +2376,28 @@ export default function InitiativeForm() {
               </div>
             )}
 
-            <div className="px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex flex-wrap justify-between items-center gap-3">
-              {/* Left side actions */}
-              <div>
-                {(chatHistory.length > 0 || (unstructuredText && unstructuredText.trim().length > 0)) && (
-                  <button
-                    type="button"
-                    onClick={() => setShowChatModal(true)}
-                    className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-                    title={chatHistory.length > 0 ? "Ver el historial de chat con la IA" : "Ver el texto original ingresado"}
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    {chatHistory.length > 0 ? "Ver conversación" : "Ver texto original"}
-                  </button>
-                )}
-              </div>
+            <div className={`px-8 py-5 border-t border-[#F1F5F9] bg-[#F8FAFC] flex flex-wrap items-center gap-3 ${
+              step === 1 ? 'justify-center' : 'justify-between'
+            }`}>
+              {/* Left side actions (hidden on step 1) */}
+              {step !== 1 && (
+                <div>
+                  {(chatHistory.length > 0 || (unstructuredText && unstructuredText.trim().length > 0)) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowChatModal(true)}
+                      className="flex items-center gap-2 border border-[#E2E8F0] bg-white hover:bg-[#F1F5F9] text-[#64748B] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                      title={chatHistory.length > 0 ? "Ver el historial de chat con la IA" : "Ver el texto original ingresado"}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      {chatHistory.length > 0 ? "Ver conversación" : "Ver texto original"}
+                    </button>
+                  )}
+                </div>
+              )}
 
-              {/* Right side actions */}
-              <div className="flex flex-wrap gap-3">
+              {/* Actions */}
+              <div className={`flex flex-wrap gap-3 ${step === 1 ? 'justify-center w-full' : ''}`}>
                 {selectedPath === 'unstructured' || (selectedPath === 'direct' && step === 3) ? (
                   <>
                     <button
@@ -2427,7 +2431,7 @@ export default function InitiativeForm() {
                   <button
                     type="submit"
                     disabled={loadingFields || fields.length === 0 || isAnyFileUploading || isProcessingFile || isAnalyzingInitialDoc}
-                    className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
+                    className="flex items-center justify-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-semibold transition-all shadow-sm shadow-[#4F5AF5]/20 cursor-pointer"
                   >
                     <Bot className="w-4 h-4" />
                     {fields.some(f => f.field_type === 'file' && formData[f.key]) ? "Analizar documento y conversar con Teo" : "Continuar con Teo"}
