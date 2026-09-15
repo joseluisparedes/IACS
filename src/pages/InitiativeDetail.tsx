@@ -1603,13 +1603,14 @@ export default function InitiativeDetail() {
   }, [activeWorkflow, initiative]);
 
   const canUserExecuteEdge = useCallback((edge: any) => {
+    if (isAdmin) return true;
     const allowed = (edge.data as any)?.allowed_roles || (edge as any).allowed_roles;
     if (Array.isArray(allowed) && allowed.length > 0) {
       return allowed.some((r: string) => userRolesList.includes(r.toLowerCase()));
     }
     // Fallback retrocompatible: si la flecha no tiene roles explícitamente configurados, respetar canTransitionCurrentStage del nodo
     return canTransitionCurrentStage;
-  }, [userRolesList, canTransitionCurrentStage]);
+  }, [userRolesList, canTransitionCurrentStage, isAdmin]);
 
   const userOutgoingEdges = useMemo(() => {
     return outgoingEdges.filter((edge: any) => canUserExecuteEdge(edge));
@@ -2856,7 +2857,8 @@ export default function InitiativeDetail() {
       const currentFd = { ...(initiative?.form_data || {}), ...editedFormData, ...stageFormData };
       const gwConfig = targetNode?.data?.gatewayConfig as any;
       const variable = gwConfig?.variable || (targetId === 'gw_presupuesto' ? 'requiere_presupuesto' : '');
-      const rawVal = String(currentFd[variable] ?? '').trim();
+      const gwVal = currentFd[variable] ?? getValueCaseInsensitive(currentFd, variable) ?? (variable === 'requiere_presupuesto' ? currentFd.requiere_presupuesto : '');
+      const rawVal = String(gwVal ?? '').trim();
 
       const gwEdges = activeWorkflow?.graph_json?.edges?.filter((e: any) => e.source === targetId) || [];
       const rules = gwConfig?.rules || [];

@@ -819,6 +819,7 @@ export default function InitiativeForm() {
   // Countdown before generating summary after chat finishes
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownHistoryRef = useRef<any[]>([]);
+  const [selectedMultiOptions, setSelectedMultiOptions] = useState<string[]>([]);
 
   const removeAccents = (str: string) =>
     str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
@@ -1748,6 +1749,7 @@ export default function InitiativeForm() {
     } : undefined);
 
     if (!userText.trim() && !activeAttached) return;
+    setSelectedMultiOptions([]);
 
     // Build the actual text to display in chat
     const displayText = userText.trim() || (activeAttached ? `[Adjunto: ${activeAttached.name}]` : '');
@@ -2673,18 +2675,70 @@ export default function InitiativeForm() {
                       </div>
                     )}
 
-                    {/* Opciones sugeridas si es el último mensaje y es de la IA */}
+                    {/* Opciones sugeridas si es el último mensaje y es de la IA (Soporta selección única o múltiple) */}
                     {msg.role === "model" && msg.options && msg.options.length > 0 && isLastMsg && !isAiTyping && (
-                      <div className="flex flex-wrap gap-2">
-                        {msg.options.map((opt, optIndex) => (
-                          <button
-                            key={optIndex}
-                            onClick={() => submitMessage(opt)}
-                            className="bg-white hover:bg-[#EEF2FF] border border-[#CBD5E1] hover:border-[#4F5AF5] text-[#4F5AF5] px-4 py-2 rounded-full text-xs font-semibold transition-colors shadow-sm"
-                          >
-                            {opt}
-                          </button>
-                        ))}
+                      <div className="flex flex-col gap-2 mt-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {msg.options.map((opt, optIndex) => {
+                            const isSelected = selectedMultiOptions.includes(opt);
+                            return (
+                              <button
+                                key={optIndex}
+                                type="button"
+                                onClick={() => {
+                                  if (selectedMultiOptions.length > 0) {
+                                    setSelectedMultiOptions(prev =>
+                                      prev.includes(opt) ? prev.filter(x => x !== opt) : [...prev, opt]
+                                    );
+                                  } else {
+                                    submitMessage(opt);
+                                  }
+                                }}
+                                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all shadow-xs cursor-pointer ${
+                                  isSelected
+                                    ? "bg-[#4F5AF5] text-white border border-[#4F5AF5] shadow-sm ring-2 ring-[#4F5AF5]/20"
+                                    : "bg-white hover:bg-[#EEF2FF] border border-[#CBD5E1] hover:border-[#4F5AF5] text-[#4F5AF5]"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedMultiOptions(prev =>
+                                      prev.includes(opt) ? prev.filter(x => x !== opt) : [...prev, opt]
+                                    );
+                                  }}
+                                  className="w-3.5 h-3.5 rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-0 cursor-pointer"
+                                />
+                                <span>{opt}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedMultiOptions.length > 0 && (
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const combinedText = selectedMultiOptions.join(", ");
+                                setSelectedMultiOptions([]);
+                                submitMessage(combinedText);
+                              }}
+                              className="flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all animate-in fade-in cursor-pointer"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Enviar opciones seleccionadas ({selectedMultiOptions.length})</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMultiOptions([])}
+                              className="text-xs text-slate-500 hover:text-slate-700 underline px-1 cursor-pointer"
+                            >
+                              Limpiar selección
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
