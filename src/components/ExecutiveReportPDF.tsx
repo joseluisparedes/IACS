@@ -5,6 +5,7 @@ import { formatDateDDMMYYYY, isDateLike } from '../lib/utils';
 interface PDFProps {
   initiative: any;
   template: string;
+  variant?: 'ld' | 'consolidado';
 }
 
 interface Margins {
@@ -39,7 +40,7 @@ function parseStoredTemplate(raw: string): { html: string; margins: Margins } {
 }
 
 // ── Detect if a string looks like a stored file JSON {name, url, type} ────────
-function tryParseFileObj(val: any): { name: string; url?: string; type?: string } | null {
+function tryParseFileObj(val: any): { name: string; url?: string; type?: string; size?: number } | null {
   if (!val || typeof val !== 'string') return null;
   try {
     const obj = JSON.parse(val);
@@ -85,8 +86,58 @@ function buildImagesHtml(form_data: Record<string, any>): string {
   `;
 }
 
+// ── Build HTML for attached documents (PDFs, DOCX, XLSX, etc.) ─────────────────
+function buildAttachedDocumentsHtml(form_data: Record<string, any>): string {
+  const docs: Array<{ name: string; url: string; size?: number }> = [];
+
+  Object.values(form_data ?? {}).forEach(val => {
+    const file = tryParseFileObj(val);
+    if (!file || !file.url) return;
+    const isImage =
+      (file.type && file.type.startsWith('image/')) ||
+      IMAGE_EXTS.test(file.name ?? '');
+    if (!isImage) {
+      docs.push({ name: file.name, url: file.url, size: file.size });
+    }
+  });
+
+  // Check _observation_history for resolution files
+  if (Array.isArray(form_data._observation_history)) {
+    form_data._observation_history.forEach((entry: any) => {
+      if (Array.isArray(entry.resolution_files)) {
+        entry.resolution_files.forEach((f: any) => {
+          if (f && f.url && !IMAGE_EXTS.test(f.name ?? '')) {
+            docs.push({ name: f.name ?? 'Documento', url: f.url, size: f.size });
+          }
+        });
+      }
+    });
+  }
+
+  if (docs.length === 0) return '';
+
+  const docLinks = docs.map(d => `
+    <li style="margin-bottom: 6px; font-size: 8.5pt; color: #1E293B;">
+      <span style="font-weight: 600; color: #4F5AF5;">📄</span> 
+      <a href="${d.url}" target="_blank" rel="noopener noreferrer" style="color: #4F5AF5; text-decoration: underline; font-weight: 600;">${d.name}</a>
+      ${d.size ? `<span style="color: #64748B; font-size: 7.5pt; margin-left: 6px;">(${(d.size / (1024 * 1024)).toFixed(2)} MB)</span>` : ''}
+    </li>
+  `).join('');
+
+  return `
+    <div style="margin-bottom: 24px; page-break-inside: avoid; break-inside: avoid;">
+      <div style="background: #4F5AF5; padding: 7px 14px; border-radius: 6px; margin-bottom: 10px;">
+        <p style="font-size: 9pt; font-weight: bold; color: #ffffff; text-transform: uppercase; letter-spacing: 1.2px; margin: 0;">DOCUMENTOS Y ARCHIVOS DE SOPORTE</p>
+      </div>
+      <ul style="padding-left: 20px; margin: 0; line-height: 1.6;">
+        ${docLinks}
+      </ul>
+    </div>
+  `;
+}
+
 // ── Replace all {{variables}} with actual initiative data ──────────────────────
-function buildProcessedHtml(rawHtml: string, initiative: any): string {
+function buildProcessedHtml(rawHtml: string, initiative: any, variant: 'ld' | 'consolidado' = 'consolidado'): string {
   if (!rawHtml) return '';
 
   const form_data: Record<string, any> = initiative?.form_data ?? {};
@@ -95,19 +146,40 @@ function buildProcessedHtml(rawHtml: string, initiative: any): string {
 
   let html = rawHtml;
 
+  // Variant header adjustment if requested
+  if (variant === 'ld') {
+    html = html.replace(/Informe Ejecutivo/gi, 'Dictamen de Negocio — Líder de Dominio');
+  }
+
   // 1. Special system variables
   html = html.replace(/{{id_iniciativa}}/g, String(initiative?.id ?? ''));
   html = html.replace(/{{id_completa}}/g, String(initiative?.id ?? ''));
   html = html.replace(/{{id_corta}}/g, '#' + (initiative?.id ?? '').substring(0, 8).toUpperCase());
   html = html.replace(/{{fecha_actual}}/g, today);
   html = html.replace(/{{estado_actual}}/g, initiative?.status ?? '');
+  html = html.replace(/{{tipo_informe}}/g, variant === 'ld' ? 'Dictamen de Negocio' : 'Expediente Consolidado');
   html = html.replace(
     /{{titulo_de_la_necesidad}}/g,
     summary?.title ?? form_data?.titulo_de_la_necesidad ?? initiative?.title ?? ''
   );
 
-  // 2. Images section (condicional — vacío si no hay imágenes)
-  html = html.replace(/{{imagenes_adjuntas}}/g, buildImagesHtml(form_data));
+  // 2. Images & Attached documents sections
+  const imagesHtml = buildImagesHtml(form_data);
+  const docsHtml = buildAttachedDocumentsHtml(form_data);
+
+  if (html.includes('{{documentos_adjuntos}}')) {
+    html = html.replace(/{{documentos_adjuntos}}/g, docsHtml);
+  } else if (docsHtml) {
+    // If template has {{imagenes_adjuntas}}, append docs right after
+    if (html.includes('{{imagenes_adjuntas}}')) {
+      html = html.replace(/{{imagenes_adjuntas}}/g, `{{imagenes_adjuntas}}${docsHtml}`);
+    } else {
+      // Append before footer
+      html = html.replace(/(<!--\s*PIE DE PÁGINA\s*-->|<div[^>]*class="[^"]*pdf-footer[^"]*")/i, `${docsHtml}$1`);
+    }
+  }
+
+  html = html.replace(/{{imagenes_adjuntas}}/g, imagesHtml);
 
   // 3. Summary fields
   html = html.replace(/{{(.*?)}}/g, (match, key) => {
@@ -177,7 +249,7 @@ function buildProcessedHtml(rawHtml: string, initiative: any): string {
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 export const ExecutiveReportPDF = React.forwardRef<HTMLDivElement, PDFProps>(
-  ({ initiative, template }, ref) => {
+  ({ initiative, template, variant = 'consolidado' }, ref) => {
     if (!initiative) return null;
 
     const { html: rawHtml, margins } = useMemo(
@@ -186,9 +258,9 @@ export const ExecutiveReportPDF = React.forwardRef<HTMLDivElement, PDFProps>(
     );
 
     const processedHtml = useMemo(
-      () => buildProcessedHtml(rawHtml, initiative),
+      () => buildProcessedHtml(rawHtml, initiative, variant),
       // eslint-disable-next-line react-hooks/exhaustive-deps
-      [rawHtml, initiative?.id, initiative?.status, initiative?.form_data]
+      [rawHtml, initiative?.id, initiative?.status, initiative?.form_data, variant]
     );
 
     return (

@@ -6,6 +6,7 @@ import { FieldDefinition } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import ReactMarkdown from "react-markdown";
+import { EnterpriseDatePicker } from "../components/common/EnterpriseDatePicker";
 
 // ─── Input styles ─────────────────────────────────────────────────────────────
 const inputCls = "w-full border border-[#E2E8F0] hover:border-[#CBD5E1] bg-white rounded-xl px-3.5 py-2.5 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#EB5F46]/20 focus:border-[#EB5F46] transition-all disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]";
@@ -263,7 +264,7 @@ const parseQuarterDate = (val: string): string | null => {
   return null;
 };
 
-// ─── Date Input with DD/MM/YYYY Display ──────────────────────────────────────
+// ─── Modern Enterprise Date Input with DD/MM/YYYY Display ─────────────────
 function DateInputDDMMYYYY({
   value,
   onChange,
@@ -279,119 +280,15 @@ function DateInputDDMMYYYY({
   disabled?: boolean;
   className?: string;
 }) {
-  const hiddenDateRef = useRef<HTMLInputElement>(null);
-  const [inputText, setInputText] = useState<string>(value || "");
-
-  useEffect(() => {
-    setInputText(value || "");
-  }, [value]);
-
-  const toDDMMYYYY = (val: string): string => {
-    if (!val) return "";
-    const trimmed = val.trim();
-    const qDate = parseQuarterDate(trimmed);
-    if (qDate) return qDate;
-    const ymd = trimmed.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
-    if (ymd) {
-      return `${ymd[3].padStart(2, "0")}/${ymd[2].padStart(2, "0")}/${ymd[1]}`;
-    }
-    const dmy = trimmed.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
-    if (dmy) {
-      return `${dmy[1].padStart(2, "0")}/${dmy[2].padStart(2, "0")}/${dmy[3]}`;
-    }
-    return val;
-  };
-
-  const toYYYYMMDD = (val: string): string => {
-    if (!val) return "";
-    const trimmed = val.trim();
-    const dmyStr = parseQuarterDate(trimmed) || trimmed;
-    const dmy = dmyStr.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
-    if (dmy) {
-      return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
-    }
-    const ymd = dmyStr.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
-    if (ymd) {
-      return `${ymd[1]}-${ymd[2].padStart(2, "0")}-${ymd[3].padStart(2, "0")}`;
-    }
-    return "";
-  };
-
-  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setInputText(val);
-    onChange(val);
-  };
-
-  const handleTextBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    const formatted = toDDMMYYYY(raw);
-    if (formatted) {
-      setInputText(formatted);
-      onChange(formatted);
-    }
-    if (onBlur) onBlur(formatted || raw);
-  };
-
-  const handleNativeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const pickerVal = e.target.value;
-    if (pickerVal) {
-      const formatted = toDDMMYYYY(pickerVal);
-      setInputText(formatted);
-      onChange(formatted);
-      if (onBlur) onBlur(formatted);
-    }
-  };
-
-  const openCalendar = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (hiddenDateRef.current && !disabled) {
-      if (typeof hiddenDateRef.current.showPicker === 'function') {
-        try {
-          hiddenDateRef.current.showPicker();
-        } catch {
-          hiddenDateRef.current.focus();
-          hiddenDateRef.current.click();
-        }
-      } else {
-        hiddenDateRef.current.focus();
-        hiddenDateRef.current.click();
-      }
-    }
-  };
-
-  const isoVal = toYYYYMMDD(inputText);
-
   return (
-    <div className="relative flex items-center w-full">
-      <input
-        type="text"
-        value={inputText}
-        onChange={handleTextChange}
-        onBlur={handleTextBlur}
-        placeholder="dd/mm/aaaa"
-        required={required}
-        disabled={disabled}
-        className={`${className || ''} pr-10`}
-      />
-      <button
-        type="button"
-        onClick={openCalendar}
-        disabled={disabled}
-        className="absolute right-3 text-slate-400 hover:text-slate-600 cursor-pointer disabled:opacity-50 p-1 rounded hover:bg-slate-100 transition-colors"
-        title="Seleccionar fecha del calendario"
-      >
-        <Calendar className="w-4 h-4 text-slate-500" />
-      </button>
-      <input
-        ref={hiddenDateRef}
-        type="date"
-        value={isoVal}
-        onChange={handleNativeChange}
-        tabIndex={-1}
-        className="sr-only absolute pointer-events-none opacity-0 w-0 h-0"
-      />
-    </div>
+    <EnterpriseDatePicker
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      required={required}
+      disabled={disabled}
+      className={className}
+    />
   );
 }
 

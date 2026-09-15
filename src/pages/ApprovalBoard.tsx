@@ -257,15 +257,15 @@ interface ColumnDef {
 }
 
 const ALL_COLUMNS: ColumnDef[] = [
-  { id: "codigo", label: "Código ID", defaultWidth: 150, minWidth: 120, canHide: true },
-  { id: "solicitud", label: "Solicitud", defaultWidth: 300, minWidth: 200, canHide: false },
-  { id: "vicepresidencia", label: "Vicepresidencia", defaultWidth: 160, minWidth: 130, canHide: true },
+  { id: "codigo", label: "Código ID", defaultWidth: 140, minWidth: 120, canHide: true },
+  { id: "solicitud", label: "Solicitud", defaultWidth: 320, minWidth: 220, canHide: false },
+  { id: "vicepresidencia", label: "Vicepresidencia", defaultWidth: 170, minWidth: 130, canHide: true },
   { id: "direccion", label: "Dirección", defaultWidth: 170, minWidth: 130, canHide: true },
   { id: "fecha", label: "Fecha", defaultWidth: 130, minWidth: 100, canHide: true },
   { id: "key_user", label: "Key User", defaultWidth: 180, minWidth: 140, canHide: true },
-  { id: "bp", label: "IT Business Partner", defaultWidth: 160, minWidth: 130, canHide: true },
+  { id: "bp", label: "IT Business Partner", defaultWidth: 170, minWidth: 130, canHide: true },
   { id: "estado", label: "Estado", defaultWidth: 170, minWidth: 130, canHide: true },
-  { id: "acciones", label: "Acciones", defaultWidth: 110, minWidth: 90, canHide: false }
+  { id: "acciones", label: "Acciones", defaultWidth: 165, minWidth: 150, canHide: false }
 ];
 
 const DEFAULT_COLUMN_ORDER = ALL_COLUMNS.map(c => c.id);
@@ -316,6 +316,13 @@ export default function ApprovalBoard() {
   const visibleColumns = useMemo(() => {
     return effectiveColumnOrder.filter(id => !hiddenColumns.includes(id));
   }, [effectiveColumnOrder, hiddenColumns]);
+
+  const totalTableWidth = useMemo(() => {
+    return visibleColumns.reduce((acc, colId) => {
+      const colDef = ALL_COLUMNS.find(c => c.id === colId);
+      return acc + (columnWidths[colId] || colDef?.defaultWidth || 150);
+    }, 0);
+  }, [visibleColumns, columnWidths]);
 
   // Load User Preferences
   useEffect(() => {
@@ -563,6 +570,9 @@ export default function ApprovalBoard() {
   // PDF Generation State
   const [pdfInitiative, setPdfInitiative] = useState<any>(null);
   const [pdfTemplate, setPdfTemplate] = useState<string>("");
+  const [pdfVariant, setPdfVariant] = useState<'ld' | 'consolidado'>('consolidado');
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [selectedInitForPdf, setSelectedInitForPdf] = useState<any>(null);
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = useReactToPrint({
@@ -570,8 +580,15 @@ export default function ApprovalBoard() {
     documentTitle: pdfInitiative ? `Informe_Ejecutivo_${pdfInitiative.summary?.id_corta || pdfInitiative.id}` : 'Informe_Ejecutivo',
   });
 
-  const handleGeneratePdf = (init: any) => {
+  const openPdfDialog = (init: any) => {
+    setSelectedInitForPdf(init);
+    setPdfModalOpen(true);
+  };
+
+  const handleGeneratePdf = (init: any, variant: 'ld' | 'consolidado' = 'consolidado') => {
     setPdfInitiative(init);
+    setPdfVariant(variant);
+    setPdfModalOpen(false);
     setTimeout(() => {
       handlePrint();
     }, 150);
@@ -1121,7 +1138,7 @@ export default function ApprovalBoard() {
               No hay solicitudes en esta sección.
             </div>
           ) : (
-            <table className="w-full text-left border-collapse table-fixed">
+            <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: `${Math.max(totalTableWidth, 1280)}px` }}>
               <thead>
                 <tr className="border-b border-[#F1F5F9] bg-[#F8FAFC] text-[11px] font-bold text-[#64748B] uppercase tracking-wider relative">
                   {visibleColumns.map((colId) => {
@@ -1345,27 +1362,25 @@ export default function ApprovalBoard() {
 
                           case "acciones":
                             return (
-                              <td key={colId} className="px-4 py-4 whitespace-nowrap">
-                                <div className="flex items-center gap-2">
+                              <td key={colId} className="px-4 py-4 whitespace-nowrap overflow-visible" style={{ width: `${columnWidths[colId] || 165}px` }}>
+                                <div className="flex items-center gap-1.5 shrink-0">
                                   <Link
                                     to={`/iniciativa/${i.id}`}
-                                    className="inline-flex items-center gap-1.5 text-[#4F5AF5] hover:text-[#3F49E0] text-xs font-semibold transition-colors"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-[#4F5AF5] hover:text-[#3F49E0] text-xs font-semibold transition-colors shrink-0"
                                   >
                                     <Eye className="w-3.5 h-3.5" />
                                     Revisar
                                   </Link>
 
-                                  {(tabKey === "planificacion" || i.status === "En demanda") && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleGeneratePdf(i)}
-                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-semibold text-xs transition-colors whitespace-nowrap cursor-pointer"
-                                      title="Generar e imprimir informe ejecutivo PDF"
-                                    >
-                                      <FileText className="w-3.5 h-3.5 text-rose-600" />
-                                      PDF
-                                    </button>
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => openPdfDialog(i)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-semibold text-xs transition-colors whitespace-nowrap cursor-pointer shrink-0"
+                                    title="Generar e imprimir informe ejecutivo PDF"
+                                  >
+                                    <FileText className="w-3.5 h-3.5 text-rose-600" />
+                                    PDF
+                                  </button>
                                 </div>
                               </td>
                             );
@@ -1385,8 +1400,72 @@ export default function ApprovalBoard() {
 
       {/* Componente Oculto para Generación e Impresión PDF */}
       <div className="hidden">
-        <ExecutiveReportPDF ref={pdfRef} initiative={pdfInitiative} template={pdfTemplate} />
+        <ExecutiveReportPDF ref={pdfRef} initiative={pdfInitiative} template={pdfTemplate} variant={pdfVariant} />
       </div>
+
+      {/* Modal de Selección de Versión de PDF */}
+      {pdfModalOpen && selectedInitForPdf && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-slate-800 font-bold text-base">
+                <FileText className="w-5 h-5 text-rose-600" />
+                <span>Generar Informe PDF</span>
+              </div>
+              <button 
+                onClick={() => setPdfModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Selecciona la versión del informe ejecutivo que deseas emitir para la iniciativa <strong className="text-slate-700 font-semibold">#{selectedInitForPdf.summary?.id_corta || selectedInitForPdf.id?.slice(0, 8)}</strong>:
+            </p>
+
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                onClick={() => handleGeneratePdf(selectedInitForPdf, 'ld')}
+                className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 group-hover:text-indigo-700">Dictamen de Negocio (Líder de Dominio)</span>
+                  <span className="text-[10px] uppercase font-semibold text-indigo-600 bg-indigo-100/80 px-2 py-0.5 rounded">Etapa Inicial</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Enfocado en el requerimiento del negocio, justificación, alcance, entregables y enlaces directos a archivos de soporte adjuntos.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleGeneratePdf(selectedInitForPdf, 'consolidado')}
+                className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/50 transition-all group cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Expediente Consolidado Ejecutivo</span>
+                  <span className="text-[10px] uppercase font-semibold text-emerald-600 bg-emerald-100/80 px-2 py-0.5 rounded">Integral</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Expediente completo con requerimiento inicial, estimaciones técnicas de TI, cronograma estimado, presupuesto y firmas de aprobación.
+                </p>
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setPdfModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

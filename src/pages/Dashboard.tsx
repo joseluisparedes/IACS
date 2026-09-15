@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import {
-  Activity, CheckCircle, Clock, TrendingUp, Ban, Play, AlertTriangle,
-  FileText, Filter, X, ChevronRight, ChevronLeft, ChevronDown,
+  Activity, CheckCircle, Clock, TrendingUp, Ban, AlertTriangle,
+  FileText, Filter, X, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
   ExternalLink, Building2, Users, BarChart3,
-  ArrowUpRight, Search, RefreshCw, Eye
+  ArrowUpRight, Search, RefreshCw, Eye, Briefcase, Layers, UserCheck,
+  FolderKanban, LayoutGrid, CheckSquare, Sparkles, PieChart, ShieldCheck
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
@@ -32,6 +33,8 @@ interface Initiative {
   rejection_reason?: string;
 }
 
+type PerspectiveTab = "vp" | "direccion" | "bpti" | "ld" | "estado" | "tabla";
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const ALL_STATUSES = [
@@ -42,12 +45,12 @@ const ALL_STATUSES = [
   "En demanda",
 ];
 
-const STATUS_CONFIG: Record<string, { color: string; bg: string; bar: string; dot: string }> = {
-  "Borrador":                 { color: "text-slate-500",   bg: "bg-slate-100",   bar: "bg-slate-400",   dot: "bg-slate-400" },
-  "Pendiente de aprobación":  { color: "text-[#4F5AF5]",   bg: "bg-[#EEF2FF]",  bar: "bg-[#4F5AF5]",  dot: "bg-[#4F5AF5]" },
-  "Observada":                { color: "text-amber-600",   bg: "bg-amber-50",    bar: "bg-amber-400",   dot: "bg-amber-400" },
-  "Desestimada":              { color: "text-red-600",     bg: "bg-red-50",      bar: "bg-red-400",     dot: "bg-red-400" },
-  "En demanda":               { color: "text-emerald-700", bg: "bg-emerald-50",  bar: "bg-emerald-500", dot: "bg-emerald-500" },
+const STATUS_CONFIG: Record<string, { color: string; bg: string; bar: string; dot: string; border: string }> = {
+  "Borrador":                 { color: "text-slate-600",   bg: "bg-slate-100",   bar: "bg-slate-400",   dot: "bg-slate-400",   border: "border-slate-200" },
+  "Pendiente de aprobación":  { color: "text-[#4F5AF5]",   bg: "bg-[#EEF2FF]",  bar: "bg-[#4F5AF5]",  dot: "bg-[#4F5AF5]",  border: "border-[#C7D2FE]" },
+  "Observada":                { color: "text-amber-700",   bg: "bg-amber-50",    bar: "bg-amber-500",   dot: "bg-amber-500",   border: "border-amber-200" },
+  "Desestimada":              { color: "text-red-700",     bg: "bg-red-50",      bar: "bg-red-500",     dot: "bg-red-500",     border: "border-red-200" },
+  "En demanda":               { color: "text-emerald-700", bg: "bg-emerald-50",  bar: "bg-emerald-500", dot: "bg-emerald-500", border: "border-emerald-200" },
 };
 
 const PAGE_SIZE = 10;
@@ -63,6 +66,27 @@ function getTitle(initiative: Initiative): string {
   );
 }
 
+function getBPTI(initiative: Initiative): string {
+  const fd = initiative.form_data ?? {};
+  return (
+    fd.bp_ti_asignado ||
+    fd.bp_ti ||
+    fd.bp ||
+    ""
+  );
+}
+
+function getLD(initiative: Initiative): string {
+  const fd = initiative.form_data ?? {};
+  return (
+    fd.lider_de_dominio_responsable ||
+    fd.lider_dominio ||
+    fd.ld_asignado ||
+    fd.lider_de_dominio ||
+    ""
+  );
+}
+
 function formatDate(iso: string) {
   return formatDateDDMMYYYY(iso);
 }
@@ -74,6 +98,8 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
   const title = getTitle(initiative);
   const s = initiative.summary ?? {};
   const fd = initiative.form_data ?? {};
+  const bpTi = getBPTI(initiative);
+  const ld = getLD(initiative);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -82,13 +108,14 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
   }, [onClose]);
 
   const complejidadColor: Record<string, string> = {
-    "Alta": "text-red-600 bg-red-50", "Media": "text-amber-600 bg-amber-50", "Baja": "text-emerald-600 bg-emerald-50"
+    "Alta": "text-red-600 bg-red-50 border-red-200", 
+    "Media": "text-amber-600 bg-amber-50 border-amber-200", 
+    "Baja": "text-emerald-600 bg-emerald-50 border-emerald-200"
   };
   const riesgoColor: Record<string, string> = {
-    "Alto": "text-red-600 bg-red-50", "Medio": "text-amber-600 bg-amber-50", "Bajo": "text-emerald-600 bg-emerald-50"
-  };
-  const prioridadColor: Record<string, string> = {
-    "Alta": "text-[#4F5AF5] bg-[#EEF2FF]", "Media": "text-amber-600 bg-amber-50", "Baja": "text-emerald-600 bg-emerald-50"
+    "Alto": "text-red-600 bg-red-50 border-red-200", 
+    "Medio": "text-amber-600 bg-amber-50 border-amber-200", 
+    "Bajo": "text-emerald-600 bg-emerald-50 border-emerald-200"
   };
 
   return (
@@ -99,23 +126,21 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
         onClick={onClose}
       />
 
-      {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-        style={{ animation: "modalIn 0.18s cubic-bezier(.4,0,.2,1)" }}>
-
+      {/* Modal Card */}
+      <div className="relative bg-white rounded-2xl shadow-2xl border border-[#E2E8F0] w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-[#F1F5F9] flex items-start gap-4 shrink-0 bg-gradient-to-r from-[#F8FAFF] to-white">
-          <div className="flex-1 min-w-0">
+        <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-start justify-between gap-4 shrink-0 bg-gradient-to-r from-slate-50 to-white">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="text-[10px] font-mono font-bold text-[#94A3B8] bg-[#F1F5F9] px-2 py-0.5 rounded">
-                {initiative.id}
-              </span>
-              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cfg.bg} ${cfg.color}`}>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cfg.bg} ${cfg.color} border ${cfg.border}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                 {initiative.status}
               </span>
+              <span className="text-xs text-[#94A3B8] font-mono">#{s.id_corta || initiative.id.slice(0, 8)}</span>
             </div>
-            <h3 className="text-base font-bold text-[#1E293B] leading-tight">{title}</h3>
+            <h3 className="text-base font-bold text-[#1E293B] leading-snug line-clamp-2">
+              {String(title)}
+            </h3>
           </div>
           <button
             onClick={onClose}
@@ -127,22 +152,44 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
 
         {/* Body */}
         <div className="overflow-y-auto flex-1 p-6 space-y-5">
+          {/* Asignaciones Clave de TI y Negocio */}
+          <section>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-2.5 flex items-center gap-1.5">
+              <Briefcase className="w-3.5 h-3.5 text-[#4F5AF5]" />
+              Gobernanza y Asignación
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-[#F8FAFC] border border-slate-200/70 rounded-xl p-3">
+                <p className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1">Business Partner TI (BP TI)</p>
+                <p className={`text-sm font-semibold ${bpTi ? 'text-slate-800' : 'text-amber-600'}`}>
+                  {bpTi || "Pendiente de Asignación"}
+                </p>
+              </div>
+              <div className="bg-[#F8FAFC] border border-slate-200/70 rounded-xl p-3">
+                <p className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1">Líder de Dominio (LD)</p>
+                <p className={`text-sm font-semibold ${ld ? 'text-indigo-700' : 'text-slate-500 italic'}`}>
+                  {ld || "Sin Asignar (Etapa de Demanda TI)"}
+                </p>
+              </div>
+            </div>
+          </section>
 
           {/* Datos de Registro */}
           <section>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#94A3B8] mb-3">
-              Datos de Registro
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-2.5 flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5 text-slate-500" />
+              Estructura Organizacional
             </p>
             <div className="grid grid-cols-2 gap-3">
               {[
                 { label: "Vicepresidencia", value: fd.vicepresidencia },
                 { label: "Dirección", value: fd.direccion },
-                { label: "Key user", value: fd.registrador },
-                { label: "Fecha", value: formatDate(initiative.created_at) },
+                { label: "Key user / Solicitante", value: fd.registrador },
+                { label: "Fecha de Registro", value: formatDate(initiative.created_at) },
                 { label: "Institución", value: fd.institucion },
                 { label: "Fecha Requerida", value: fd.fecha_requerida },
               ].filter(r => r.value).map(r => (
-                <div key={r.label} className="bg-[#F8FAFC] rounded-xl p-3">
+                <div key={r.label} className="bg-[#F8FAFC] border border-slate-100 rounded-xl p-3">
                   <p className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1">{r.label}</p>
                   <p className="text-sm font-medium text-[#1E293B]">{r.value}</p>
                 </div>
@@ -153,8 +200,9 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
           {/* Resumen Ejecutivo IA */}
           {s.objetivo && (
             <section>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#94A3B8] mb-3">
-                Resumen Ejecutivo IA
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#94A3B8] mb-2.5 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                Resumen Ejecutivo IA (Teo)
               </p>
               <div className="space-y-3">
                 {s.objetivo && (
@@ -165,27 +213,21 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
                 )}
                 {s.descripcionProblema && (
                   <div className="bg-[#FFFBF5] border border-amber-100 rounded-xl p-4">
-                    <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider mb-1.5">Problema</p>
+                    <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider mb-1.5">Problema que resuelve</p>
                     <p className="text-sm text-[#334155] leading-relaxed">{s.descripcionProblema}</p>
                   </div>
                 )}
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   {s.complejidad && (
-                    <div className={`rounded-xl p-3 text-center ${complejidadColor[s.complejidad] ?? "text-slate-600 bg-slate-50"}`}>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider opacity-70 mb-1">Complejidad</p>
+                    <div className={`rounded-xl p-3 text-center border ${complejidadColor[s.complejidad] ?? "text-slate-600 bg-slate-50 border-slate-200"}`}>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider opacity-75 mb-0.5">Complejidad</p>
                       <p className="text-sm font-bold">{s.complejidad}</p>
                     </div>
                   )}
                   {s.riesgo && (
-                    <div className={`rounded-xl p-3 text-center ${riesgoColor[s.riesgo] ?? "text-slate-600 bg-slate-50"}`}>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider opacity-70 mb-1">Riesgo</p>
+                    <div className={`rounded-xl p-3 text-center border ${riesgoColor[s.riesgo] ?? "text-slate-600 bg-slate-50 border-slate-200"}`}>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider opacity-75 mb-0.5">Riesgo Operativo</p>
                       <p className="text-sm font-bold">{s.riesgo}</p>
-                    </div>
-                  )}
-                  {s.prioridadRecomendada && (
-                    <div className={`rounded-xl p-3 text-center ${prioridadColor[s.prioridadRecomendada] ?? "text-slate-600 bg-slate-50"}`}>
-                      <p className="text-[10px] font-semibold uppercase tracking-wider opacity-70 mb-1">Prioridad</p>
-                      <p className="text-sm font-bold">{s.prioridadRecomendada}</p>
                     </div>
                   )}
                 </div>
@@ -193,41 +235,14 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
             </section>
           )}
 
-          {/* Beneficios */}
-          {(s.beneficiosCuantitativos || (Array.isArray(s.beneficiosCualitativos) && s.beneficiosCualitativos.length > 0)) && (
-            <section>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#94A3B8] mb-3">
-                Beneficios
-              </p>
-              <div className="space-y-2">
-                {s.beneficiosCuantitativos && (
-                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                    <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider mb-1.5">Cuantitativos</p>
-                    <p className="text-sm text-emerald-800 leading-relaxed">{s.beneficiosCuantitativos}</p>
-                  </div>
-                )}
-                {Array.isArray(s.beneficiosCualitativos) && s.beneficiosCualitativos.length > 0 && (
-                  <div className="bg-teal-50 border border-teal-100 rounded-xl p-4">
-                    <p className="text-[10px] font-semibold text-teal-700 uppercase tracking-wider mb-2">Cualitativos</p>
-                    <ul className="space-y-1.5">
-                      {s.beneficiosCualitativos.map((b: string, i: number) => (
-                        <li key={i} className="flex items-start gap-2 text-sm text-teal-800">
-                          <span className="text-teal-500 mt-0.5 shrink-0">•</span>
-                          {b}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* Rechazo */}
+          {/* Observaciones o Rechazo */}
           {initiative.rejection_reason && (
             <section>
-              <div className="bg-red-50 border border-red-100 rounded-xl p-4">
-                <p className="text-[10px] font-semibold text-red-600 uppercase tracking-wider mb-1.5">Motivo de Rechazo/Observación</p>
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <p className="text-[10px] font-semibold text-red-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Observación / Dictamen
+                </p>
                 <p className="text-sm text-red-800 leading-relaxed">{initiative.rejection_reason}</p>
               </div>
             </section>
@@ -240,25 +255,19 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
           <Link
             to={`/iniciativa/${initiative.id}`}
             onClick={onClose}
-            className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+            className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors shadow-sm cursor-pointer"
           >
-            Ver completo
+            Abrir Expediente Completo
             <ExternalLink className="w-3.5 h-3.5" />
           </Link>
         </div>
       </div>
-
-      <style>{`
-        @keyframes modalIn {
-          from { opacity: 0; transform: scale(0.96) translateY(8px); }
-          to   { opacity: 1; transform: scale(1) translateY(0); }
-        }
-      `}</style>
     </div>
   );
 }
 
 // ─── MultiSelect Component ───────────────────────────────────────────────────
+
 function MultiSelect({
   label,
   placeholder,
@@ -313,10 +322,10 @@ function MultiSelect({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-3 py-2 text-sm border border-[#E2E8F0] rounded-xl bg-[#F8FAFC] outline-none hover:bg-white focus:border-[#4F5AF5] focus:bg-white transition-all text-[#1E293B] cursor-pointer text-left font-medium shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+        className="w-full flex items-center justify-between px-3 py-2 text-xs border border-[#E2E8F0] rounded-xl bg-[#F8FAFC] outline-none hover:bg-white focus:border-[#4F5AF5] focus:bg-white transition-all text-[#1E293B] cursor-pointer text-left font-medium shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
       >
         <span className="truncate pr-2">{getDisplayText()}</span>
-        <ChevronDown className={`w-4 h-4 text-[#94A3B8] transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-3.5 h-3.5 text-[#94A3B8] transition-transform duration-200 shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
@@ -326,7 +335,7 @@ function MultiSelect({
             <button
               type="button"
               onClick={handleSelectAll}
-              className="text-[10px] font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors"
+              className="text-[10px] font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors cursor-pointer"
             >
               {selected.length === options.length ? "Deseleccionar" : "Todos"}
             </button>
@@ -366,15 +375,20 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [slowLoad, setSlowLoad] = useState(false);
 
+  // Active Perspective Tab
+  const [activeTab, setActiveTab] = useState<PerspectiveTab>("vp");
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+
   // Filters
   const [filterBP, setFilterBP] = useState<string[]>([]);
   const [filterVP, setFilterVP] = useState<string[]>([]);
   const [filterDir, setFilterDir] = useState<string[]>([]);
   const [filterBPTI, setFilterBPTI] = useState<string[]>([]);
+  const [filterLD, setFilterLD] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
   const [searchText, setSearchText] = useState<string>("");
 
-  // Pagination
+  // Pagination for Table view
   const [page, setPage] = useState(1);
 
   // Modal
@@ -412,7 +426,7 @@ export default function Dashboard() {
 
   // ── Derived filter options ─────────────────────────────────────────────────
 
-  // Unique BPs (Vicepresidentes) present in initiatives
+  // Unique BPs (Vicepresidentes de Negocio)
   const bpOptions = useMemo(() => {
     const names = initiatives.map(ini => {
       const vpName = ini.form_data?.vicepresidencia;
@@ -422,29 +436,39 @@ export default function Dashboard() {
     return Array.from(new Set(names)).sort();
   }, [initiatives, vps]);
 
-  // Unique VPs (Vicepresidencias) present in initiatives
+  // Unique VPs
   const vpOptions = useMemo(() => {
     const names = initiatives.map(ini => ini.form_data?.vicepresidencia).filter(Boolean) as string[];
     return Array.from(new Set(names)).sort();
   }, [initiatives]);
 
-  // Unique Direcciones present in initiatives
+  // Unique Direcciones
   const dirOptions = useMemo(() => {
     const names = initiatives.map(ini => ini.form_data?.direccion).filter(Boolean) as string[];
     return Array.from(new Set(names)).sort();
   }, [initiatives]);
 
-  // Unique BPs (bp_ti_asignado) present in initiatives
+  // Unique BP TI (bp_ti_asignado)
   const bpTiOptions = useMemo(() => {
-    const names = initiatives.map(i => i.form_data?.bp_ti_asignado).filter(Boolean) as string[];
+    const names = initiatives.map(i => getBPTI(i)).filter(Boolean) as string[];
     const list = Array.from(new Set(names)).sort();
-    if (initiatives.some(i => !i.form_data?.bp_ti_asignado)) {
+    if (initiatives.some(i => !getBPTI(i))) {
       list.push("Sin asignar");
     }
     return list;
   }, [initiatives]);
 
-  // Unique Statuses present in initiatives
+  // Unique Líderes de Dominio (LD)
+  const ldOptions = useMemo(() => {
+    const names = initiatives.map(i => getLD(i)).filter(Boolean) as string[];
+    const list = Array.from(new Set(names)).sort();
+    if (initiatives.some(i => !getLD(i))) {
+      list.push("Sin asignar");
+    }
+    return list;
+  }, [initiatives]);
+
+  // Unique Statuses
   const statusOptions = useMemo(() => {
     const statuses = initiatives.map(i => i.status).filter(Boolean) as string[];
     return Array.from(new Set(statuses)).sort();
@@ -454,6 +478,7 @@ export default function Dashboard() {
   const handleVPChange = (val: string[]) => { setFilterVP(val); setPage(1); };
   const handleDirChange = (val: string[]) => { setFilterDir(val); setPage(1); };
   const handleBPTIChange = (val: string[]) => { setFilterBPTI(val); setPage(1); };
+  const handleLDChange = (val: string[]) => { setFilterLD(val); setPage(1); };
   const handleStatusChange = (val: string[]) => { setFilterStatus(val); setPage(1); };
 
   const clearFilters = () => {
@@ -461,6 +486,7 @@ export default function Dashboard() {
     setFilterVP([]);
     setFilterDir([]);
     setFilterBPTI([]);
+    setFilterLD([]);
     setFilterStatus([]);
     setSearchText("");
     setPage(1);
@@ -469,7 +495,8 @@ export default function Dashboard() {
   const hasActiveFilters =
     filterBP.length > 0 || filterVP.length > 0 ||
     filterDir.length > 0 || filterBPTI.length > 0 ||
-    filterStatus.length > 0 || searchText !== "";
+    filterLD.length > 0 || filterStatus.length > 0 ||
+    searchText !== "";
 
   // ── Filtered initiatives ───────────────────────────────────────────────────
 
@@ -478,8 +505,10 @@ export default function Dashboard() {
       const fd = ini.form_data ?? {};
       const vpName = fd.vicepresidencia ?? "";
       const dirName = fd.direccion ?? "";
+      const bpTi = getBPTI(ini);
+      const ld = getLD(ini);
 
-      // BP filter (Vicepresidente)
+      // BP filter (Vicepresidente de Negocio)
       if (filterBP.length > 0) {
         const vp = vps.find(v => v.name === vpName);
         const bpName = vp?.bp_name ?? "";
@@ -495,11 +524,18 @@ export default function Dashboard() {
       }
       // BP TI filter
       if (filterBPTI.length > 0) {
-        const bp = fd.bp_ti_asignado;
-        if (!bp) {
+        if (!bpTi) {
           if (!filterBPTI.includes("Sin asignar")) return false;
         } else {
-          if (!filterBPTI.includes(bp)) return false;
+          if (!filterBPTI.includes(bpTi)) return false;
+        }
+      }
+      // LD filter
+      if (filterLD.length > 0) {
+        if (!ld) {
+          if (!filterLD.includes("Sin asignar")) return false;
+        } else {
+          if (!filterLD.includes(ld)) return false;
         }
       }
       // Status filter
@@ -511,16 +547,22 @@ export default function Dashboard() {
       if (searchText.trim()) {
         const q = searchText.toLowerCase();
         const title = getTitle(ini).toLowerCase();
-        if (!title.includes(q) && !ini.id.toLowerCase().includes(q) &&
-          !vpName.toLowerCase().includes(q) && !dirName.toLowerCase().includes(q)) {
+        if (
+          !title.includes(q) &&
+          !ini.id.toLowerCase().includes(q) &&
+          !vpName.toLowerCase().includes(q) &&
+          !dirName.toLowerCase().includes(q) &&
+          !bpTi.toLowerCase().includes(q) &&
+          !ld.toLowerCase().includes(q)
+        ) {
           return false;
         }
       }
       return true;
     });
-  }, [initiatives, vps, filterBP, filterVP, filterDir, filterStatus, filterBPTI, searchText]);
+  }, [initiatives, vps, filterBP, filterVP, filterDir, filterBPTI, filterLD, filterStatus, searchText]);
 
-  // ── KPIs ───────────────────────────────────────────────────────────────────
+  // ── Global KPIs ────────────────────────────────────────────────────────────
 
   const kpis = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -537,19 +579,134 @@ export default function Dashboard() {
     };
   }, [filtered]);
 
-  // ── VP Summary blocks ──────────────────────────────────────────────────────
+  // ── Groupings for the 5 Perspectives ───────────────────────────────────────
 
-  const vpSummary = useMemo(() => {
-    return vps.map(vp => {
-      const vpInits = filtered.filter(i => i.form_data?.vicepresidencia === vp.name);
+  // 1. Group by VP
+  const vpGroups = useMemo(() => {
+    const map = new Map<string, Initiative[]>();
+    filtered.forEach(i => {
+      const key = i.form_data?.vicepresidencia || "Sin Vicepresidencia";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(i);
+    });
+    return Array.from(map.entries()).map(([name, inits]) => {
+      const vpObj = vps.find(v => v.name === name);
       const statusCount: Record<string, number> = {};
-      vpInits.forEach(i => { statusCount[i.status] = (statusCount[i.status] ?? 0) + 1; });
-      return { vp, total: vpInits.length, statusCount };
-    }).filter(s => s.total > 0);
-  }, [vps, filtered]);
+      inits.forEach(i => { statusCount[i.status] = (statusCount[i.status] ?? 0) + 1; });
+      return {
+        key: name,
+        title: name,
+        subtitle: vpObj?.bp_name ? `Vicepresidente: ${vpObj.bp_name}` : undefined,
+        total: inits.length,
+        statusCount,
+        inits,
+        pct: filtered.length > 0 ? Math.round((inits.length / filtered.length) * 100) : 0,
+      };
+    }).sort((a, b) => b.total - a.total);
+  }, [filtered, vps]);
 
-  // ── Pagination ─────────────────────────────────────────────────────────────
+  // 2. Group by Dirección
+  const dirGroups = useMemo(() => {
+    const map = new Map<string, Initiative[]>();
+    filtered.forEach(i => {
+      const key = i.form_data?.direccion || "Sin Dirección Asignada";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(i);
+    });
+    return Array.from(map.entries()).map(([name, inits]) => {
+      const parentVP = inits[0]?.form_data?.vicepresidencia || "Vicepresidencia no especificada";
+      const statusCount: Record<string, number> = {};
+      inits.forEach(i => { statusCount[i.status] = (statusCount[i.status] ?? 0) + 1; });
+      return {
+        key: name,
+        title: name,
+        subtitle: `Vicepresidencia: ${parentVP}`,
+        total: inits.length,
+        statusCount,
+        inits,
+        pct: filtered.length > 0 ? Math.round((inits.length / filtered.length) * 100) : 0,
+      };
+    }).sort((a, b) => b.total - a.total);
+  }, [filtered]);
 
+  // 3. Group by BP TI
+  const bptiGroups = useMemo(() => {
+    const map = new Map<string, Initiative[]>();
+    filtered.forEach(i => {
+      const bp = getBPTI(i);
+      const key = bp ? bp : "Pendiente de Asignación BP TI";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(i);
+    });
+    return Array.from(map.entries()).map(([name, inits]) => {
+      const statusCount: Record<string, number> = {};
+      inits.forEach(i => { statusCount[i.status] = (statusCount[i.status] ?? 0) + 1; });
+      const isUnassigned = name.includes("Pendiente");
+      return {
+        key: name,
+        title: name,
+        subtitle: isUnassigned ? "Iniciativas en espera de asignación de Business Partner TI" : "Business Partner de TI Responsable",
+        total: inits.length,
+        statusCount,
+        inits,
+        isUnassigned,
+        pct: filtered.length > 0 ? Math.round((inits.length / filtered.length) * 100) : 0,
+      };
+    }).sort((a, b) => {
+      if (a.isUnassigned) return -1;
+      if (b.isUnassigned) return 1;
+      return b.total - a.total;
+    });
+  }, [filtered]);
+
+  // 4. Group by Líder de Dominio (LD)
+  const ldGroups = useMemo(() => {
+    const map = new Map<string, Initiative[]>();
+    filtered.forEach(i => {
+      const ld = getLD(i);
+      const key = ld ? ld : "Sin Asignar / Pendiente de LD";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(i);
+    });
+    return Array.from(map.entries()).map(([name, inits]) => {
+      const statusCount: Record<string, number> = {};
+      inits.forEach(i => { statusCount[i.status] = (statusCount[i.status] ?? 0) + 1; });
+      const isUnassigned = name.includes("Sin Asignar");
+      return {
+        key: name,
+        title: name,
+        subtitle: isUnassigned ? "Iniciativas en etapa de Demanda TI sin Líder de Dominio designado" : "Líder Técnico de Dominio Asignado",
+        total: inits.length,
+        statusCount,
+        inits,
+        isUnassigned,
+        pct: filtered.length > 0 ? Math.round((inits.length / filtered.length) * 100) : 0,
+      };
+    }).sort((a, b) => {
+      if (a.isUnassigned) return -1;
+      if (b.isUnassigned) return 1;
+      return b.total - a.total;
+    });
+  }, [filtered]);
+
+  // 5. Group by Estado (Lifecycle Pipeline)
+  const estadoGroups = useMemo(() => {
+    return ALL_STATUSES.map(status => {
+      const inits = filtered.filter(i => i.status === status);
+      const statusCount: Record<string, number> = { [status]: inits.length };
+      return {
+        key: status,
+        title: status,
+        subtitle: `Etapa del ciclo de vida en IACS`,
+        total: inits.length,
+        statusCount,
+        inits,
+        pct: filtered.length > 0 ? Math.round((inits.length / filtered.length) * 100) : 0,
+      };
+    });
+  }, [filtered]);
+
+  // ── Pagination for Table tab ───────────────────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -561,7 +718,7 @@ export default function Dashboard() {
     },
     {
       label: "En demanda", value: kpis.enDemanda, icon: CheckCircle,
-      color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-100",
+      color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200",
       gradient: "from-emerald-500/10 to-transparent"
     },
     {
@@ -571,12 +728,12 @@ export default function Dashboard() {
     },
     {
       label: "Observadas", value: kpis.observadas, icon: AlertTriangle,
-      color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-100",
+      color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-200",
       gradient: "from-amber-500/10 to-transparent"
     },
     {
       label: "Desestimadas", value: kpis.desestimadas, icon: Ban,
-      color: "text-red-600", bg: "bg-red-50", border: "border-red-100",
+      color: "text-red-600", bg: "bg-red-50", border: "border-red-200",
       gradient: "from-red-500/10 to-transparent"
     },
     {
@@ -586,43 +743,222 @@ export default function Dashboard() {
     },
   ];
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // Helper to toggle accordion
+  const toggleGroup = (key: string) => {
+    setExpandedGroup(prev => prev === key ? null : key);
+  };
+
+  // ── Render Group Card Component ────────────────────────────────────────────
+  const renderPerspectiveGroup = (group: any, icon: any) => {
+    const Icon = icon;
+    const isExpanded = expandedGroup === group.key;
+
+    return (
+      <div
+        key={group.key}
+        className={`bg-white rounded-2xl border transition-all duration-200 overflow-hidden shadow-xs hover:shadow-md ${
+          group.isUnassigned
+            ? "border-amber-300 bg-amber-50/20"
+            : isExpanded
+            ? "border-[#4F5AF5]/50 ring-1 ring-[#4F5AF5]/20 shadow-md"
+            : "border-[#E2E8F0] hover:border-[#CBD5E1]"
+        }`}
+      >
+        {/* Group Header */}
+        <div
+          onClick={() => toggleGroup(group.key)}
+          className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer select-none transition-colors hover:bg-slate-50/60"
+        >
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+              group.isUnassigned ? "bg-amber-100 text-amber-700" : "bg-indigo-50 text-[#4F5AF5]"
+            }`}>
+              <Icon className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-base font-bold text-[#1E293B] truncate leading-tight">
+                  {group.title}
+                </h4>
+                {group.isUnassigned && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-md">
+                    Atención Requerida
+                  </span>
+                )}
+              </div>
+              {group.subtitle && (
+                <p className="text-xs text-[#64748B] mt-0.5 truncate">{group.subtitle}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 shrink-0 justify-between sm:justify-end">
+            <div className="text-right">
+              <div className="flex items-baseline gap-1.5 justify-end">
+                <span className="text-xl font-black text-[#1E293B]">{group.total}</span>
+                <span className="text-xs font-semibold text-[#94A3B8]">
+                  ({group.pct}%)
+                </span>
+              </div>
+              <p className="text-[10px] text-[#94A3B8] font-medium uppercase tracking-wider">Iniciativas</p>
+            </div>
+
+            <button
+              type="button"
+              className={`w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-100 transition-transform duration-200 ${
+                isExpanded ? "rotate-180 bg-indigo-50 text-[#4F5AF5] border-indigo-200" : ""
+              }`}
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Status Distribution Pills */}
+        <div className="px-5 pb-3.5 pt-1 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap bg-slate-50/40">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {Object.entries(group.statusCount as Record<string, number>).map(([st, cnt]) => {
+              const cfg = STATUS_CONFIG[st] ?? STATUS_CONFIG["Borrador"];
+              return (
+                <span
+                  key={st}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ${cfg.bg} ${cfg.color} border ${cfg.border}`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                  {Number(cnt)} {st}
+                </span>
+              );
+            })}
+          </div>
+
+          <span className="text-[11px] font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors cursor-pointer" onClick={() => toggleGroup(group.key)}>
+            {isExpanded ? "Ocultar iniciativas ↑" : `Ver ${group.total} iniciativas ↓`}
+          </span>
+        </div>
+
+        {/* Accordion Initiatives List */}
+        {isExpanded && (
+          <div className="border-t border-slate-200 bg-white p-4 space-y-2 animate-in fade-in duration-150">
+            <div className="grid grid-cols-1 divide-y divide-slate-100">
+              {group.inits.map((ini: Initiative) => {
+                const title = getTitle(ini);
+                const cfg = STATUS_CONFIG[ini.status] ?? STATUS_CONFIG["Borrador"];
+                const bp = getBPTI(ini);
+                const ld = getLD(ini);
+
+                return (
+                  <div
+                    key={ini.id}
+                    className="py-3 px-3 hover:bg-slate-50/80 rounded-xl transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${cfg.bg} ${cfg.color} border ${cfg.border}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                          {ini.status}
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-mono">#{ini.summary?.id_corta || ini.id.slice(0, 8)}</span>
+                        <span className="text-xs text-slate-400">• {formatDate(ini.created_at)}</span>
+                      </div>
+                      <h5 
+                        onClick={() => setSelectedInitiative(ini)}
+                        className="text-sm font-semibold text-slate-800 hover:text-[#4F5AF5] transition-colors cursor-pointer line-clamp-1"
+                      >
+                        {String(title)}
+                      </h5>
+                      <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-500 flex-wrap">
+                        {ini.form_data?.vicepresidencia && (
+                          <span>VP: <strong className="text-slate-700">{ini.form_data.vicepresidencia}</strong></span>
+                        )}
+                        {ini.form_data?.direccion && (
+                          <span>Dir: <strong className="text-slate-700">{ini.form_data.direccion}</strong></span>
+                        )}
+                        <span>BP TI: <strong className={bp ? "text-slate-700" : "text-amber-600"}>{bp || "Sin Asignar"}</strong></span>
+                        <span>LD: <strong className={ld ? "text-indigo-700" : "text-slate-400 italic"}>{ld || "Sin Asignar"}</strong></span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInitiative(ini)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:text-[#4F5AF5] transition-colors cursor-pointer"
+                        title="Ver vista previa rápida"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        Vista rápida
+                      </button>
+                      <Link
+                        to={`/iniciativa/${ini.id}`}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#4F5AF5] hover:bg-[#3F49E0] text-xs font-semibold text-white transition-colors cursor-pointer shadow-2xs"
+                      >
+                        Abrir
+                        <ExternalLink className="w-3 h-3" />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-6 pb-12">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-md bg-indigo-50 text-[#4F5AF5] border border-indigo-100">
+              Centro de Control Estratégico
+            </span>
+            <span className="text-[10px] text-slate-400 font-semibold">• 5 Perspectivas Ejecutivas</span>
+          </div>
           <h2 className="text-2xl font-bold tracking-tight text-[#1E293B]">Dashboard Ejecutivo</h2>
-          <p className="text-[#64748B] mt-1 text-sm">
-            Visibilidad estratégica de iniciativas por Vicepresidente, VP y Dirección.
+          <p className="text-[#64748B] text-sm mt-0.5">
+            Gobernanza y trazabilidad estratégica de iniciativas por Vicepresidencia, Dirección, BP TI, Líder de Dominio y Estados.
           </p>
         </div>
-        <button
-          onClick={loadData}
-          className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-[#64748B] border border-[#E2E8F0] rounded-lg hover:bg-[#F8FAFC] transition-colors"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          Actualizar
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={loadData}
+            className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-[#64748B] bg-white border border-[#E2E8F0] rounded-xl hover:bg-[#F8FAFC] transition-colors shadow-2xs cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Actualizar datos
+          </button>
+          <Link
+            to="/bandeja"
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-[#4F5AF5] hover:bg-[#3F49E0] rounded-xl transition-colors shadow-sm cursor-pointer"
+          >
+            <FolderKanban className="w-3.5 h-3.5" />
+            Bandeja
+          </Link>
+        </div>
       </div>
 
       {/* ── Filter Bar ── */}
-      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.06)] p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-[#4F5AF5]" />
-          <span className="text-xs font-bold text-[#1E293B] uppercase tracking-wider">Filtros</span>
+      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.04)] p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-[#4F5AF5]" />
+            <span className="text-xs font-bold text-[#1E293B] uppercase tracking-wider">Filtros Cruzados</span>
+            <span className="text-[11px] text-slate-400 font-medium">({filtered.length} iniciativas filtradas)</span>
+          </div>
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
-              className="ml-auto flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-600 transition-colors"
+              className="flex items-center gap-1 text-xs font-semibold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer"
             >
-              <X className="w-3 h-3" /> Limpiar
+              <X className="w-3.5 h-3.5" /> Limpiar filtros
             </button>
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-2.5">
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#94A3B8]" />
@@ -630,15 +966,15 @@ export default function Dashboard() {
               type="text"
               value={searchText}
               onChange={e => { setSearchText(e.target.value); setPage(1); }}
-              placeholder="Buscar..."
-              className="w-full pl-8 pr-3 py-2 text-sm border border-[#E2E8F0] rounded-xl bg-[#F8FAFC] outline-none focus:border-[#4F5AF5] focus:bg-white transition-colors"
+              placeholder="Buscar por texto..."
+              className="w-full pl-8 pr-3 py-2 text-xs border border-[#E2E8F0] rounded-xl bg-[#F8FAFC] outline-none focus:border-[#4F5AF5] focus:bg-white transition-colors text-slate-800"
             />
           </div>
 
-          {/* Vicepresidente */}
+          {/* Vicepresidente de Negocio */}
           <MultiSelect
-            label="Vicepresidente"
-            placeholder="Todos los Vicepresidentes"
+            label="Vicepresidente Negocio"
+            placeholder="Todos los Sponsors"
             options={bpOptions}
             selected={filterBP}
             onChange={handleBPChange}
@@ -646,7 +982,7 @@ export default function Dashboard() {
 
           {/* VP */}
           <MultiSelect
-            label="VP"
+            label="Vicepresidencia"
             placeholder="Todas las VPs"
             options={vpOptions}
             selected={filterVP}
@@ -664,16 +1000,25 @@ export default function Dashboard() {
 
           {/* BP TI */}
           <MultiSelect
-            label="BP TI"
-            placeholder="Todos los BPs"
+            label="BP TI Asignado"
+            placeholder="Todos los BP TI"
             options={bpTiOptions}
             selected={filterBPTI}
             onChange={handleBPTIChange}
           />
 
+          {/* Líder de Dominio (LD) */}
+          <MultiSelect
+            label="Líder de Dominio (LD)"
+            placeholder="Todos los LDs"
+            options={ldOptions}
+            selected={filterLD}
+            onChange={handleLDChange}
+          />
+
           {/* Estado */}
           <MultiSelect
-            label="Estado"
+            label="Estado del Ciclo"
             placeholder="Todos los Estados"
             options={statusOptions}
             selected={filterStatus}
@@ -682,74 +1027,71 @@ export default function Dashboard() {
         </div>
 
         {hasActiveFilters && (
-          <div className="mt-3 pt-3 border-t border-[#F1F5F9] flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] text-[#94A3B8] font-semibold uppercase tracking-wider">Activos:</span>
+          <div className="pt-2 border-t border-[#F1F5F9] flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-[#94A3B8] font-bold uppercase tracking-wider mr-1">Activos:</span>
             {filterBP.map(bp => (
-              <span key={bp} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EEF2FF] text-[#4F5AF5] text-xs font-semibold animate-in zoom-in-95 duration-100">
-                Vicepresidente: {bp}
-                <button onClick={() => handleBPChange(filterBP.filter(x => x !== bp))}><X className="w-3 h-3" /></button>
+              <span key={bp} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-[#4F5AF5] text-[11px] font-semibold">
+                Sponsor: {bp}
+                <button onClick={() => handleBPChange(filterBP.filter(x => x !== bp))} className="hover:text-red-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             ))}
             {filterVP.map(vp => (
-              <span key={vp} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EEF2FF] text-[#4F5AF5] text-xs font-semibold animate-in zoom-in-95 duration-100">
+              <span key={vp} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-[#4F5AF5] text-[11px] font-semibold">
                 VP: {vp}
-                <button onClick={() => handleVPChange(filterVP.filter(x => x !== vp))}><X className="w-3 h-3" /></button>
+                <button onClick={() => handleVPChange(filterVP.filter(x => x !== vp))} className="hover:text-red-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             ))}
             {filterDir.map(dir => (
-              <span key={dir} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EEF2FF] text-[#4F5AF5] text-xs font-semibold animate-in zoom-in-95 duration-100">
+              <span key={dir} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-[#4F5AF5] text-[11px] font-semibold">
                 Dir: {dir}
-                <button onClick={() => handleDirChange(filterDir.filter(x => x !== dir))}><X className="w-3 h-3" /></button>
+                <button onClick={() => handleDirChange(filterDir.filter(x => x !== dir))} className="hover:text-red-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             ))}
             {filterBPTI.map(bp => (
-              <span key={bp} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EEF2FF] text-[#4F5AF5] text-xs font-semibold animate-in zoom-in-95 duration-100">
-                BP: {bp}
-                <button onClick={() => handleBPTIChange(filterBPTI.filter(x => x !== bp))}><X className="w-3 h-3" /></button>
+              <span key={bp} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-[#4F5AF5] text-[11px] font-semibold">
+                BP TI: {bp}
+                <button onClick={() => handleBPTIChange(filterBPTI.filter(x => x !== bp))} className="hover:text-red-500 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            ))}
+            {filterLD.map(ld => (
+              <span key={ld} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-[#4F5AF5] text-[11px] font-semibold">
+                LD: {ld}
+                <button onClick={() => handleLDChange(filterLD.filter(x => x !== ld))} className="hover:text-red-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             ))}
             {filterStatus.map(st => (
-              <span key={st} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EEF2FF] text-[#4F5AF5] text-xs font-semibold animate-in zoom-in-95 duration-100">
+              <span key={st} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-semibold">
                 Estado: {st}
-                <button onClick={() => handleStatusChange(filterStatus.filter(x => x !== st))}><X className="w-3 h-3" /></button>
+                <button onClick={() => handleStatusChange(filterStatus.filter(x => x !== st))} className="hover:text-red-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             ))}
-            {searchText && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EEF2FF] text-[#4F5AF5] text-xs font-semibold">
-                Buscar: "{searchText}"
-                <button onClick={() => { setSearchText(""); setPage(1); }}><X className="w-3 h-3" /></button>
-              </span>
-            )}
-            <span className="ml-auto text-xs text-[#94A3B8]">
-              {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
-            </span>
           </div>
         )}
       </div>
 
       {/* ── KPI Cards ── */}
       {loading ? (
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="bg-white rounded-xl border border-[#E2E8F0] p-5 animate-pulse h-24" />
+            <div key={i} className="h-24 bg-white rounded-xl border border-[#E2E8F0] animate-pulse" />
           ))}
         </div>
       ) : (
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {kpiCards.map(k => {
             const Icon = k.icon;
             return (
               <div
                 key={k.label}
-                className={`bg-white rounded-xl border ${k.border} shadow-[0_1px_3px_rgba(0,0,0,.05)] p-4 relative overflow-hidden group hover:shadow-md transition-shadow`}
+                className={`bg-white rounded-xl border ${k.border} shadow-[0_1px_3px_rgba(0,0,0,.04)] p-4 relative overflow-hidden group hover:shadow-md transition-all`}
               >
                 <div className={`absolute inset-0 bg-gradient-to-br ${k.gradient} opacity-60`} />
                 <div className="relative">
-                  <div className={`w-8 h-8 rounded-lg ${k.bg} flex items-center justify-center mb-3`}>
+                  <div className={`w-8 h-8 rounded-lg ${k.bg} flex items-center justify-center mb-2.5`}>
                     <Icon className={`w-4 h-4 ${k.color}`} />
                   </div>
                   <p className={`text-2xl font-black ${k.color}`}>{k.value}</p>
-                  <p className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mt-1 leading-tight">{k.label}</p>
+                  <p className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider mt-0.5 leading-tight">{k.label}</p>
                 </div>
               </div>
             );
@@ -757,297 +1099,394 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Bottom Row: Distribution + VP Blocks ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      {/* ── Navigation Tabs: 5 Executive Perspectives + Matriz General ── */}
+      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.04)] p-1.5 flex items-center gap-1.5 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => { setActiveTab("vp"); setExpandedGroup(null); }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "vp"
+              ? "bg-[#4F5AF5] text-white shadow-sm"
+              : "text-slate-600 hover:text-[#4F5AF5] hover:bg-slate-50"
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          Por Vicepresidencia
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${activeTab === "vp" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"}`}>
+            {vpGroups.length}
+          </span>
+        </button>
 
-        {/* Status Distribution */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.06)] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart3 className="w-4 h-4 text-[#4F5AF5]" />
-            <h3 className="text-sm font-bold text-[#1E293B]">Distribución por Estado</h3>
-          </div>
-          {loading ? (
-            <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-8 bg-[#F8FAFC] rounded-lg animate-pulse" />
-            ))}</div>
-          ) : filtered.length === 0 ? (
-            <p className="text-sm text-[#94A3B8] text-center py-8">Sin datos para el filtro actual.</p>
-          ) : (
-            <div className="space-y-2.5">
-              {ALL_STATUSES.map(status => {
-                const count = kpis.porEstado[status] ?? 0;
-                if (count === 0) return null;
-                const pct = filtered.length > 0 ? Math.round((count / filtered.length) * 100) : 0;
-                const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG["Borrador"];
-                const isActive = filterStatus.includes(status);
-                return (
-                  <button
-                    key={status}
-                    onClick={() => handleStatusChange(isActive ? filterStatus.filter(x => x !== status) : [...filterStatus, status])}
-                    className={`w-full text-left group rounded-lg px-2 py-1.5 transition-colors ${isActive ? "bg-[#F0F4FF]" : "hover:bg-[#F8FAFC]"}`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
-                        <span className="text-xs font-semibold text-[#334155]">{status}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold ${cfg.color}`}>{count}</span>
-                        <span className="text-[10px] text-[#94A3B8]">{pct}%</span>
-                      </div>
-                    </div>
-                    <div className="w-full h-1.5 bg-[#F1F5F9] rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${cfg.bar}`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => { setActiveTab("direccion"); setExpandedGroup(null); }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "direccion"
+              ? "bg-[#4F5AF5] text-white shadow-sm"
+              : "text-slate-600 hover:text-[#4F5AF5] hover:bg-slate-50"
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          Por Dirección
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${activeTab === "direccion" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"}`}>
+            {dirGroups.length}
+          </span>
+        </button>
 
-        {/* VP Summary Blocks */}
-        <div className="lg:col-span-3 bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.06)] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Building2 className="w-4 h-4 text-[#4F5AF5]" />
-            <h3 className="text-sm font-bold text-[#1E293B]">Resumen por Vicepresidencia</h3>
-          </div>
-          {loading ? (
-            <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-16 bg-[#F8FAFC] rounded-xl animate-pulse" />
-            ))}</div>
-          ) : vpSummary.length === 0 ? (
-            <p className="text-sm text-[#94A3B8] text-center py-8">Sin iniciativas en el filtro actual.</p>
-          ) : (
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {vpSummary.map(({ vp, total, statusCount }) => {
-                const isVPActive = filterVP.includes(vp.name);
-                return (
-                  <button
-                    key={vp.id}
-                    onClick={() => handleVPChange(isVPActive ? filterVP.filter(x => x !== vp.name) : [...filterVP, vp.name])}
-                    className={`w-full text-left p-3 rounded-xl border transition-all ${
-                      isVPActive
-                        ? "bg-[#EEF2FF] border-[#C7D2FE] shadow-sm"
-                        : "bg-[#F8FAFC] border-[#E2E8F0] hover:border-[#C7D2FE] hover:bg-[#F0F4FF]"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <p className={`text-sm font-bold ${isVPActive ? "text-[#4F5AF5]" : "text-[#1E293B]"}`}>
-                          {vp.name}
-                        </p>
-                        {vp.bp_name && (
-                          <p className="text-[10px] text-[#94A3B8] flex items-center gap-1 mt-0.5">
-                            <Users className="w-3 h-3" /> Vicepresidente: {vp.bp_name}
-                          </p>
-                        )}
-                      </div>
-                      <span className={`text-lg font-black ${isVPActive ? "text-[#4F5AF5]" : "text-[#1E293B]"}`}>
-                        {total}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {Object.entries(statusCount).map(([st, cnt]) => {
-                        const cfg = STATUS_CONFIG[st] ?? STATUS_CONFIG["Borrador"];
-                        return (
-                          <span key={st} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${cfg.bg} ${cfg.color}`}>
-                            {cnt} {st}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => { setActiveTab("bpti"); setExpandedGroup(null); }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "bpti"
+              ? "bg-[#4F5AF5] text-white shadow-sm"
+              : "text-slate-600 hover:text-[#4F5AF5] hover:bg-slate-50"
+          }`}
+        >
+          <Briefcase className="w-4 h-4" />
+          Por BP TI Asignado
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${activeTab === "bpti" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"}`}>
+            {bptiGroups.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setActiveTab("ld"); setExpandedGroup(null); }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "ld"
+              ? "bg-[#4F5AF5] text-white shadow-sm"
+              : "text-slate-600 hover:text-[#4F5AF5] hover:bg-slate-50"
+          }`}
+        >
+          <UserCheck className="w-4 h-4" />
+          Por Líder de Dominio (LD)
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${activeTab === "ld" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"}`}>
+            {ldGroups.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setActiveTab("estado"); setExpandedGroup(null); }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "estado"
+              ? "bg-[#4F5AF5] text-white shadow-sm"
+              : "text-slate-600 hover:text-[#4F5AF5] hover:bg-slate-50"
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          Por Estados (Ciclo)
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${activeTab === "estado" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"}`}>
+            {ALL_STATUSES.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setActiveTab("tabla"); setExpandedGroup(null); }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ml-auto ${
+            activeTab === "tabla"
+              ? "bg-slate-900 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+          }`}
+        >
+          <LayoutGrid className="w-4 h-4" />
+          Matriz Completa
+        </button>
       </div>
 
-      {/* ── Initiatives Table ── */}
-      <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.06)] overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-[#4F5AF5]" />
-            <h3 className="text-sm font-bold text-[#1E293B]">
-              Iniciativas
-              {!loading && (
-                <span className="ml-2 text-xs font-normal text-[#94A3B8]">
-                  ({filtered.length} total{filtered.length !== 1 ? "es" : ""})
+      {/* ── Perspective Content ── */}
+      {loading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-28 bg-white rounded-2xl border border-slate-200 animate-pulse" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-20 text-center bg-white rounded-2xl border border-slate-200 p-8 shadow-xs">
+          <Activity className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+          <h4 className="text-base font-bold text-slate-700">No hay iniciativas para los filtros seleccionados</h4>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            Intenta cambiar los parámetros en la barra superior o limpiar los filtros activos.
+          </p>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-50 text-[#4F5AF5] text-xs font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
+            >
+              Limpiar todos los filtros
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Tab 1: Por Vicepresidencia */}
+          {activeTab === "vp" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs text-slate-500 font-medium">
+                  Mostrando <strong>{vpGroups.length}</strong> Vicepresidencias con iniciativas activas
                 </span>
-              )}
-            </h3>
-          </div>
-          <Link
-            to="/bandeja"
-            className="flex items-center gap-1 text-xs font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors"
-          >
-            Ir a Bandeja <ArrowUpRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="p-6 space-y-3">
-            {slowLoad && (
-              <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl px-4 py-3">
-                <span className="text-base leading-none">⏳</span>
-                <div>
-                  <p className="font-semibold">El servidor está despertando...</p>
-                  <p className="mt-0.5 text-amber-600">Esto puede tardar hasta 30 segundos en la primera carga del día.</p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroup(expandedGroup ? null : (vpGroups[0]?.key || null))}
+                  className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold cursor-pointer"
+                >
+                  {expandedGroup ? "Colapsar todo" : "Desplegar primera VP"}
+                </button>
               </div>
-            )}
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-12 bg-[#F8FAFC] rounded-xl animate-pulse" />
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="py-16 text-center">
-            <Activity className="w-10 h-10 mx-auto mb-3 text-[#E2E8F0]" />
-            <p className="text-sm text-[#94A3B8]">No hay iniciativas que coincidan con los filtros.</p>
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="mt-2 text-sm text-[#4F5AF5] font-semibold hover:text-[#3F49E0]"
-              >
-                Limpiar filtros →
-              </button>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* Table header */}
-            <div className="hidden md:grid grid-cols-[1fr_140px_140px_130px_140px_100px_80px] gap-4 px-6 py-2.5 bg-[#F8FAFC] border-b border-[#F1F5F9] text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
-              <span>Título</span>
-              <span>Vicepresidencia</span>
-              <span>Dirección</span>
-              <span>BP TI</span>
-              <span>Estado</span>
-              <span>Registrado</span>
-              <span className="text-center">Detalle</span>
+              <div className="grid grid-cols-1 gap-3.5">
+                {vpGroups.map(grp => renderPerspectiveGroup(grp, Building2))}
+              </div>
             </div>
+          )}
 
-            {/* Rows */}
-            <div className="divide-y divide-[#F8FAFC]">
-              {paginated.map(ini => {
-                const cfg = STATUS_CONFIG[ini.status] ?? STATUS_CONFIG["Borrador"];
-                const title = getTitle(ini);
-                const fd = ini.form_data ?? {};
-                return (
-                  <div
-                    key={ini.id}
-                    className="grid grid-cols-1 md:grid-cols-[1fr_140px_140px_130px_140px_100px_80px] gap-2 md:gap-4 px-6 py-4 hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
-                    onClick={() => setSelectedInitiative(ini)}
-                  >
-                    {/* Title */}
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-[#1E293B] truncate group-hover:text-[#4F5AF5] transition-colors">
-                        {String(title)}
-                      </p>
-                      <p className="text-[10px] text-[#94A3B8] font-mono mt-0.5">{ini.id}</p>
-                    </div>
-
-                    {/* VP */}
-                    <div className="flex items-center">
-                      <p className="text-sm text-[#334155] truncate" title={fd.vicepresidencia}>
-                        {fd.vicepresidencia || <span className="text-[#CBD5E1]">—</span>}
-                      </p>
-                    </div>
-
-                    {/* Dirección */}
-                    <div className="flex items-center">
-                      <p className="text-sm text-[#334155] truncate" title={fd.direccion}>
-                        {fd.direccion || <span className="text-[#CBD5E1]">—</span>}
-                      </p>
-                    </div>
-
-                    {/* BP TI */}
-                    <div className="flex items-center">
-                      <p className="text-sm text-[#334155] truncate" title={fd.bp_ti_asignado}>
-                        {fd.bp_ti_asignado || <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded text-[11px] font-medium border border-amber-200">Pendiente</span>}
-                      </p>
-                    </div>
-
-                    {/* Status */}
-                    <div className="flex items-center">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.bg} ${cfg.color}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                        {ini.status}
-                      </span>
-                    </div>
-
-                    {/* Date */}
-                    <div className="flex items-center">
-                      <p className="text-xs text-[#94A3B8]">{formatDate(ini.created_at)}</p>
-                    </div>
-
-                    {/* Action */}
-                    <div className="flex items-center justify-center">
-                      <button
-                        onClick={e => { e.stopPropagation(); setSelectedInitiative(ini); }}
-                        className="w-8 h-8 rounded-lg border border-[#E2E8F0] flex items-center justify-center text-[#94A3B8] hover:bg-[#EEF2FF] hover:text-[#4F5AF5] hover:border-[#C7D2FE] transition-colors"
-                        title="Ver detalle"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+          {/* Tab 2: Por Dirección */}
+          {activeTab === "direccion" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs text-slate-500 font-medium">
+                  Mostrando <strong>{dirGroups.length}</strong> Direcciones organizacionales
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroup(expandedGroup ? null : (dirGroups[0]?.key || null))}
+                  className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold cursor-pointer"
+                >
+                  {expandedGroup ? "Colapsar todo" : "Desplegar primera Dirección"}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3.5">
+                {dirGroups.map(grp => renderPerspectiveGroup(grp, Layers))}
+              </div>
             </div>
+          )}
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="px-6 py-4 border-t border-[#F1F5F9] flex items-center justify-between">
-                <p className="text-xs text-[#94A3B8]">
-                  Página {page} de {totalPages} — {filtered.length} iniciativas
-                </p>
+          {/* Tab 3: Por Asignación BP TI */}
+          {activeTab === "bpti" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs text-slate-500 font-medium">
+                  Balance de carga de trabajo por <strong>{bptiGroups.length}</strong> Business Partners de TI
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroup(expandedGroup ? null : (bptiGroups[0]?.key || null))}
+                  className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold cursor-pointer"
+                >
+                  {expandedGroup ? "Colapsar todo" : "Desplegar primer grupo"}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3.5">
+                {bptiGroups.map(grp => renderPerspectiveGroup(grp, Briefcase))}
+              </div>
+            </div>
+          )}
+
+          {/* Tab 4: Por Líder de Dominio (LD) */}
+          {activeTab === "ld" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs text-slate-500 font-medium">
+                  Cartera técnica asignada a <strong>{ldGroups.length}</strong> Líderes de Dominio (LD)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroup(expandedGroup ? null : (ldGroups[0]?.key || null))}
+                  className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold cursor-pointer"
+                >
+                  {expandedGroup ? "Colapsar todo" : "Desplegar primer grupo"}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3.5">
+                {ldGroups.map(grp => renderPerspectiveGroup(grp, UserCheck))}
+              </div>
+            </div>
+          )}
+
+          {/* Tab 5: Por Estados (Ciclo de Vida) */}
+          {activeTab === "estado" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs text-slate-500 font-medium">
+                  Distribución en los <strong>{estadoGroups.length}</strong> estados del ciclo corporativo
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroup(expandedGroup ? null : (estadoGroups[0]?.key || null))}
+                  className="text-xs text-[#4F5AF5] hover:text-[#3F49E0] font-semibold cursor-pointer"
+                >
+                  {expandedGroup ? "Colapsar todo" : "Desplegar primer estado"}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3.5">
+                {estadoGroups.map(grp => renderPerspectiveGroup(grp, BarChart3))}
+              </div>
+            </div>
+          )}
+
+          {/* Tab 6: Matriz General / Tabla */}
+          {activeTab === "tabla" && (
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.06)] overflow-hidden">
+              <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="w-8 h-8 rounded-lg border border-[#E2E8F0] flex items-center justify-center text-[#64748B] hover:bg-[#F8FAFC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    let pageNum = i + 1;
-                    if (totalPages > 5) {
-                      if (page <= 3) pageNum = i + 1;
-                      else if (page >= totalPages - 2) pageNum = totalPages - 4 + i;
-                      else pageNum = page - 2 + i;
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setPage(pageNum)}
-                        className={`w-8 h-8 rounded-lg text-xs font-semibold transition-colors ${
-                          page === pageNum
-                            ? "bg-[#4F5AF5] text-white"
-                            : "border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC]"
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                  <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className="w-8 h-8 rounded-lg border border-[#E2E8F0] flex items-center justify-center text-[#64748B] hover:bg-[#F8FAFC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                  <TrendingUp className="w-4 h-4 text-[#4F5AF5]" />
+                  <h3 className="text-sm font-bold text-[#1E293B]">
+                    Iniciativas Consolidadas
+                    <span className="ml-2 text-xs font-normal text-[#94A3B8]">
+                      ({filtered.length} total{filtered.length !== 1 ? "es" : ""})
+                    </span>
+                  </h3>
                 </div>
+                <Link
+                  to="/bandeja"
+                  className="flex items-center gap-1 text-xs font-semibold text-[#4F5AF5] hover:text-[#3F49E0] transition-colors cursor-pointer"
+                >
+                  Abrir en Bandeja de Aprobación <ArrowUpRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
-            )}
-          </>
-        )}
-      </div>
+
+              {/* Table header */}
+              <div className="hidden md:grid grid-cols-[1fr_130px_130px_130px_130px_130px_90px_80px] gap-3 px-6 py-3 bg-[#F8FAFC] border-b border-[#F1F5F9] text-[10px] font-bold text-[#94A3B8] uppercase tracking-wider">
+                <span>Título</span>
+                <span>Vicepresidencia</span>
+                <span>Dirección</span>
+                <span>BP TI</span>
+                <span>Líder Dominio</span>
+                <span>Estado</span>
+                <span>Fecha</span>
+                <span className="text-center">Detalle</span>
+              </div>
+
+              {/* Rows */}
+              <div className="divide-y divide-[#F8FAFC]">
+                {paginated.map(ini => {
+                  const cfg = STATUS_CONFIG[ini.status] ?? STATUS_CONFIG["Borrador"];
+                  const title = getTitle(ini);
+                  const fd = ini.form_data ?? {};
+                  const bp = getBPTI(ini);
+                  const ld = getLD(ini);
+
+                  return (
+                    <div
+                      key={ini.id}
+                      className="grid grid-cols-1 md:grid-cols-[1fr_130px_130px_130px_130px_130px_90px_80px] gap-2 md:gap-3 px-6 py-3.5 hover:bg-[#F8FAFC] transition-colors cursor-pointer group items-center"
+                      onClick={() => setSelectedInitiative(ini)}
+                    >
+                      {/* Title */}
+                      <div className="min-w-0 pr-2">
+                        <p className="text-sm font-semibold text-[#1E293B] truncate group-hover:text-[#4F5AF5] transition-colors">
+                          {String(title)}
+                        </p>
+                        <p className="text-[10px] text-[#94A3B8] font-mono mt-0.5">#{ini.summary?.id_corta || ini.id.slice(0, 8)}</p>
+                      </div>
+
+                      {/* VP */}
+                      <div className="min-w-0">
+                        <p className="text-xs text-[#334155] truncate font-medium" title={fd.vicepresidencia}>
+                          {fd.vicepresidencia || <span className="text-[#CBD5E1]">—</span>}
+                        </p>
+                      </div>
+
+                      {/* Dirección */}
+                      <div className="min-w-0">
+                        <p className="text-xs text-[#334155] truncate font-medium" title={fd.direccion}>
+                          {fd.direccion || <span className="text-[#CBD5E1]">—</span>}
+                        </p>
+                      </div>
+
+                      {/* BP TI */}
+                      <div className="min-w-0">
+                        <p className={`text-xs truncate font-medium ${bp ? 'text-slate-700' : 'text-amber-600 italic'}`} title={bp}>
+                          {bp || "Pendiente"}
+                        </p>
+                      </div>
+
+                      {/* LD */}
+                      <div className="min-w-0">
+                        <p className={`text-xs truncate font-medium ${ld ? 'text-indigo-700 font-semibold' : 'text-slate-400 italic'}`} title={ld}>
+                          {ld || "Sin Asignar"}
+                        </p>
+                      </div>
+
+                      {/* Status */}
+                      <div className="min-w-0">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${cfg.bg} ${cfg.color} border ${cfg.border} truncate max-w-full`}>
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
+                          <span className="truncate">{ini.status}</span>
+                        </span>
+                      </div>
+
+                      {/* Date */}
+                      <div className="min-w-0">
+                        <p className="text-xs text-[#94A3B8]">{formatDate(ini.created_at)}</p>
+                      </div>
+
+                      {/* Action */}
+                      <div className="flex items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setSelectedInitiative(ini); }}
+                          className="w-8 h-8 rounded-lg border border-[#E2E8F0] flex items-center justify-center text-[#94A3B8] hover:bg-[#EEF2FF] hover:text-[#4F5AF5] hover:border-[#C7D2FE] transition-colors cursor-pointer"
+                          title="Ver detalle rápido"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="px-6 py-4 border-t border-[#F1F5F9] flex items-center justify-between">
+                  <p className="text-xs text-[#94A3B8]">
+                    Página {page} de {totalPages} — {filtered.length} iniciativas
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="w-8 h-8 rounded-lg border border-[#E2E8F0] flex items-center justify-center text-[#64748B] hover:bg-[#F8FAFC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum = i + 1;
+                      if (totalPages > 5) {
+                        if (page <= 3) pageNum = i + 1;
+                        else if (page >= totalPages - 2) pageNum = totalPages - 4 + i;
+                        else pageNum = page - 2 + i;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setPage(pageNum)}
+                          className={`w-8 h-8 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                            page === pageNum
+                              ? "bg-[#4F5AF5] text-white"
+                              : "border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC]"
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                      className="w-8 h-8 rounded-lg border border-[#E2E8F0] flex items-center justify-center text-[#64748B] hover:bg-[#F8FAFC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Detail Modal ── */}
       {selectedInitiative && (
