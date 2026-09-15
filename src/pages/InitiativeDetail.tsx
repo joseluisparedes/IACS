@@ -10,6 +10,7 @@ import ReactMarkdown from "react-markdown";
 import { useReactToPrint } from "react-to-print";
 import type { StageForm, StageConsent, InitiativeStageRecord } from "../types";
 import { DEFAULT_OBSERVATION_CATEGORIES } from "../components/workflow/NodeConfigPanel";
+import { InstitutionalLoader } from "../components/common/InstitutionalLoader";
 
 
 const STATUS_STYLE: Record<string, string> = {
@@ -3056,6 +3057,38 @@ export default function InitiativeDetail() {
       return;
     }
 
+    // Validación dinámica y cruzada de fechas (Ítem 15)
+    const combinedDates = { ...(initiative?.form_data || {}), ...editedFormData, ...stageFormData };
+    const parseDateVal = (val: any): number | null => {
+      if (!val || typeof val !== 'string') return null;
+      const str = val.trim();
+      if (!str) return null;
+      const ddmmyyyy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (ddmmyyyy) {
+        return new Date(parseInt(ddmmyyyy[3], 10), parseInt(ddmmyyyy[2], 10) - 1, parseInt(ddmmyyyy[1], 10)).getTime();
+      }
+      const yyyymmdd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+      if (yyyymmdd) {
+        return new Date(parseInt(yyyymmdd[1], 10), parseInt(yyyymmdd[2], 10) - 1, parseInt(yyyymmdd[3], 10)).getTime();
+      }
+      const ts = Date.parse(str);
+      return isNaN(ts) ? null : ts;
+    };
+
+    const startEst = parseDateVal(combinedDates.fecha_inicio_estimacion);
+    const endEst = parseDateVal(combinedDates.fecha_fin_estimacion);
+    if (startEst && endEst && endEst < startEst) {
+      showToast("La Fecha Fin de Estimación no puede ser menor a la Fecha de Inicio de la Estimación.", "warning");
+      return;
+    }
+
+    const startAtn = parseDateVal(combinedDates.fecha_inicio_atencion || combinedDates.fecha_inicio_planificacion || combinedDates.fecha_inicio);
+    const endAtn = parseDateVal(combinedDates.fecha_fin_atencion || combinedDates.fecha_fin_planificacion || combinedDates.fecha_fin);
+    if (startAtn && endAtn && endAtn < startAtn) {
+      showToast("La Fecha Fin de Atención / Planificación no puede ser menor a la Fecha de Inicio.", "warning");
+      return;
+    }
+
     const targetStatusName = actualTargetNode?.data?.label || targetId;
     const actionQuestion = actualButtonLabel.match(/^(enviar|mover|pasar|avanzar|solicitar|aprobar|observar|desestimar|derivar)/i)
       ? `¿Estás seguro de ${actualButtonLabel.charAt(0).toLowerCase() + actualButtonLabel.slice(1)}?`
@@ -3171,9 +3204,11 @@ export default function InitiativeDetail() {
   };
 
   if (loading) return (
-    <div className="flex justify-center items-center gap-3 py-20 text-[#94A3B8]">
-      <div className="w-5 h-5 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
-      Cargando detalle...
+    <div className="py-20 flex justify-center items-center">
+      <InstitutionalLoader 
+        title="Cargando Requerimiento TI" 
+        subtitle="Sincronizando estado, cadena de custodia y gobernanza..." 
+      />
     </div>
   );
 

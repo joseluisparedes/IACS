@@ -22,6 +22,7 @@ import MaintenanceScreen from './components/MaintenanceScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
 import { formatDateTimeDDMMYYYY, formatRoleName, SYSTEM_ROLES_MAP } from './lib/utils';
+import { InstitutionalLoader } from './components/common/InstitutionalLoader';
 
 const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura', '/admin/pdf-template', '/admin/workflow-editor', '/admin/workflow-simulator', '/admin/formularios-consentimientos'];
 
@@ -745,8 +746,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading || maintenanceLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F0F4FF]">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#4F5AF5] border-t-transparent"></div>
+      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]">
+        <InstitutionalLoader 
+          title="Iniciando IACS Enterprise" 
+          subtitle="Verificando credenciales de seguridad y sesión activa..." 
+        />
       </div>
     );
   }
