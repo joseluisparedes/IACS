@@ -268,7 +268,7 @@ async function callAIForJSON(prompt: string): Promise<string> {
 
   // 2. Secondary Fallback: Gemini models cascade (if not in cooldown)
   if (now > _geminiCooldownUntil && process.env.GEMINI_API_KEY) {
-    const geminiModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+    const geminiModels = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-pro"];
     for (const model of geminiModels) {
       try {
         console.log(`[AI Fallback] Trying Gemini model: ${model}...`);
@@ -1651,7 +1651,7 @@ Responde estrictamente en formato JSON:
       const mime = req.file.mimetype?.startsWith("audio/") ? req.file.mimetype : "audio/webm";
 
       const response = await getGenAI().models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-3.6-flash",
         contents: [{
           role: "user",
           parts: [
@@ -1980,7 +1980,7 @@ El usuario está iniciando el registro de una iniciativa institucional y ha carg
 - **Dirección**: ${direccion || "No especificada"}
 - **Usuario Registrador**: ${registrador || "Key User"}
 ${notes ? `- **Notas adicionales del usuario**: "${notes}"` : ""}
-${req.file ? `- **Documento adjunto**: "${req.file.originalname}" (${(req.file.size / 1024).toFixed(0)} KB)` : ""}
+${originalName ? `- **Documento adjunto**: "${originalName}"` : ""}
 
 --- CONTENIDO EXTRAÍDO DEL DOCUMENTO / SUSTENTO ---
 """
@@ -1998,7 +1998,7 @@ TUS TAREAS OBLIGATORIAS:
 2. **Detección de Vacíos / Pendientes**: Determina con precisión qué información crítica o campos OBLIGATORIOS NO se encuentran explícitos o están incompletos en el documento (por ejemplo: si falta cuantificar el beneficio, o no hay fecha de entrega tentativa, o faltan detalles del proceso afectado).
 3. **Saludo de Bienvenida de Teo (greetingMessage)**:
    - Redacta un mensaje cercano, profesional y ejecutivo en Markdown.
-   - Confirma que has leído el documento "${req.file?.originalname || 'proporcionado'}" y el alcance para la Vicepresidencia ${vicepresidencia}.
+   - Confirma que has leído el documento "${originalName || 'proporcionado'}" y el alcance para la Vicepresidencia ${vicepresidencia}.
    - Presenta en viñetas concisas el título propuesto y el alcance general comprendido.
    - Formula directamente de 1 a 3 preguntas puntuales y claras sobre lo que AÚN ESTÁ PENDIENTE para completar el registro.
 4. **Opciones rápidas**: Sugiere entre 2 y 3 opciones cortas de respuesta para el usuario.
@@ -2023,40 +2023,20 @@ RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
 
       let aiResult: any = null;
 
-      // 1. Try Azure OpenAI GPT-5.1
-      if (isAzureConfigured()) {
-        try {
-          const content = await callAzureOpenAI(
-            [{ role: "user", content: prompt }],
-            { jsonFormat: true, timeoutMs: 25000, temperature: 0.2 }
-          );
-          if (content) {
-            aiResult = JSON.parse(content);
-          }
-        } catch (azureErr: any) {
-          console.warn("Azure OpenAI analyze-initial-document failed, trying Gemini fallback:", azureErr?.message);
+      try {
+        const jsonStr = await callAIForJSON(prompt);
+        if (jsonStr) {
+          aiResult = JSON.parse(jsonStr);
         }
+      } catch (aiErr: any) {
+        console.warn("Unified AI call in analyze-initial-document failed:", aiErr?.message);
       }
 
-      // 2. Try Gemini fallback
-      if (!aiResult && process.env.GEMINI_API_KEY) {
-        try {
-          const geminiRes = await getGenAI().models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            config: { responseMimeType: "application/json" }
-          });
-          if (geminiRes.text) {
-            aiResult = JSON.parse(geminiRes.text);
-          }
-        } catch (geminiErr: any) {
-          console.warn("Gemini analyze-initial-document failed, trying Groq fallback:", geminiErr?.message);
-        }
-      }
-
-      // 3. Deterministic Fallback if AI offline
+      // Deterministic Fallback if AI offline or returned invalid response
       if (!aiResult || !aiResult.greetingMessage) {
-        const fallbackTitle = notes.trim().slice(0, 60) || (req.file ? `Iniciativa de ${req.file.originalname.replace(/\.[^/.]+$/, "")}` : "Iniciativa de TI");
+        const docDisplayName = originalName || "de sustento";
+        const cleanDocBase = docDisplayName.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ").trim();
+        const fallbackTitle = notes.trim().slice(0, 60) || (cleanDocBase && cleanDocBase !== "de sustento" ? `Iniciativa: ${cleanDocBase}` : "Iniciativa de TI");
         aiResult = {
           extractedValues: {
             vicepresidencia,
@@ -2069,7 +2049,7 @@ RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
             { key: "beneficio_cuantitativo_anual", label: "Beneficio cuantitativo", reason: "Falta estimar el impacto económico o ahorro anual." },
             { key: "fecha_requerida", label: "Fecha requerida", reason: "Falta definir la fecha estimada de necesidad." }
           ],
-          greetingMessage: `¡Hola${registrador ? " " + registrador : ""}! Soy **Teo**, tu asistente inteligente de TI.\n\nHe leído y registrado el documento **${req.file?.originalname || 'de sustento'}** para la **Vicepresidencia ${vicepresidencia}** y **Dirección ${direccion}**.\n\n- **Título sugerido:** ${fallbackTitle}\n- **Documentación:** Analizada y adjuntada correctamente.\n\nPara completar tu iniciativa de acuerdo a los estándares de arquitectura, ¿podrías detallarme cuál es la fecha estimada en la que necesitas esta solución y qué beneficios o ahorros esperas obtener?`,
+          greetingMessage: `¡Hola${registrador ? " " + registrador : ""}! Soy **Teo**, tu asistente inteligente de TI.\n\nHe leído y registrado el documento **${docDisplayName}** para la **Vicepresidencia ${vicepresidencia}** y **Dirección ${direccion}**.\n\n- **Título sugerido:** ${fallbackTitle}\n- **Documentación:** Analizada y adjuntada correctamente.\n\nPara completar tu iniciativa de acuerdo a los estándares de arquitectura, ¿podrías detallarme cuál es la fecha estimada en la que necesitas esta solución y qué beneficios o ahorros esperas obtener?`,
           options: ["Ahorro de horas hombre", "Cumplimiento regulatorio", "Mejora en atención a usuarios"]
         };
       }
@@ -2475,7 +2455,7 @@ Debes responder estrictamente en formato JSON con la siguiente estructura:
         // 2. Secondary Fallback: Gemini Vision
         if (!visionResponseText && process.env.GEMINI_API_KEY) {
           const genAI = getGenAI();
-          const visionModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+          const visionModels = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-pro"];
 
           for (const model of visionModels) {
             try {
@@ -2601,7 +2581,7 @@ Responde estrictamente en formato JSON con la siguiente estructura:
         if (process.env.GEMINI_API_KEY) {
           try {
             const genAI = getGenAI();
-            const chunkingModels = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+            const chunkingModels = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-pro"];
             for (const model of chunkingModels) {
               try {
                 console.log(`[AI Chunking Fallback] Structuring document with ${model}...`);
