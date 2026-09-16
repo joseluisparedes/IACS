@@ -34,6 +34,7 @@ export async function validateTransition(params: {
   userRole: string;
   formData: Record<string, string>;
   transitionLabel: string;
+  isFreeJump?: boolean;
 }): Promise<WorkflowTransitionResult> {
   const workflow = await getActiveWorkflow();
   if (!workflow || !params.currentNodeId) {
@@ -77,6 +78,28 @@ export async function validateTransition(params: {
       return { allowed: false, reason: `Ninguno de los roles asignados (${userRolesList.join(', ')}) cuenta con permiso de edición en este nodo` };
     }
     return { allowed: true, next_node_id: params.currentNodeId };
+  }
+
+  // 1b. Salto Libre / Reubicación Manual directa (Mover estado)
+  if (params.transitionLabel === 'Salto Libre' || params.isFreeJump) {
+    const currentNode = workflow.graph_json?.nodes?.find((n: any) => n.id === params.currentNodeId);
+    if (currentNode?.data?.allowManualStateMove) {
+      const allowedRole = (currentNode.data.manualStateMoveRole as string)?.trim().toLowerCase();
+      if (allowedRole && !userRolesList.includes(allowedRole) && !hasAdmin) {
+        return {
+          allowed: false,
+          reason: `Tu rol actual (${userRolesList.join(', ')}) no está autorizado para mover manualmente la iniciativa desde este estado (requiere rol: ${allowedRole})`
+        };
+      }
+      return { allowed: true, next_node_id: params.targetNodeId || params.currentNodeId };
+    }
+    if (hasAdmin) {
+      return { allowed: true, next_node_id: params.targetNodeId || params.currentNodeId };
+    }
+    return {
+      allowed: false,
+      reason: `El salto manual de estado ('Mover estado') no está habilitado para este estado en el flujo de trabajo.`
+    };
   }
 
   // 2. Buscar transición directa por target_node_id O por label en workflow_transitions y en graph_json.edges

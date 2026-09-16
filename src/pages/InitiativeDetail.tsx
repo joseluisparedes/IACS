@@ -1100,6 +1100,7 @@ export default function InitiativeDetail() {
   const [stageRecords, setStageRecords] = useState<InitiativeStageRecord[]>([]);
   const [activeWorkflow, setActiveWorkflow] = useState<any>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<'info' | 'history' | 'observations'>('info');
+  const [obsFilter, setObsFilter] = useState<'all' | 'observation' | 'movida' | 'desestimacion'>('all');
   const [selectedTimelineStageKey, setSelectedTimelineStageKey] = useState<string | null>(null);
   const [selectedSubNodeId, setSelectedSubNodeId] = useState<string | null>(null);
   const [openPopoverStageKey, setOpenPopoverStageKey] = useState<string | null>(null);
@@ -1431,13 +1432,14 @@ export default function InitiativeDetail() {
             .order('sort_order', { ascending: true });
           return dbFields || [];
         }),
-      supabase.from('vps').select('id, name'),
+      supabase.from('vps').select('id, name, bp_name, email').order('name'),
       supabase.from('direcciones').select('id, name, vp_id'),
-      supabase.from('allowed_users').select('name, user_roles_whitelist(*)'),
+      supabase.from('allowed_users').select('id, name, email, user_roles_whitelist(*)'),
+      supabase.from('profiles').select('id, name, email, profile_roles(role)'),
       supabase.from('site_settings').select('pdf_template').eq('id', 1).single(),
       supabase.from('app_roles').select('id, code, name')
     ])
-      .then(async ([data, fieldsData, vpsRes, dirRes, usersRes, settingsRes, rolesRes]) => {
+      .then(async ([data, fieldsData, vpsRes, dirRes, usersRes, profilesRes, settingsRes, rolesRes]) => {
         let found = Array.isArray(data) ? data.find((i: any) => i.id === id) : null;
         if (!found && id) {
           // Direct fallback by ID
@@ -1459,7 +1461,34 @@ export default function InitiativeDetail() {
 
         if (vpsRes.data) setDbVps(vpsRes.data);
         if (dirRes.data) setDbDirecciones(dirRes.data);
-        if (usersRes.data) setDbUsers(usersRes.data);
+
+        // Deduplicar usuarios combinados de allowed_users y profiles
+        const userMap = new Map<string, any>();
+        [...(usersRes?.data || []), ...(profilesRes?.data || [])].forEach((u: any) => {
+          const key = (u.email || u.name || '').toLowerCase().trim();
+          if (key) {
+            if (!userMap.has(key)) {
+              userMap.set(key, { ...u });
+            } else {
+              const existing = userMap.get(key);
+              userMap.set(key, {
+                ...existing,
+                ...u,
+                name: existing.name || u.name,
+                user_roles_whitelist: [
+                  ...(existing.user_roles_whitelist || []),
+                  ...(u.user_roles_whitelist || [])
+                ],
+                profile_roles: [
+                  ...(existing.profile_roles || []),
+                  ...(u.profile_roles || [])
+                ]
+              });
+            }
+          }
+        });
+        const combinedUsers = Array.from(userMap.values());
+        if (combinedUsers.length > 0) setDbUsers(combinedUsers);
         if (rolesRes?.data) setDbAppRoles(rolesRes.data);
       })
       .catch(console.error)
@@ -1604,6 +1633,41 @@ export default function InitiativeDetail() {
     );
   }, [activeWorkflow, initiative, userRolesList]);
 
+  const currentNode = useMemo(() => {
+    return activeWorkflow?.graph_json?.nodes?.find(
+      (n: any) => n.id === (initiative?.current_node_id || STATUS_TO_NODE[initiative?.status])
+    );
+  }, [activeWorkflow, initiative?.current_node_id, initiative?.status]);
+
+  // Permiso para Salto Manual ("Mover estado"):
+  // Controlado por la configuración del estado en el editor de workflow.
+  // Por defecto viene apagado en todos los estados.
+  // Al encenderlo, se restringe estrictamente al rol y al usuario específico de ese rol configurado.
+  const canManualMove = useMemo(() => {
+    if (!currentNode?.data?.allowManualStateMove) return false;
+
+    const targetRole = (currentNode.data.manualStateMoveRole as string)?.trim();
+    const targetUserId = (currentNode.data.manualStateMoveUserId as string)?.trim();
+    const targetUserEmail = (currentNode.data.manualStateMoveUserEmail as string)?.trim()?.toLowerCase();
+
+    // Si no se configuró un rol válido, no permitir
+    if (!targetRole) return false;
+
+    // 1. Verificar si el usuario actual posee el rol configurado
+    const userRoles = (profile?.profile_roles || []).map((r: any) => (r.role || '').toLowerCase());
+    const hasRole = userRoles.includes(targetRole.toLowerCase());
+    if (!hasRole) return false;
+
+    // 2. Si se configuró un usuario específico de ese rol, verificar coincidencia estricta
+    if (targetUserId || targetUserEmail) {
+      const matchId = Boolean(targetUserId && profile?.id === targetUserId);
+      const matchEmail = Boolean(targetUserEmail && (profile?.email || '').toLowerCase() === targetUserEmail);
+      return matchId || matchEmail;
+    }
+
+    return true;
+  }, [currentNode?.data, profile]);
+
   const canEditCurrentStage = useMemo(() => {
     if (isAdmin) return true;
     return Boolean(currentNodeRole?.can_edit);
@@ -1715,15 +1779,16 @@ export default function InitiativeDetail() {
     return exts.join(',');
   }, [observationFileOptions]);
 
-  // Historial consolidado de rondas de observación, subsanación y desestimaciones (Deduplicado y limpio)
+  // Historial consolidado de rondas de observación, subsanación, desestimaciones y reubicaciones manuales ("Movidas")
   const observationThreads = useMemo(() => {
     const history: any[] = initiative?.form_data?._observation_history || [];
     const currentObs = initiative?.form_data?._current_observation;
     const threads: Array<{
       id: string;
       roundNumber: number;
-      type: 'observation' | 'desestimacion';
+      type: 'observation' | 'desestimacion' | 'movida';
       stageName: string;
+      targetStage?: string;
       nodeId?: string;
       category?: string;
       questionDate: string;
@@ -1758,6 +1823,30 @@ export default function InitiativeDetail() {
           questionBy: h.user_name || 'Desconocido',
           questionRole: h.user_role || 'Rol no especificado',
           questionDetails: h.details || 'Iniciativa desestimada.',
+          isResolved: true,
+        });
+      } else if (act.includes('salto') || act.includes('mov') || act.includes('reubic')) {
+        if (currentThread) {
+          threads.push(currentThread);
+          currentThread = null;
+        }
+        const matchStages = (h.details || '').match(/de\s+'([^']+)'\s+hacia\s+'([^']+)'/i);
+        const fromStage = h.from_stage || (matchStages ? matchStages[1] : initiative?.status || 'Etapa no especificada');
+        const targetStage = h.target_stage || (matchStages ? matchStages[2] : '');
+        const reasonMatch = (h.details || '').match(/Motivo:\s*(.*)$/i);
+        const reason = h.reason || (reasonMatch ? reasonMatch[1] : h.details || '');
+
+        threads.push({
+          id: `mov_${idx}`,
+          roundNumber: roundCounter++,
+          type: 'movida',
+          stageName: fromStage,
+          targetStage: targetStage,
+          nodeId: h.from_node_id,
+          questionDate: h.date,
+          questionBy: h.user_name || 'Desconocido',
+          questionRole: h.user_role || 'Rol no especificado',
+          questionDetails: reason || h.details || 'Iniciativa reubicada manualmente.',
           isResolved: true,
         });
       } else if (act.includes('observad')) {
@@ -1865,6 +1954,21 @@ export default function InitiativeDetail() {
   const observationCount = useMemo(() => {
     return observationThreads.length;
   }, [observationThreads]);
+
+  const obsOnlyCount = useMemo(() => observationThreads.filter(t => t.type === 'observation').length, [observationThreads]);
+  const movOnlyCount = useMemo(() => observationThreads.filter(t => t.type === 'movida').length, [observationThreads]);
+  const desOnlyCount = useMemo(() => observationThreads.filter(t => t.type === 'desestimacion').length, [observationThreads]);
+
+  const filteredObservationThreads = useMemo(() => {
+    if (obsFilter === 'all') return observationThreads;
+    return observationThreads.filter(t => t.type === obsFilter);
+  }, [observationThreads, obsFilter]);
+
+  useEffect(() => {
+    if (activeDetailTab === 'observations' && observationCount === 0) {
+      setActiveDetailTab('info');
+    }
+  }, [activeDetailTab, observationCount]);
 
   // Helper to get eligible users for role_user fields (with global & scoped permission support)
   const getEligibleRoleUsers = useCallback((field: any, currentFd?: any) => {
@@ -2157,7 +2261,9 @@ export default function InitiativeDetail() {
         ];
       }
 
-      if (status !== initiative.status) {
+      const isFreeJump = Boolean(extraUpdates.is_free_jump || extraUpdates.transition_label === 'Salto Libre');
+
+      if (status !== initiative.status && !isFreeJump) {
         let actionLabel = extraUpdates.transition_label || extraUpdates.action_label;
         if (!actionLabel) {
           if (status === 'En demanda' && initiative.status === 'Desestimada') {
@@ -2204,6 +2310,7 @@ export default function InitiativeDetail() {
       const cleanExtra = { ...(extraUpdates || {}) };
       delete cleanExtra.target_node_id;
       delete cleanExtra.transition_label;
+      delete cleanExtra.is_free_jump;
       delete cleanExtra.gateway_node_id;
 
       const payload: any = { 
@@ -2691,6 +2798,10 @@ export default function InitiativeDetail() {
   };
 
   const handleExecuteFreeJump = async () => {
+    if (!canManualMove) {
+      showToast("No cuentas con autorización para reubicar manualmente esta iniciativa.", "error");
+      return;
+    }
     if (!freeJumpTargetNodeId) {
       showToast("Selecciona el estado destino al que deseas reubicar la iniciativa.", "warning");
       return;
@@ -2726,6 +2837,7 @@ export default function InitiativeDetail() {
         current_node_id: freeJumpTargetNodeId,
         target_node_id: freeJumpTargetNodeId,
         transition_label: 'Salto Libre',
+        is_free_jump: true,
         form_data: updatedFd,
       });
 
@@ -3203,6 +3315,139 @@ export default function InitiativeDetail() {
     }
   };
 
+  const currentNodeId = (initiative?.current_node_id || STATUS_TO_NODE[initiative?.status]) || '';
+  const isVPApprovalState = currentNodeId === 'aprob_vp' || /aprobaci[oó]n\s+vp/i.test(initiative?.status || '');
+  const isNonApproverState = ['start', 'borrador', 'observada', 'desestimada', 'end', 'iniciativa_planificada'].includes(currentNodeId.toLowerCase());
+
+  // La tarjeta de aprobadores solo se muestra si el nodo del workflow la tiene explícitamente encendida (por defecto APAGADA)
+  const shouldShowNextApprovers = !isNonApproverState && Boolean(currentNode?.data?.showNextApprovers === true);
+
+  const nextApproversList = useMemo(() => {
+    if (!shouldShowNextApprovers) return [];
+    const source = (currentNode?.data?.nextApproversSource as string) || (isVPApprovalState ? 'initiative_vp' : 'target_stage_roles');
+    const includeAdmin = Boolean(currentNode?.data?.includeAdminInApprovers);
+
+    const initVpName = (isEditMode ? editedFormData?.vicepresidencia : initiative?.form_data?.vicepresidencia) || initiative?.form_data?.vicepresidencia;
+
+    // Caso A: Etapa de Aprobación VP -> Mostrar el Vicepresidente asignado a la iniciativa (persona/rol, nunca el nombre pelado del área)
+    if (source === 'initiative_vp' || (isVPApprovalState && source !== 'target_stage_roles')) {
+      const vpUsers = dbUsers.filter((u: any) => {
+        const whitelist = Array.isArray(u.user_roles_whitelist) ? u.user_roles_whitelist : [];
+        if (whitelist.some((w: any) => ['vicepresidente_del_negocio', 'vp'].includes((w.role || '').toLowerCase().trim()))) return true;
+        const profileRoles = Array.isArray(u.profile_roles) ? u.profile_roles : [];
+        if (profileRoles.some((pr: any) => ['vicepresidente_del_negocio', 'vp'].includes((pr.role || '').toLowerCase().trim()))) return true;
+        if (['vicepresidente_del_negocio', 'vp'].includes((u.role || '').toLowerCase().trim())) return true;
+        return false;
+      });
+
+      const matchedVp = dbVps.find(v => v.name === initVpName || v.id === initVpName);
+      const vpPersonName = matchedVp?.bp_name || (vpUsers.length > 0 ? vpUsers[0].name : null);
+      const vpEmail = matchedVp?.email || (vpUsers.length > 0 ? vpUsers[0].email : null);
+
+      const list = [{
+        id: matchedVp?.id || 'vp_assigned',
+        name: vpPersonName ? vpPersonName : `Vicepresidente de ${initVpName || 'Área'}`,
+        person: initVpName ? `Vicepresidencia ${initVpName}` : 'Vicepresidencia',
+        email: vpEmail,
+        role: 'Vicepresidente del Negocio'
+      }];
+
+      if (includeAdmin) {
+        list.push({
+          id: 'admin_role',
+          name: 'Administrador del Sistema',
+          person: null,
+          email: null,
+          role: 'Administrador'
+        });
+      }
+      return list;
+    }
+
+    // Caso B: Estándar para todos los demás estados -> Roles y Evaluadores del Estado (target_stage_roles)
+    const stageRoles = (currentNode?.data?.roles || []) as any[];
+    const filteredRoles = includeAdmin
+      ? stageRoles
+      : stageRoles.filter(r => {
+          const roleStr = (r.role_name || r.name || '').toLowerCase();
+          return roleStr !== 'admin' && roleStr !== 'administrador';
+        });
+
+    const result: Array<{ id: string; name: string; person: string | null; email: string | null; role: string }> = [];
+
+    for (const r of filteredRoles) {
+      const roleName = r.role_name || r.name || '';
+      const roleLower = roleName.toLowerCase().trim();
+
+      // Si la iniciativa ya tiene una persona específica asignada en su expediente para este rol:
+      let assignedPersonName: string | null = null;
+      if (roleLower === 'bp_ti') assignedPersonName = (initiative?.form_data?.bp_ti_asignado as string) || null;
+      if (roleLower === 'lider_de_dominio') assignedPersonName = (initiative?.form_data?.lider_tecnico_asignado as string) || null;
+      if (roleLower === 'business_owner') assignedPersonName = (initiative?.form_data?.business_owner as string) || (initiative?.form_data?.bo_asignado as string) || null;
+
+      // Buscar personas registradas en el sistema con este rol
+      const matchingUsers = dbUsers.filter((u: any) => {
+        const whitelist = Array.isArray(u.user_roles_whitelist) ? u.user_roles_whitelist : [];
+        if (whitelist.some((w: any) => (w.role || '').toLowerCase().trim() === roleLower)) return true;
+
+        const profileRoles = Array.isArray(u.profile_roles) ? u.profile_roles : [];
+        if (profileRoles.some((pr: any) => (pr.role || '').toLowerCase().trim() === roleLower)) return true;
+
+        if ((u.role || '').toLowerCase().trim() === roleLower) return true;
+        if (Array.isArray(u.roles) && u.roles.some((ro: string) => ro.toLowerCase().trim() === roleLower)) return true;
+
+        return false;
+      });
+
+      if (assignedPersonName) {
+        const existingInDb = matchingUsers.find((u: any) => 
+          (u.name || '').toLowerCase().trim() === assignedPersonName!.toLowerCase().trim() ||
+          (u.email || '').toLowerCase().trim() === assignedPersonName!.toLowerCase().trim()
+        );
+        result.push({
+          id: existingInDb?.id || assignedPersonName,
+          name: existingInDb?.name || assignedPersonName,
+          person: `${formatRoleName(roleName)} Asignado`,
+          email: existingInDb?.email || null,
+          role: formatRoleName(roleName)
+        });
+        continue;
+      }
+
+      if (matchingUsers.length > 0) {
+        matchingUsers.forEach((u: any) => {
+          const normName = (u.name || '').toLowerCase().trim();
+          const normEmail = (u.email || '').toLowerCase().trim();
+          const isAlreadyAdded = result.some(existing => {
+            const exName = (existing.name || '').toLowerCase().trim();
+            const exEmail = (existing.email || '').toLowerCase().trim();
+            return (normEmail && exEmail && normEmail === exEmail) || (normName && exName && normName === exName);
+          });
+
+          if (!isAlreadyAdded) {
+            result.push({
+              id: u.id || u.email || u.name,
+              name: u.name,
+              person: null,
+              email: u.email || null,
+              role: formatRoleName(roleName)
+            });
+          }
+        });
+      } else {
+        result.push({
+          id: r.id || roleName,
+          name: formatRoleName(roleName),
+          person: null,
+          email: null,
+          role: 'Rol Requerido'
+        });
+      }
+    }
+
+    return result;
+  }, [shouldShowNextApprovers, currentNode?.data, dbVps, dbUsers, isEditMode, editedFormData?.vicepresidencia, initiative?.form_data?.vicepresidencia, isVPApprovalState]);
+
   if (loading) return (
     <div className="py-20 flex justify-center items-center">
       <InstitutionalLoader 
@@ -3222,10 +3467,6 @@ export default function InitiativeDetail() {
   const s = initiative.summary ?? {};
   const fd = initiative.form_data ?? {};
   const title = s.titulo ?? Object.values(fd)[0] ?? initiative.id;
-
-  const currentNode = activeWorkflow?.graph_json?.nodes?.find(
-    (n: any) => n.id === (initiative?.current_node_id || STATUS_TO_NODE[initiative?.status])
-  );
   const currentStatusLabel = currentNode?.data?.label || initiative.status;
 
   const nodeSubtype = currentNode?.data?.stateSubtype;
@@ -3461,8 +3702,8 @@ export default function InitiativeDetail() {
                 </button>
               )}
 
-              {/* Botón de Salto Libre a Cualquier Estado (Ítem 17) */}
-              {!isEditMode && (
+              {/* Botón de Salto Libre a Cualquier Estado (Controlado por la configuración del Estado) */}
+              {!isEditMode && canManualMove && (
                 <button
                   type="button"
                   onClick={() => setShowFreeJumpModal(true)}
@@ -4049,56 +4290,69 @@ export default function InitiativeDetail() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Tabs & Initiative Content (7 cols on lg, 8 on xl) */}
-        <div className="lg:col-span-7 xl:col-span-7 space-y-6">
+        <div className="lg:col-span-7 xl:col-span-8 space-y-6">
           {/* Navigation Tabs */}
-          <div className="flex items-center gap-1.5 p-1.5 bg-slate-100/80 rounded-2xl border border-slate-200/80 w-full sm:w-fit overflow-x-auto shadow-2xs">
+          <div className="flex items-center gap-1.5 p-1.5 bg-slate-100/90 rounded-2xl border border-slate-200/90 w-full sm:w-fit overflow-x-auto shadow-2xs">
             <button
               type="button"
               onClick={() => setActiveDetailTab('info')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeDetailTab === 'info'
                   ? 'bg-white text-[#4F5AF5] shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
-              <FileText className="w-4 h-4" />
-              <span>Información de la Necesidad</span>
+              <FileText className={`w-4 h-4 shrink-0 transition-colors ${activeDetailTab === 'info' ? 'text-[#4F5AF5]' : 'text-slate-500'}`} />
+              <span>Información</span>
+              <span className="hidden xl:inline"> de la Necesidad</span>
             </button>
+
             <button
               type="button"
               onClick={() => setActiveDetailTab('history')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 activeDetailTab === 'history'
                   ? 'bg-white text-[#4F5AF5] shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
               }`}
             >
-              <Clock className="w-4 h-4" />
-              <span>Trazabilidad & Cambios</span>
+              <Clock className={`w-4 h-4 shrink-0 transition-colors ${activeDetailTab === 'history' ? 'text-[#4F5AF5]' : 'text-slate-500'}`} />
+              <span>Trazabilidad</span>
+              <span className="hidden xl:inline"> & Cambios</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveDetailTab('observations')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                activeDetailTab === 'observations'
-                  ? 'bg-white text-amber-800 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <MessageSquare className="w-4 h-4 text-amber-600" />
-              <span>Observaciones</span>
-              {observationCount > 0 && (
-                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black leading-none ${
+
+            {observationCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveDetailTab('observations')}
+                className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  activeDetailTab === 'observations'
+                    ? isObservedState
+                      ? 'bg-white text-amber-800 shadow-xs'
+                      : 'bg-white text-[#4F5AF5] shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                }`}
+              >
+                <MessageSquare className={`w-4 h-4 shrink-0 transition-colors ${
+                  activeDetailTab === 'observations'
+                    ? isObservedState ? 'text-amber-600' : 'text-[#4F5AF5]'
+                    : 'text-slate-500'
+                }`} />
+                <span>Observaciones</span>
+                <span className="hidden xl:inline"> & Movimientos</span>
+                <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black leading-none transition-all ${
                   isObservedState 
                     ? 'bg-amber-500 text-white animate-pulse' 
                     : isDesestimadaState
                     ? 'bg-rose-500 text-white'
-                    : 'bg-amber-100 text-amber-800 border border-amber-200'
+                    : activeDetailTab === 'observations'
+                    ? 'bg-indigo-50 text-[#4F5AF5] border border-indigo-200/80'
+                    : 'bg-slate-200 text-slate-700'
                 }`}>
                   {observationCount}
                 </span>
-              )}
-            </button>
+              </button>
+            )}
           </div>
 
           {activeDetailTab === 'info' && (
@@ -5076,12 +5330,12 @@ export default function InitiativeDetail() {
                               </p>
                             </div>
                             <div className="flex items-center gap-1">
-                              {file.url && (
+                              {isImage && file.url && (
                                 <button
                                   type="button"
                                   onClick={() => setPreviewFile({ url: file.url, name: file.name, type: file.type })}
                                   className="text-[#64748B] hover:text-[#4F5AF5] transition-colors p-1"
-                                  title="Vista previa"
+                                  title="Vista previa de imagen"
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
@@ -5230,78 +5484,90 @@ export default function InitiativeDetail() {
             </div>
           )}
 
-                {/* Dictámenes Vigentes de Etapas Previas Integrados en la Solicitud Completa */}
-                {selectedTimelineStageKey === null && latestStageRecords.length > 0 && (
-                  <div className="space-y-4 pt-4 border-t border-slate-200">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-5 h-5 text-[#4F5AF5]" />
-                      <h3 className="text-sm font-bold text-slate-900">
-                        Evaluaciones & Dictámenes Vigentes de Etapas Previas
-                      </h3>
-                    </div>
-                    {latestStageRecords.map((record) => (
-                      <div key={record.id} className="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                              <Check className="w-3.5 h-3.5 stroke-[3]" />
-                            </span>
-                            <h4 className="text-sm font-bold text-slate-900">
-                              {record.stage_name}
-                            </h4>
-                            {record.action_taken === 'observado' && (
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                                Observado
-                              </span>
-                            )}
-                          </div>
+                {/* Dictámenes Vigentes de Etapas Previas Integrados en la Solicitud Completa (se excluye Borrador / Registro que ya se muestra arriba) */}
+                {(() => {
+                  const priorEvaluationRecords = latestStageRecords.filter(r => {
+                    const node = (r.node_id || '').toLowerCase();
+                    const stage = (r.stage_name || '').toLowerCase();
+                    return node !== 'borrador' && !stage.includes('borrador') && !stage.includes('registro');
+                  });
 
-                          <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                            <span>
-                              Evaluado por: <strong className="text-slate-800 font-semibold">{record.user_name || 'Evaluador'}</strong> ({record.user_role || 'BP TI'})
-                            </span>
-                            <span>•</span>
-                            <span>
-                              {formatDateTimeDDMMYYYY(record.submitted_at)}
-                            </span>
-                          </div>
-                        </div>
+                  if (selectedTimelineStageKey !== null || priorEvaluationRecords.length === 0) {
+                    return null;
+                  }
 
-                        {/* Consent certification pill */}
-                        {record.consent_text_snapshot && (
-                          <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-xs text-emerald-900">
-                            <div className="flex items-center gap-1.5 font-bold text-emerald-800 text-[11px] mb-1">
-                              <Lock className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Consentimiento Certificado Digitalmente:</span>
-                            </div>
-                            <p className="italic font-sans text-slate-700 text-[11px] leading-relaxed">
-                              "{record.consent_text_snapshot}"
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Form data */}
-                        {record.form_data && Object.keys(record.form_data).length > 0 && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
-                            {Object.entries(record.form_data).map(([k, v]) => {
-                              if (v === undefined || v === null || v === '' || typeof v === 'object') return null;
-                              return (
-                                <div key={k} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-xs">
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">
-                                    {formatStageFieldLabel(k)}
-                                  </span>
-                                  <span className={`font-semibold ${k === 'presupuesto_estimado_usd' ? 'text-indigo-900 font-black' : 'text-slate-800'}`}>
-                                    {formatStageFieldValue(k, v)}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                  return (
+                    <div className="space-y-4 pt-4 border-t border-slate-200">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-[#4F5AF5]" />
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Evaluaciones & Dictámenes Vigentes de Etapas Previas
+                        </h3>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {priorEvaluationRecords.map((record) => (
+                        <div key={record.id} className="p-5 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                              </span>
+                              <h4 className="text-sm font-bold text-slate-900">
+                                {record.stage_name}
+                              </h4>
+                              {record.action_taken === 'observado' && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  Observado
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                              <span>
+                                Evaluado por: <strong className="text-slate-800 font-semibold">{record.user_name || 'Evaluador'}</strong> ({record.user_role || 'BP TI'})
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {formatDateTimeDDMMYYYY(record.submitted_at)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Consent certification pill */}
+                          {record.consent_text_snapshot && (
+                            <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-xs text-emerald-900">
+                              <div className="flex items-center gap-1.5 font-bold text-emerald-800 text-[11px] mb-1">
+                                <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Consentimiento Certificado Digitalmente:</span>
+                              </div>
+                              <p className="italic font-sans text-slate-700 text-[11px] leading-relaxed">
+                                "{record.consent_text_snapshot}"
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Form data */}
+                          {record.form_data && Object.keys(record.form_data).length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+                              {Object.entries(record.form_data).map(([k, v]) => {
+                                if (v === undefined || v === null || v === '' || typeof v === 'object') return null;
+                                return (
+                                  <div key={k} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">
+                                      {formatStageFieldLabel(k)}
+                                    </span>
+                                    <span className={`font-semibold ${k === 'presupuesto_estimado_usd' ? 'text-indigo-900 font-black' : 'text-slate-800'}`}>
+                                      {formatStageFieldValue(k, v)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
                 </>
               )}
             </div>
@@ -5466,7 +5732,7 @@ export default function InitiativeDetail() {
           )}
 
           {/* TAB 3: CONVERSACIÓN, OBSERVACIONES Y DESESTIMACIONES */}
-          {activeDetailTab === 'observations' && (
+          {activeDetailTab === 'observations' && observationCount > 0 && (
             <div className="space-y-6">
               <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
                 {/* Encabezado del Tab */}
@@ -5477,20 +5743,105 @@ export default function InitiativeDetail() {
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-slate-900 tracking-tight">
-                        Historial de Observaciones
+                        Historial de Observaciones, Desestimaciones y Reubicaciones
                       </h3>
                       <p className="text-xs text-slate-400 font-normal">
-                        Trazabilidad de cuestionamientos, acuerdos y respuestas de subsanación
+                        Trazabilidad de cuestionamientos, acuerdos, reubicaciones de estado y respuestas de subsanación
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200/70">
-                      {observationThreads.length} {observationThreads.length === 1 ? 'ronda registrada' : 'rondas registradas'}
+                      {observationThreads.length} {observationThreads.length === 1 ? 'registro' : 'registros'}
                     </span>
                   </div>
                 </div>
+
+                {/* Filtros por Categoría de Evento (Solo si hay más de 1 tipo o varios registros) */}
+                {observationThreads.length > 1 && (
+                  <div className="px-6 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center gap-2 overflow-x-auto">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider shrink-0 mr-1">
+                      Filtrar:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setObsFilter('all')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                        obsFilter === 'all'
+                          ? 'bg-slate-900 text-white shadow-2xs'
+                          : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Todos</span>
+                      <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                        obsFilter === 'all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {observationThreads.length}
+                      </span>
+                    </button>
+
+                    {obsOnlyCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setObsFilter('observation')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                          obsFilter === 'observation'
+                            ? 'bg-amber-600 text-white shadow-2xs'
+                            : 'bg-white text-amber-800 border border-amber-200/80 hover:bg-amber-50/50'
+                        }`}
+                      >
+                        <AlertTriangle className="w-3 h-3" />
+                        <span>Observaciones</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                          obsFilter === 'observation' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {obsOnlyCount}
+                        </span>
+                      </button>
+                    )}
+
+                    {movOnlyCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setObsFilter('movida')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                          obsFilter === 'movida'
+                            ? 'bg-purple-700 text-white shadow-2xs'
+                            : 'bg-white text-purple-700 border border-purple-200/80 hover:bg-purple-50/50'
+                        }`}
+                      >
+                        <Shuffle className="w-3 h-3" />
+                        <span>Reubicaciones</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                          obsFilter === 'movida' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-700'
+                        }`}>
+                          {movOnlyCount}
+                        </span>
+                      </button>
+                    )}
+
+                    {desOnlyCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setObsFilter('desestimacion')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                          obsFilter === 'desestimacion'
+                            ? 'bg-rose-600 text-white shadow-2xs'
+                            : 'bg-white text-rose-700 border border-rose-200/80 hover:bg-rose-50/50'
+                        }`}
+                      >
+                        <Ban className="w-3 h-3" />
+                        <span>Desestimaciones</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                          obsFilter === 'desestimacion' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-700'
+                        }`}>
+                          {desOnlyCount}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Banner de alerta de estado actual */}
                 {isObservedState && (
@@ -5523,21 +5874,33 @@ export default function InitiativeDetail() {
 
                 {/* Listado de Rondas y Dictámenes */}
                 <div className="p-6 space-y-6">
-                  {observationThreads.length === 0 ? (
+                  {filteredObservationThreads.length === 0 ? (
                     <div className="text-center py-12 px-4 space-y-3">
                       <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-400">
                         <CheckCircle className="w-6 h-6 text-emerald-500" />
                       </div>
                       <h4 className="text-sm font-bold text-slate-800">
-                        Sin observaciones registradas
+                        {obsFilter === 'all' ? 'Sin registros' : 'Sin eventos para este filtro'}
                       </h4>
                       <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                        Esta iniciativa no presenta cuestionamientos ni antecedentes de desestimación en su ciclo de vida.
+                        {obsFilter === 'all'
+                          ? 'Esta iniciativa no presenta cuestionamientos, antecedentes de desestimación ni reubicaciones manuales en su ciclo de vida.'
+                          : 'No se encontraron registros que coincidan con la categoría seleccionada.'}
                       </p>
+                      {obsFilter !== 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => setObsFilter('all')}
+                          className="text-xs font-bold text-[#4F5AF5] hover:underline pt-1 cursor-pointer"
+                        >
+                          Ver todos los eventos
+                        </button>
+                      )}
                     </div>
                   ) : (
-                    observationThreads.map((thread, tIdx) => {
+                    filteredObservationThreads.map((thread, tIdx) => {
                       const isDesestimacion = thread.type === 'desestimacion';
+                      const isMovida = thread.type === 'movida';
 
                       if (isDesestimacion) {
                         return (
@@ -5574,6 +5937,57 @@ export default function InitiativeDetail() {
                                 </span>
                               </div>
                               <div className="p-4 rounded-xl bg-rose-50/30 border border-rose-200/70 text-xs sm:text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+                                <p className="font-normal text-slate-700">{thread.questionDetails}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (isMovida) {
+                        return (
+                          <div 
+                            key={thread.id || tIdx} 
+                            className="rounded-2xl border border-purple-200/90 bg-white overflow-hidden shadow-xs hover:border-purple-300 transition-all"
+                          >
+                            {/* Header Movida / Salto Manual */}
+                            <div className="px-5 py-3 bg-gradient-to-r from-purple-50/90 via-indigo-50/40 to-white border-b border-purple-100 flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-2.5 py-0.5 rounded-md bg-purple-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                                  <Shuffle className="w-3 h-3" /> Reubicación Manual de Estado
+                                </span>
+                                <span className="text-xs text-slate-600 font-medium flex items-center gap-1">
+                                  <span>De: <strong className="text-slate-800">{thread.stageName}</strong></span>
+                                  {thread.targetStage && (
+                                    <>
+                                      <ArrowRight className="w-3 h-3 text-purple-500 shrink-0 inline mx-0.5" />
+                                      <span>Hacia: <strong className="text-purple-700">{thread.targetStage}</strong></span>
+                                    </>
+                                  )}
+                                </span>
+                              </div>
+                              {thread.questionDate && (
+                                <span className="text-[11px] text-slate-400 font-medium">
+                                  {formatDateTimeDDMMYYYY(thread.questionDate)}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Contenido Movida */}
+                            <div className="p-5 space-y-3">
+                              <div className="flex items-center gap-2 text-xs text-slate-600">
+                                <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-[10px] font-bold">
+                                  {(thread.questionBy || 'U').substring(0, 2).toUpperCase()}
+                                </div>
+                                <span>Movido por: <strong className="text-slate-900">{thread.questionBy}</strong></span>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-200/60">
+                                  {formatRoleName(thread.questionRole)}
+                                </span>
+                              </div>
+                              <div className="p-4 rounded-xl bg-purple-50/40 border border-purple-200/70 text-xs sm:text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">
+                                <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-800 block mb-1">
+                                  Motivo / Justificación del Salto de Estado:
+                                </span>
                                 <p className="font-normal text-slate-700">{thread.questionDetails}</p>
                               </div>
                             </div>
@@ -5747,18 +6161,31 @@ export default function InitiativeDetail() {
         </div>
 
     {/* Right Column: Stage Form & Decision Panel (Sticky on Desktop) */}
-    <div className="lg:col-span-5 xl:col-span-5 lg:sticky lg:top-6 space-y-5">
+    <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-6 space-y-5">
 {/* ══════════════════════════════════════════════════════════════════ */}
           {/* ── FICHA DE DICTAMEN & CONSENTIMIENTO DE ETAPA (ACTIVA) ────────── */}
           {(activeNodeForm || activeNodeConsent) && canActOnCurrentStage && initiative.status !== 'Desestimada' && initiative.status !== 'Borrador' && (initiative.current_node_id || STATUS_TO_NODE[initiative.status]) !== 'borrador' && (
             <div className="bg-white rounded-2xl border-2 border-indigo-200 shadow-md shadow-indigo-500/5 overflow-hidden">
-              <div className="px-6 py-4 bg-gradient-to-r from-indigo-50 via-white to-indigo-50/30 border-b border-indigo-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#4F5AF5] to-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-                    <FileCheck2 className="w-5 h-5" />
+              {/* Encabezado Ficha de Etapa / Formulario Activo */}
+              <div className="p-5 bg-gradient-to-br from-indigo-50/80 via-white to-indigo-50/20 border-b border-indigo-100 space-y-3">
+                {/* Meta Header: Etiqueta de tipo y Badge de obligatoriedad */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-indigo-100/80 text-[#4F5AF5] border border-indigo-200/70 shadow-2xs">
+                    {activeNodeConsent ? <ShieldCheck className="w-3 h-3 text-[#4F5AF5]" /> : <FileCheck2 className="w-3 h-3 text-[#4F5AF5]" />}
+                    {activeNodeConsent ? 'Consentimiento de Etapa' : 'Formulario Requerido'}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-800 border border-amber-200 uppercase tracking-wider shadow-2xs">
+                    Requerido
+                  </span>
+                </div>
+
+                {/* Título Principal y Etapa Responsable */}
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#4F5AF5] to-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-500/25 shrink-0 mt-0.5">
+                    {activeNodeConsent ? <FileSignature className="w-4 h-4" /> : <FileCheck2 className="w-4 h-4" />}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-black text-slate-900">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-extrabold text-slate-900 leading-snug tracking-tight break-words">
                       {activeNodeForm?.name || activeNodeConsent?.title || (
                         `Información por Completar por ${
                           (userRolesList[0] === 'bp_ti' || isBP || /bp/i.test(activeWorkflow?.graph_json?.nodes?.find((n: any) => n.id === (initiative.current_node_id || STATUS_TO_NODE[initiative.status]))?.data?.label || ''))
@@ -5767,9 +6194,10 @@ export default function InitiativeDetail() {
                         }`
                       )}
                     </h3>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider">
-                      Requerido
-                    </span>
+                    <p className="text-[11px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span>Etapa:</span>
+                      <strong className="text-slate-800 font-semibold">{currentStatusLabel}</strong>
+                    </p>
                   </div>
                 </div>
               </div>
@@ -6088,6 +6516,55 @@ export default function InitiativeDetail() {
                   <div className="flex items-center justify-between p-3 rounded-xl bg-indigo-50/60 border border-indigo-100">
                     <span className="font-semibold text-indigo-700">BP TI Responsable:</span>
                     <span className="font-bold text-indigo-900">{fd.bp_ti_asignado}</span>
+                  </div>
+                )}
+
+                {/* Aprobadores Siguientes (Configurable en Workflow) */}
+                {shouldShowNextApprovers && (
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-50/50 via-slate-50 to-white border border-indigo-100/90 shadow-2xs space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                        {currentNode?.data?.nextApproversTitle || 'Aprobadores siguientes:'}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-[#4F5AF5] border border-indigo-200/70">
+                        {nextApproversList.length} {nextApproversList.length === 1 ? 'aprobador' : 'aprobadores'}
+                      </span>
+                    </div>
+
+                    <div className="bg-white border border-slate-200/80 rounded-xl overflow-hidden divide-y divide-slate-100 shadow-2xs">
+                      {nextApproversList.length === 0 ? (
+                        <div className="p-3 text-center text-slate-400 italic text-[11px]">
+                          Sin aprobadores asignados para esta etapa
+                        </div>
+                      ) : (
+                        <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+                          {nextApproversList.map((vp) => (
+                            <div key={vp.id} className="p-2.5 px-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                              <div className="min-w-0 pr-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                  <span className="font-bold text-slate-800 truncate text-xs">
+                                    {vp.name}
+                                  </span>
+                                </div>
+                                {vp.person && (
+                                  <span className="text-[11px] text-slate-500 block truncate pl-3">
+                                    {vp.person}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Disclaimer de aprobación */}
+                    <div className="p-2.5 bg-indigo-50/70 border border-indigo-100/80 rounded-xl flex items-start gap-2 text-[11px] text-indigo-900 leading-snug">
+                      <Info className="w-3.5 h-3.5 text-[#4F5AF5] shrink-0 mt-0.5" />
+                      <span>Cualquiera de estas personas tiene el permiso para avanzar en la siguiente etapa.</span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -6428,9 +6905,14 @@ export default function InitiativeDetail() {
                   rows={4}
                   className="w-full p-3.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none text-sm text-slate-800 leading-relaxed"
                 />
-                <span className="text-[11px] text-slate-400 mt-1 block">
-                  Mínimo 10 caracteres requeridos para auditoría.
-                </span>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-[11px] text-slate-400">
+                    Mínimo 10 caracteres requeridos para auditoría.
+                  </span>
+                  <span className={`text-[11px] font-mono font-semibold ${freeJumpReason.trim().length >= 10 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {freeJumpReason.trim().length}/10 caracteres
+                  </span>
+                </div>
               </div>
 
               {/* Banner de auditoría */}

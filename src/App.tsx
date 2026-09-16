@@ -23,6 +23,7 @@ import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
 import { formatDateTimeDDMMYYYY, formatRoleName, SYSTEM_ROLES_MAP } from './lib/utils';
 import { InstitutionalLoader } from './components/common/InstitutionalLoader';
+import { formatHtmlText, stripHtml } from './lib/formatHtml';
 
 const ADMIN_PATHS = ['/admin', '/admin/agentes', '/admin/usuarios', '/admin/estructura', '/admin/ia-training', '/admin/correos', '/admin/cargas-masivas', '/admin/flujo-estados', '/admin/arquitectura', '/admin/pdf-template', '/admin/workflow-editor', '/admin/workflow-simulator', '/admin/formularios-consentimientos'];
 
@@ -62,16 +63,20 @@ function Layout({ children }: { children: React.ReactNode }) {
       const fetchDrafts = async () => {
         const { data } = await supabase
           .from('initiatives')
-          .select('id, form_data, created_at, updated_at, user_id')
+          .select('id, form_data, created_at, updated_at, user_id, chat_history, summary')
           .eq('status', 'Borrador')
           .order('updated_at', { ascending: false, nullsFirst: false });
         if (data) {
-          // Filter by user_id (new drafts) OR by registrador name (legacy drafts without user_id)
-          const myDrafts = data.filter(d =>
-            d.user_id === profile.id ||
-            (!d.user_id && d.form_data?.registrador === profile.name)
-          );
-          setDrafts(myDrafts);
+          // Filtro: solo iniciativas que se quedaron en chat y NO llegaron al resumen
+          const pendingChats = data.filter(d => {
+            const isMine = d.user_id === profile.id || (!d.user_id && d.form_data?.registrador === profile.name);
+            if (!isMine) return false;
+            const hasSummary = d.summary && typeof d.summary === 'object' && Object.keys(d.summary).length > 0 && (d.summary.titulo || d.summary.objetivo);
+            const reachedSummary = Boolean(d.form_data?._reached_summary);
+            const hasChat = Array.isArray(d.chat_history) && d.chat_history.length > 0;
+            return !hasSummary && !reachedSummary && hasChat;
+          });
+          setDrafts(pendingChats);
         }
       };
       fetchDrafts();
@@ -183,7 +188,6 @@ function Layout({ children }: { children: React.ReactNode }) {
         { name: 'Formularios y Consentimientos', path: '/admin/formularios-consentimientos', icon: FileCheck2 },
         { name: 'Simulador de Flujos', path: '/admin/workflow-simulator', icon: Play },
         { name: 'Flujo de Estados', path: '/admin/flujo-estados', icon: GitBranch },
-        { name: 'Plantilla PDF', path: '/admin/pdf-template', icon: FileText },
         { name: 'Arquitectura C4', path: '/admin/arquitectura', icon: Network },
       ]
     },
@@ -362,7 +366,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                     <div className="fixed inset-0 z-40" onClick={() => setDraftsOpen(false)} />
                     <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-lg border border-[#e4e6ea] z-50 overflow-hidden">
                       <div className="px-4 py-3 border-b border-[#e4e6ea] bg-[#f7f8fc]">
-                        <h3 className="text-xs font-bold text-[#1a1a2e] uppercase tracking-wider">Chats en curso</h3>
+                        <h3 className="text-xs font-bold text-[#1a1a2e] uppercase tracking-wider">Chats pendientes</h3>
                       </div>
                       <div className="max-h-64 overflow-y-auto p-2">
                         {drafts.length === 0 ? (
@@ -374,13 +378,15 @@ function Layout({ children }: { children: React.ReactNode }) {
                               className="group flex items-center justify-between p-2 rounded-lg hover:bg-[#f7f8fc] transition-colors border border-transparent hover:border-[#e4e6ea] mb-1"
                             >
                               <Link
-                                to={`/iniciativa/${d.id}`}
+                                to={`/nueva/${d.id}`}
                                 onClick={() => setDraftsOpen(false)}
                                 className="flex-1 min-w-0 pr-2"
                               >
-                                <p className="text-sm font-semibold text-[#1a1a2e] truncate" title={d.form_data?.titulo || "Sin título"}>
-                                  {d.form_data?.titulo || "Sin título"}
-                                </p>
+                                <p
+                                  className="text-sm font-semibold text-[#1a1a2e] truncate"
+                                  title={stripHtml(d.form_data?.titulo, "Chat en curso con TEO")}
+                                  dangerouslySetInnerHTML={{ __html: formatHtmlText(d.form_data?.titulo, "Chat en curso con TEO") }}
+                                />
                                 <p className="text-[10px] text-[#9ca3af] mt-0.5">
                                   {formatDateTimeDDMMYYYY(d.updated_at || d.created_at)}
                                 </p>
@@ -389,7 +395,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                                 type="button"
                                 onClick={(e) => handleDeleteDraft(e, d.id)}
                                 className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors shrink-0"
-                                title="Eliminar borrador"
+                                title="Eliminar chat pendiente"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -685,9 +691,9 @@ function Layout({ children }: { children: React.ReactNode }) {
                 <Trash2 className="w-5 h-5" />
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-base font-bold text-slate-900">¿Eliminar borrador?</h3>
+                <h3 className="text-base font-bold text-slate-900">¿Eliminar chat pendiente?</h3>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  ¿Estás seguro de que deseas eliminar este borrador de forma permanente? Esta acción no se puede deshacer.
+                  ¿Estás seguro de que deseas descartar esta conversación pendiente con TEO? Esta acción no se puede deshacer.
                 </p>
               </div>
             </div>

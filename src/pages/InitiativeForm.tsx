@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye, Calendar, Trash2, Video as VideoIcon, Music as AudioIcon, Volume2 } from "lucide-react";
+import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye, Calendar, Trash2, Video as VideoIcon, Music as AudioIcon, Volume2, Download, ListChecks } from "lucide-react";
 import STTWorker from '../workers/stt.worker?worker';
 import { FieldDefinition } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import ReactMarkdown from "react-markdown";
 import { EnterpriseDatePicker } from "../components/common/EnterpriseDatePicker";
+import { parseHtmlToMarkdown, formatHtmlText } from "../lib/formatHtml";
 
 // ─── Input styles ─────────────────────────────────────────────────────────────
 const inputCls = "w-full border border-[#E2E8F0] hover:border-[#CBD5E1] bg-white rounded-xl px-3.5 py-2.5 text-sm text-[#1E293B] placeholder-[#94A3B8] focus:outline-none focus:ring-2 focus:ring-[#EB5F46]/20 focus:border-[#EB5F46] transition-all disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]";
@@ -113,6 +114,50 @@ function MultiSelectDropdown({ options, selected, onChange, disabled, placeholde
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Stable Auto-Resize Textarea (Prevents layout shift and scroll jump) ──────
+function AutoResizeTextarea({
+  value,
+  onChange,
+  onBlur,
+  required,
+  disabled,
+  placeholder,
+  className
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  onBlur?: () => void;
+  required?: boolean;
+  disabled?: boolean;
+  placeholder?: string;
+  className?: string;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (el) {
+      // Preserve current height temporarily to avoid collapse jump, then fit to scrollHeight
+      el.style.height = 'auto';
+      el.style.height = `${Math.max(el.scrollHeight, 42)}px`;
+    }
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      onBlur={onBlur}
+      required={required}
+      disabled={disabled}
+      placeholder={placeholder}
+      className={className}
+      rows={1}
+    />
   );
 }
 
@@ -471,34 +516,59 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
           disabled={disabled}
         />
         
-        {fileObj ? (
-          <div className="flex items-center gap-2 bg-[#EEF2FF] border border-[#C7D2FE] rounded-lg px-3 py-2">
-            {fileObj.name.toLowerCase().endsWith('.png') || fileObj.name.toLowerCase().endsWith('.jpg') || fileObj.name.toLowerCase().endsWith('.jpeg') || fileObj.name.toLowerCase().endsWith('.webp') ? (
-              <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
-            ) : (
-              <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
-            )}
-            <span className="text-xs font-semibold text-[#4F5AF5] flex-1 truncate">{fileObj.name}</span>
-            {fileObj.url && (
+        {fileObj ? (() => {
+          const isImage = Boolean(
+            fileObj.name?.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i) ||
+            fileObj.type?.startsWith('image/')
+          );
+
+          return (
+            <div className="flex items-center gap-2 bg-[#EEF2FF] border border-[#C7D2FE] rounded-lg px-3 py-2">
+              {isImage ? (
+                <ImageIcon className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+              ) : (
+                <FileText className="w-4 h-4 text-[#4F5AF5] shrink-0" />
+              )}
+              <span className="text-xs font-semibold text-[#4F5AF5] flex-1 truncate">{fileObj.name}</span>
+              
+              {/* Vista previa SOLO para imágenes */}
+              {isImage && fileObj.url && (
+                <button 
+                  type="button" 
+                  onClick={() => onPreview?.({ url: fileObj.url || '', name: fileObj.name, type: fileObj.type })}
+                  className="text-[#4F5AF5] hover:text-[#3F49E0] transition-colors p-1"
+                  title="Ver imagen"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Botón de descarga para todos los archivos con url */}
+              {fileObj.url && (
+                <a 
+                  href={fileObj.url}
+                  download={fileObj.name}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#4F5AF5] hover:text-[#3F49E0] transition-colors p-1 flex items-center"
+                  title="Descargar archivo"
+                >
+                  <Download className="w-4 h-4" />
+                </a>
+              )}
+
               <button 
                 type="button" 
-                onClick={() => onPreview?.({ url: fileObj.url || '', name: fileObj.name, type: fileObj.type })}
-                className="text-[#4F5AF5] hover:text-[#3F49E0] transition-colors p-1"
-                title="Ver vista previa"
+                onClick={handleRemove} 
+                disabled={disabled} 
+                className="text-[#94A3B8] hover:text-red-500 transition-colors p-1"
+                title="Quitar archivo"
               >
-                <Eye className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
-            )}
-            <button 
-              type="button" 
-              onClick={handleRemove} 
-              disabled={disabled} 
-              className="text-[#94A3B8] hover:text-red-500 transition-colors p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
+            </div>
+          );
+        })() : (
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -554,25 +624,14 @@ function DynamicField({ field, value, onChange, parentValue, disabled, optionsOv
 
   if (field.field_type === "text") {
     return (
-      <textarea
+      <AutoResizeTextarea
         value={value}
-        onChange={e => {
-          e.target.style.height = 'auto';
-          e.target.style.height = e.target.scrollHeight + 'px';
-          onChange(e.target.value);
-        }}
+        onChange={onChange}
         onBlur={onBlur ? () => onBlur(value) : undefined}
         required={field.is_required}
         disabled={disabled}
         placeholder={`Ingresa ${field.label.toLowerCase()}...`}
         className={`${inputCls} min-h-[42px] overflow-hidden resize-none py-2.5 leading-relaxed`}
-        style={{ height: value ? 'auto' : undefined }}
-        ref={(el) => {
-          if (el) {
-            el.style.height = 'auto';
-            el.style.height = el.scrollHeight + 'px';
-          }
-        }}
       />
     );
   }
@@ -594,85 +653,97 @@ function SummaryRow({ icon, label, value }: { icon: string; label: string; value
   );
 }
 
-// ─── Step breadcrumb ──────────────────────────────────────────────────────────
-const STEPS = [
-  { n: "1", label: "Formulario inicial" },
-  { n: "2", label: "Asistente IA" },
-  { n: "3", label: "Resumen" },
-  { n: "4", label: "Revisión BP" },
+// ─── Corporate Lifecycle Workflow Timeline (Línea de Tiempo con Círculos Verdes) ───
+const WORKFLOW_STAGES_TIMELINE = [
+  { key: 'borrador', label: 'Registro', subtitle: 'Key User' },
+  { key: 'eval_bp', label: 'Viabilidad BP TI', subtitle: 'Business Partner' },
+  { key: 'aprob_bo', label: 'Patrocinio BO', subtitle: 'Business Owner' },
+  { key: 'aprob_vp', label: 'Aprobación VP', subtitle: 'Vicepresidencia' },
+  { key: 'asig_demanda', label: 'Demanda TI', subtitle: 'Gestor Demanda' },
+  { key: 'ventana_est', label: 'Estimación', subtitle: 'Líder Dominio' },
+  { key: 'planificacion', label: 'Planificación', subtitle: 'Producción' }
 ];
 
-function Stepper({ current, path, hasInitialFields = true }: { current: number; path: 'unstructured' | 'direct' | 'select'; hasInitialFields?: boolean }) {
-  if (path === 'unstructured') {
-    const steps = [
-      { n: "1", label: "Describe tu necesidad", activeOn: 1 },
-      { n: "2", label: "Revisión con IA", activeOn: 2 },
-    ];
-    return (
-      <div className="flex items-center gap-0 mb-8 overflow-x-auto pb-1">
-        {steps.map((s, i) => {
-          const done = current > s.activeOn;
-          const active = current === s.activeOn;
-          return (
-            <div key={s.n} className="flex items-center">
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                active ? "bg-[#EEF2FF] text-[#4F5AF5]"
-                : done ? "text-[#4F5AF5]"
-                : "text-[#94A3B8]"
-              }`}>
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                  active ? "bg-[#4F5AF5] text-white"
-                  : done ? "bg-[#4F5AF5] text-white"
-                  : "bg-[#E2E8F0] text-[#94A3B8]"
-                }`}>
-                  {done ? "✓" : s.n}
-                </span>
-                {s.label}
-              </div>
-              {i < steps.length - 1 && (
-                <ChevronRight className="w-3.5 h-3.5 text-[#CBD5E1] mx-1 shrink-0" />
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  const steps = [
-    { n: "1", label: "Formulario y Documentos", activeOn: 1 },
-    { n: "2", label: "Asistente IA (Teo)", activeOn: 2 },
-    { n: "3", label: "Resumen y Validación", activeOn: 3 },
-    { n: "4", label: "Revisión BP", activeOn: 4 },
-  ];
+function WorkflowTimelineStepper({ current }: { current: number }) {
+  const currentSubStepLabel = current === 1 
+    ? 'Formulario y Documentos iniciales' 
+    : current === 2 
+    ? 'Conversación con Asistente IA (Teo)' 
+    : 'Resumen y Validación de Ficha';
 
   return (
-    <div className="flex items-center gap-0 mb-8 overflow-x-auto pb-1">
-      {steps.map((s, i) => {
-        const done = current > s.activeOn;
-        const active = current === s.activeOn;
-        return (
-          <div key={s.n} className="flex items-center">
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              active ? "bg-[#EEF2FF] text-[#4F5AF5]"
-              : done ? "text-[#4F5AF5]"
-              : "text-[#94A3B8]"
-            }`}>
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                active ? "bg-[#4F5AF5] text-white"
-                : done ? "bg-[#4F5AF5] text-white"
-                : "bg-[#E2E8F0] text-[#94A3B8]"
-              }`}>
-                {done ? "✓" : s.n}
-              </span>
-              {s.label}
-            </div>
-            {i < steps.length - 1 && (
-              <ChevronRight className="w-3.5 h-3.5 text-[#CBD5E1] mx-1 shrink-0" />
-            )}
-          </div>
-        );
-      })}
+    <div className="bg-white rounded-2xl border border-slate-200/80 p-4 sm:p-5 shadow-xs space-y-3.5 mb-8">
+      {/* Cabecera institucional con aviso de estado Borrador */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            Estado: 1. Borrador
+          </span>
+          <span className="text-slate-300 hidden sm:inline">|</span>
+          <span className="text-slate-500 font-medium text-[11px] sm:text-xs">
+            Hasta antes de enviar al BP TI, la iniciativa permanece en borrador
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#4F5AF5] bg-[#EEF2FF] border border-[#E0E7FF] px-2.5 py-1 rounded-lg">
+          <span className="text-slate-500">Paso {current} de 3:</span>
+          <span className="font-bold text-[#4F5AF5]">{currentSubStepLabel}</span>
+        </div>
+      </div>
+
+      {/* Línea de tiempo corporativa con círculos verdes y etapas conectadas */}
+      <div className="overflow-x-auto pt-2 pb-2">
+        <div className="flex items-start w-full min-w-[720px] relative">
+          {WORKFLOW_STAGES_TIMELINE.map((stage, idx) => {
+            const isFirst = idx === 0;
+            const isLast = idx === WORKFLOW_STAGES_TIMELINE.length - 1;
+
+            return (
+              <div key={stage.key} className="flex-1 relative flex flex-col items-center">
+                {/* Conector entre etapas */}
+                {!isLast && (
+                  <div 
+                    className="absolute top-[18px] left-1/2 w-full h-[3px] -translate-y-1/2 z-0 bg-slate-200"
+                  />
+                )}
+
+                <div
+                  className="flex flex-col items-center relative z-10 w-full px-1 focus:outline-none"
+                  title={isFirst ? "Etapa activa: Registro en Borrador" : `Etapa futura: ${stage.label} (${stage.subtitle})`}
+                >
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${
+                    isFirst
+                      ? 'bg-emerald-600 text-white ring-4 ring-emerald-100 shadow-sm'
+                      : 'bg-white text-slate-400 border-2 border-slate-300'
+                  }`}>
+                    {isFirst ? (
+                      <Check className="w-4 h-4 stroke-[3]" />
+                    ) : (
+                      <div className="w-2 h-2 rounded-full bg-slate-300" />
+                    )}
+                  </div>
+
+                  <span className={`text-[11px] font-bold mt-2 text-center leading-tight transition-colors px-1 ${
+                    isFirst ? 'text-slate-900 font-black' : 'text-slate-400'
+                  }`}>
+                    {stage.label}
+                  </span>
+
+                  <span className="text-[10px] font-medium text-center mt-0.5 leading-tight text-slate-400">
+                    {stage.subtitle}
+                  </span>
+
+                  {isFirst && (
+                    <span className="inline-flex items-center mt-1 px-2 py-0.5 rounded-full text-[9px] font-black tracking-tight bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-2xs">
+                      En edición
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -832,6 +903,7 @@ export default function InitiativeForm() {
     role: "user" | "model";
     text: string;
     options?: string[];
+    allowMultiple?: boolean;
     attachment?: {
       name: string;
       type: string;
@@ -1044,7 +1116,9 @@ export default function InitiativeForm() {
         if (draft) {
           // Backend draft found — use it and clear any stale local backup
           const rawFData = { ...(draft.form_data || {}) };
-          const fData = draft.summary
+          const hasSummary = draft.summary && typeof draft.summary === 'object' && Object.keys(draft.summary).length > 0 && (draft.summary.titulo || draft.summary.objetivo);
+          const reachedSummary = Boolean(rawFData._reached_summary);
+          const fData = hasSummary
             ? mergeAISummary(rawFData, draft.summary)
             : rawFData;
           setFormData(fData);
@@ -1053,10 +1127,15 @@ export default function InitiativeForm() {
           setChatHistory(draft.chat_history || []);
           setSummary(draft.summary || null);
           setDisclaimerAccepted(Boolean(rawFData._director_declaration_accepted || rawFData.declaracion_responsabilidad));
-          if (draft.summary) setStep(3);
-          else if (draft.chat_history && draft.chat_history.length > 0) setStep(2);
-          else if (draft.unstructured_text) setStep(3);
-          else setStep(1);
+          if (hasSummary || reachedSummary) {
+            setStep(3);
+          } else if (draft.chat_history && draft.chat_history.length > 0) {
+            setStep(2);
+          } else if (draft.unstructured_text) {
+            setStep(3);
+          } else {
+            setStep(1);
+          }
           setSelectedPath(fData.selectedPath || (draft.unstructured_text ? 'unstructured' : 'direct'));
           try { localStorage.removeItem(localKey); } catch (_) {}
         } else {
@@ -1157,26 +1236,41 @@ export default function InitiativeForm() {
       }));
     } catch (_) { /* localStorage may be unavailable in private mode */ }
 
-    // Sync to backend — include user_id so the draft appears in "Chats en curso" for this user
+    // Sync to backend — include user_id so the draft appears in "Chats pendientes" for this user
+    const initiativePayload = {
+      id: draftIdRef.current,
+      form_data: {
+        ...currentFormData,
+        _director_declaration_accepted: disclaimerAccepted || currentFormData?._director_declaration_accepted || false
+      },
+      chat_history: currentHistory,
+      summary: currentSummary,
+      confirmed_fields: confirmedFields,
+      unstructured_text: unstructuredText,
+      status: "Borrador",
+      user_id: profile?.id ?? null,
+      updated_at: new Date().toISOString(),
+    };
+
+    let synced = false;
     try {
-      await fetch("/api/initiatives/draft", {
+      const res = await fetch("/api/initiatives/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: draftIdRef.current,
-          form_data: {
-            ...currentFormData,
-            _director_declaration_accepted: disclaimerAccepted || currentFormData?._director_declaration_accepted || false
-          },
-          chat_history: currentHistory,
-          summary: currentSummary,
-          confirmed_fields: confirmedFields,
-          unstructured_text: unstructuredText,
-          status: "Borrador",
-          user_id: profile?.id ?? null,
-        }),
+        body: JSON.stringify(initiativePayload),
       });
-    } catch (e) { console.error("Error auto-saving to backend (session backed up locally)", e); }
+      if (res.ok) synced = true;
+    } catch (e) {
+      console.warn("Error auto-saving to backend API (Render may be sleeping), attempting Supabase fallback:", e);
+    }
+
+    if (!synced) {
+      try {
+        await supabase.from('initiatives').upsert([initiativePayload]);
+      } catch (sbErr) {
+        console.warn("Direct Supabase autoSave fallback also failed:", sbErr);
+      }
+    }
   };
 
   // Compute allowed options based on user roles
@@ -1582,39 +1676,22 @@ export default function InitiativeForm() {
     const currentData = customFormData || formData;
     setSelectedPath('direct');
     setStep(2);
-    setIsAiTyping(true);
 
-    await autoSave([], null, currentData);
+    const welcomeText = `¡Hola! Soy Teo, tu asesor de arquitectura y proyectos de TI. Cuéntame qué necesidad, dolor operativo o mejora deseas abordar. También puedes adjuntar documentos o evidencias de sustento con el botón del clip 📎 para analizarlos y estructurar tu iniciativa en conjunto.`;
+    const initialHist = [{
+      role: "model" as const,
+      text: welcomeText,
+      options: [],
+      allowMultiple: false
+    }];
 
-    const MAX_RETRIES = 3;
-    const fieldsForAI = [...fields, ...aiFields].filter(f => 
-      !["registrador", "solicitante"].includes(f.key.toLowerCase())
-    );
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const res = await fetch("/api/chat", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ history: [], message: "[INICIALIZAR_CHAT]", initialData: currentData, aiFields: fieldsForAI }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const newHist = [{ role: "model" as const, text: data.text, options: data.options }];
-        setChatHistory(newHist);
-        autoSave(newHist, summary, currentData);
-        setIsAiTyping(false);
-        return; // success
-      } catch (err) {
-        if (attempt < MAX_RETRIES) {
-          // Wait 2 seconds before retrying (lets the server wake up)
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
-    }
-
-    // All retries exhausted
-    setChatHistory([{ role: "model", text: "Error al conectar con el asistente. Por favor recarga la página e intenta de nuevo." }]);
+    setSelectedMultiOptions([]);
+    setChatHistory(initialHist);
     setIsAiTyping(false);
+    if (!id && draftIdRef.current) {
+      navigate(`/nueva/${draftIdRef.current}`, { replace: true });
+    }
+    await autoSave(initialHist, summary, currentData);
   };
 
   const handleStartChat = async (e?: React.FormEvent) => {
@@ -1691,16 +1768,18 @@ export default function InitiativeForm() {
       }
       let text = data.text as string;
       const options = data.options;
+      const allowMultiple = Boolean(data.allow_multiple);
+      setSelectedMultiOptions([]);
       if (text.includes("[INFORMACION_COMPLETA]")) {
         text = text.replace("[INFORMACION_COMPLETA]", "").trim();
-        const finalHistory = text ? [...newHistory, { role: "model" as const, text, options }] : newHistory;
+        const finalHistory = text ? [...newHistory, { role: "model" as const, text, options, allowMultiple }] : newHistory;
         if (text) setChatHistory(finalHistory);
         autoSave(finalHistory, summary);
         // Start 3-second countdown so user can read the last AI message
         countdownHistoryRef.current = finalHistory;
         setCountdownSeconds(3);
       } else {
-        const finalHistory = [...newHistory, { role: "model" as const, text, options }];
+        const finalHistory = [...newHistory, { role: "model" as const, text, options, allowMultiple }];
         setChatHistory(finalHistory);
         autoSave(finalHistory, summary);
       }
@@ -1726,9 +1805,12 @@ export default function InitiativeForm() {
       if (!res.ok) throw new Error();
       const data = await res.json();
       setSummary(data);
-      const mergedFormData = mergeAISummary({ ...formData }, data || {});
+      const mergedFormData = {
+        ...mergeAISummary({ ...formData }, data || {}),
+        _reached_summary: true,
+      };
       setFormData(mergedFormData);
-      autoSave(fullHistory, data, mergedFormData);
+      await autoSave(fullHistory, data, mergedFormData);
     } catch { showToast("Error al generar resumen.", "error"); setStep(2); }
     finally { setIsAiTyping(false); }
   };
@@ -1898,8 +1980,10 @@ export default function InitiativeForm() {
         const newHist = [{
           role: "model" as const,
           text: data.greetingMessage,
-          options: data.options || []
+          options: data.options || [],
+          allowMultiple: Boolean(data.allow_multiple)
         }];
+        setSelectedMultiOptions([]);
         setChatHistory(newHist);
 
         setStep(2);
@@ -1920,13 +2004,15 @@ export default function InitiativeForm() {
   const handleSave = async (status: "Borrador" | "Pendiente de aprobación") => {
     if (isSaving) return;
     setIsSaving(true);
+    const updatedFormData = { 
+      ...formData, 
+      _reached_summary: true,
+      _director_declaration_accepted: disclaimerAccepted,
+      declaracion_responsabilidad: disclaimerAccepted
+    };
     const initiativePayload = { 
       id: draftIdRef.current, 
-      form_data: { 
-        ...formData, 
-        _director_declaration_accepted: disclaimerAccepted,
-        declaracion_responsabilidad: disclaimerAccepted
-      }, 
+      form_data: updatedFormData, 
       chat_history: chatHistory, 
       summary, 
       status, 
@@ -1957,7 +2043,14 @@ export default function InitiativeForm() {
 
       if (saved) {
         try { localStorage.removeItem(localKey); } catch (_) {}
-        navigate("/bandeja");
+        if (status === "Borrador") {
+          showToast('Cambios guardados con éxito en el borrador.', 'success');
+          if (!id && draftIdRef.current) {
+            navigate(`/nueva/${draftIdRef.current}`, { replace: true });
+          }
+        } else {
+          navigate("/bandeja");
+        }
       } else {
         showToast('Error al guardar la iniciativa. Por favor intenta nuevamente.', 'error');
       }
@@ -1971,7 +2064,7 @@ export default function InitiativeForm() {
 
   if (id && loadingFields) {
     return (
-      <div className="max-w-3xl mx-auto py-20 flex flex-col items-center justify-center text-center gap-4 animate-in fade-in duration-200">
+      <div className="max-w-5xl xl:max-w-6xl mx-auto py-20 flex flex-col items-center justify-center text-center gap-4 animate-in fade-in duration-200">
         <div className="w-14 h-14 rounded-2xl bg-[#EEF2FF] border border-[#E0E7FF] flex items-center justify-center text-[#4F5AF5] shadow-sm">
           <div className="w-6 h-6 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
         </div>
@@ -1984,7 +2077,7 @@ export default function InitiativeForm() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-5xl xl:max-w-6xl mx-auto transition-all">
       {/* Hidden file input for general attachments */}
       <input
         ref={fileInputRef}
@@ -1999,7 +2092,10 @@ export default function InitiativeForm() {
         className="hidden"
         onChange={handleFileAttach}
       />
-      <Stepper current={step} path={selectedPath} hasInitialFields={step1FieldsCount > 0} />
+      {/* Línea de tiempo corporativa con círculos verdes: solo se muestra en la pantalla de resumen */}
+      {((selectedPath === 'unstructured' && step === 2) || (selectedPath !== 'unstructured' && step === 3)) && (
+        <WorkflowTimelineStepper current={step} />
+      )}
 
       {/* ── Visual State: Teo analizando documento inicial ── */}
       {isAnalyzingInitialDoc && (
@@ -2224,6 +2320,116 @@ export default function InitiativeForm() {
                     );
                   })}
                 </div>
+
+                {/* Evidencias y archivos adjuntos en el resumen (Paso 3) */}
+                {((selectedPath === 'unstructured' && step >= 2) || (selectedPath === 'direct' && step === 3)) && (
+                  <div className="mt-8 pt-6 border-t border-slate-200">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Paperclip className="w-4 h-4 text-[#4F5AF5]" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                          Archivos de Sustento y Evidencias Adjuntas
+                        </h3>
+                      </div>
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        {((formData.attachments && formData.attachments.length) || 0)} archivo(s)
+                      </span>
+                    </div>
+
+                    {(!formData.attachments || formData.attachments.length === 0) ? (
+                      <div className="p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-center text-xs text-slate-400">
+                        No se han adjuntado evidencias complementarias a esta iniciativa.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {formData.attachments.map((file: any, fileIdx: number) => {
+                          const isImage = Boolean(
+                            file.category === 'image' ||
+                            file.type?.startsWith('image/') ||
+                            file.name?.match(/\.(jpg|jpeg|png|webp|gif|svg)$/i)
+                          );
+                          const isVideo = Boolean(
+                            file.category === 'video' ||
+                            file.type?.startsWith('video/') ||
+                            file.name?.match(/\.(mp4|webm|mov)$/i)
+                          );
+                          const isAudio = Boolean(
+                            file.category === 'audio' ||
+                            file.type?.startsWith('audio/') ||
+                            file.name?.match(/\.(mp3|wav|ogg|m4a)$/i)
+                          );
+
+                          return (
+                            <div
+                              key={fileIdx}
+                              className="flex items-center justify-between gap-3 p-3 bg-white border border-slate-200 rounded-xl shadow-xs hover:border-slate-300 transition-all"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                                  {isImage ? (
+                                    <ImageIcon className="w-4 h-4 text-emerald-600" />
+                                  ) : isVideo ? (
+                                    <VideoIcon className="w-4 h-4 text-purple-600" />
+                                  ) : isAudio ? (
+                                    <AudioIcon className="w-4 h-4 text-amber-600" />
+                                  ) : (
+                                    <FileText className="w-4 h-4 text-blue-600" />
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-semibold text-slate-800 truncate" title={file.name}>
+                                    {file.name}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {file.size ? `${(file.size / 1024).toFixed(0)} KB` : 'Archivo adjunto'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {/* Vista previa SOLO para imágenes */}
+                                {isImage && file.url && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewFile({ url: file.url, name: file.name, type: file.type })}
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-[#4F5AF5] hover:bg-slate-100 transition-colors"
+                                    title="Ver imagen"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </button>
+                                )}
+
+                                {/* Botón de descarga para todos los archivos con url */}
+                                {file.url && (
+                                  <a
+                                    href={file.url}
+                                    download={file.name}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-[#4F5AF5] hover:bg-slate-100 transition-colors flex items-center"
+                                    title="Descargar archivo"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </a>
+                                )}
+
+                                {/* Botón para eliminar */}
+                                <button
+                                  type="button"
+                                  onClick={() => deleteAttachmentFromChat(file.name)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                  title="Quitar archivo"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
             </div>
@@ -2304,13 +2510,14 @@ export default function InitiativeForm() {
                       onClick={() => handleSaveWithValidation("Borrador")}
                       disabled={isSaving || isProcessingFile}
                       className="flex items-center justify-center gap-2 border border-[#4F5AF5] text-[#4F5AF5] hover:bg-[#EEF2FF] disabled:opacity-50 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                      title="Guardar los cambios realizados en el borrador"
                     >
                       {isSaving ? (
                         <div className="w-4 h-4 border-2 border-[#4F5AF5] border-t-transparent rounded-full animate-spin" />
                       ) : (
                         <Save className="w-4 h-4" />
                       )}
-                      Guardar en borrador
+                      Guardar Cambios
                     </button>
                     <button
                       type="button"
@@ -2323,7 +2530,7 @@ export default function InitiativeForm() {
                       ) : (
                         <Send className="w-4 h-4" />
                       )}
-                      Enviar a aprobación de BP
+                      Enviar a aprobación de BP TI
                     </button>
                   </>
                 ) : (
@@ -2354,7 +2561,7 @@ export default function InitiativeForm() {
 
       {/* ── Step 2: Asistente IA ────────────────────────────────────────── */}
       {step === 2 && selectedPath === 'direct' && (
-        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,.07)] overflow-hidden flex flex-col" style={{ height: 620 }}>
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden flex flex-col transition-all" style={{ height: 'min(760px, calc(100vh - 200px))', minHeight: 640 }}>
           {/* Chat header */}
           <div className="px-6 py-4 border-b border-[#F1F5F9] flex items-center gap-3 bg-[#4F5AF5]">
             <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center overflow-hidden shrink-0">
@@ -2532,12 +2739,12 @@ export default function InitiativeForm() {
                     }`}>
                       {msg.role === "model" ? (
                         <div className="prose prose-sm prose-slate max-w-none">
-                          <ReactMarkdown>{msg.text}</ReactMarkdown>
+                          <ReactMarkdown>{parseHtmlToMarkdown(msg.text)}</ReactMarkdown>
                         </div>
                       ) : (
-                        msg.text
+                        <span dangerouslySetInnerHTML={{ __html: formatHtmlText(msg.text, msg.text) }} />
                       )}
-                      <p className={`text-[10px] mt-1.5 font-medium ${msg.role === "user" ? "text-blue-200 text-right" : "text-[#94A3B8]"}`}>
+                      <p className={`text-[10px] mt-1.5 font-medium ${msg.role === "user" ? "text-white/80 text-right" : "text-[#94A3B8]"}`}>
                         {msg.role === "user" ? "Tú" : aiName}
                       </p>
                     </div>
@@ -2574,66 +2781,103 @@ export default function InitiativeForm() {
 
                     {/* Opciones sugeridas si es el último mensaje y es de la IA (Soporta selección única o múltiple) */}
                     {msg.role === "model" && msg.options && msg.options.length > 0 && isLastMsg && !isAiTyping && (
-                      <div className="flex flex-col gap-2 mt-1">
-                        <div className="flex flex-wrap items-center gap-2">
+                      <div className="mt-3 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-b from-slate-50 to-slate-100/70 border border-slate-200/80 shadow-xs animate-in fade-in-50 duration-200">
+                        {/* Cabecera explicativa de opciones */}
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2.5 px-0.5">
+                          <ListChecks className="w-3.5 h-3.5 text-[#EB5F46]" />
+                          <span>{msg.allowMultiple ? "Selecciona una o más opciones:" : "Selecciona una opción para responder:"}</span>
+                        </div>
+
+                        {/* Listado de tarjetas interactivas */}
+                        <div className="flex flex-col gap-2">
                           {msg.options.map((opt, optIndex) => {
                             const isSelected = selectedMultiOptions.includes(opt);
+                            const letter = String.fromCharCode(65 + (optIndex % 26));
+
+                            // Modo 1: Selección simple (un toque responde inmediatamente)
+                            if (!msg.allowMultiple) {
+                              return (
+                                <button
+                                  key={optIndex}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedMultiOptions([]);
+                                    submitMessage(opt);
+                                  }}
+                                  className="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all shadow-xs cursor-pointer bg-white hover:bg-[#EB5F46] text-slate-700 hover:text-white border border-slate-200/90 hover:border-[#EB5F46] active:scale-[0.99] hover:shadow-md hover:shadow-[#EB5F46]/15 group text-left"
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                    <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-600 group-hover:bg-white group-hover:text-[#EB5F46] flex items-center justify-center text-[10px] font-bold shrink-0 border border-slate-200/80 group-hover:border-white transition-all shadow-2xs">
+                                      {letter}
+                                    </span>
+                                    <span className="leading-snug transition-colors group-hover:text-white">
+                                      {opt}
+                                    </span>
+                                  </div>
+                                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0 opacity-60 group-hover:opacity-100" />
+                                </button>
+                              );
+                            }
+
+                            // Modo 2: Selección múltiple (con checkbox y selector acumulativo)
                             return (
                               <button
                                 key={optIndex}
                                 type="button"
                                 onClick={() => {
-                                  if (selectedMultiOptions.length > 0) {
-                                    setSelectedMultiOptions(prev =>
-                                      prev.includes(opt) ? prev.filter(x => x !== opt) : [...prev, opt]
-                                    );
-                                  } else {
-                                    submitMessage(opt);
-                                  }
+                                  setSelectedMultiOptions(prev =>
+                                    prev.includes(opt) ? prev.filter(x => x !== opt) : [...prev, opt]
+                                  );
                                 }}
-                                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all shadow-xs cursor-pointer ${
+                                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all shadow-xs cursor-pointer active:scale-[0.99] text-left border ${
                                   isSelected
-                                    ? "bg-[#4F5AF5] text-white border border-[#4F5AF5] shadow-sm ring-2 ring-[#4F5AF5]/20"
-                                    : "bg-white hover:bg-[#EEF2FF] border border-[#CBD5E1] hover:border-[#4F5AF5] text-[#4F5AF5]"
+                                    ? "bg-[#EB5F46] text-white border-[#EB5F46] shadow-sm ring-2 ring-[#EB5F46]/20"
+                                    : "bg-white hover:bg-[#FFF0ED] border-slate-200/90 hover:border-[#EB5F46] text-slate-700 hover:text-[#EB5F46]"
                                 }`}
                               >
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedMultiOptions(prev =>
-                                      prev.includes(opt) ? prev.filter(x => x !== opt) : [...prev, opt]
-                                    );
-                                  }}
-                                  className="w-3.5 h-3.5 rounded border-[#CBD5E1] text-[#4F5AF5] focus:ring-0 cursor-pointer"
+                                  readOnly
+                                  className={`w-4 h-4 rounded border-slate-300 pointer-events-none shrink-0 ${
+                                    isSelected ? "accent-white" : "accent-[#EB5F46]"
+                                  }`}
                                 />
-                                <span>{opt}</span>
+                                <span className="flex-1 leading-snug">{opt}</span>
                               </button>
                             );
                           })}
                         </div>
-                        {selectedMultiOptions.length > 0 && (
-                          <div className="flex items-center gap-2 mt-0.5">
+
+                        {/* Barra de envío para selección múltiple */}
+                        {msg.allowMultiple && (
+                          <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-slate-200/60">
                             <button
                               type="button"
+                              disabled={selectedMultiOptions.length === 0}
                               onClick={() => {
                                 const combinedText = selectedMultiOptions.join(", ");
                                 setSelectedMultiOptions([]);
                                 submitMessage(combinedText);
                               }}
-                              className="flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all animate-in fade-in cursor-pointer"
+                              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all active:scale-98 ${
+                                selectedMultiOptions.length > 0
+                                  ? "bg-[#EB5F46] hover:bg-[#c94a32] text-white shadow-[#EB5F46]/20 cursor-pointer"
+                                  : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                              }`}
                             >
                               <Send className="w-3.5 h-3.5" />
-                              <span>Enviar opciones seleccionadas ({selectedMultiOptions.length})</span>
+                              <span>Enviar opciones seleccionadas {selectedMultiOptions.length > 0 ? `(${selectedMultiOptions.length})` : ""}</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedMultiOptions([])}
-                              className="text-xs text-slate-500 hover:text-slate-700 underline px-1 cursor-pointer"
-                            >
-                              Limpiar selección
-                            </button>
+                            {selectedMultiOptions.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedMultiOptions([])}
+                                className="text-xs text-slate-500 hover:text-slate-700 underline px-1 cursor-pointer"
+                              >
+                                Limpiar selección
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2974,10 +3218,10 @@ export default function InitiativeForm() {
                         </div>
                       )}
                       {msg.role === 'user' ? (
-                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                        <p className="whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: formatHtmlText(msg.text, msg.text) }} />
                       ) : (
                         <div className="prose prose-xs sm:prose-sm max-w-none text-[#334155] leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4 [&>li]:mb-1 [&>strong]:text-slate-900 [&>strong]:font-bold">
-                          <ReactMarkdown>{msg.text}</ReactMarkdown>
+                          <ReactMarkdown>{parseHtmlToMarkdown(msg.text)}</ReactMarkdown>
                         </div>
                       )}
                     </div>

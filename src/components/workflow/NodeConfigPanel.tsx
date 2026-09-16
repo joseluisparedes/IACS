@@ -11,14 +11,12 @@ import {
   Layers,
   Plus,
   Lock,
-  UserCheck,
   Check,
   Pencil,
   CheckCircle2,
   XCircle,
   AlertTriangle,
   Archive,
-  Inbox,
   Search,
   X,
   SlidersHorizontal,
@@ -30,11 +28,15 @@ import {
   Send,
   Paperclip,
   RotateCcw,
-  Tag
+  Tag,
+  Building2,
+  Users,
+  Shuffle,
+  FileText,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../lib/workflowStore';
 import { supabase } from '../../lib/supabase';
-import type { WorkflowNodeRole, WorkflowNodeData, StageForm, StageConsent, GatewayConfig, GatewayBranchRule } from '../../types';
+import type { WorkflowNodeRole, WorkflowNodeData, StageForm, StageConsent, GatewayConfig, GatewayBranchRule, DocumentTemplate } from '../../types';
 
 
 interface DynamicRole {
@@ -97,13 +99,15 @@ export const NodeConfigPanel: React.FC = () => {
     setSelectedEdgeId,
   } = useWorkflowStore();
 
-  const [activeTab, setActiveTab] = useState<'props' | 'roles' | 'custody' | 'fields' | 'ai'>('props');
+  const [activeTab, setActiveTab] = useState<'props' | 'roles' | 'custody' | 'ai'>('props');
   const [availableRoles, setAvailableRoles] = useState<DynamicRole[]>(DEFAULT_ROLES);
   const [loadingRoles, setLoadingRoles] = useState(false);
   const [roleSearch, setRoleSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'assigned'>('all');
   const [availableStageForms, setAvailableStageForms] = useState<StageForm[]>([]);
   const [availableStageConsents, setAvailableStageConsents] = useState<StageConsent[]>([]);
+  const [availableDocumentTemplates, setAvailableDocumentTemplates] = useState<DocumentTemplate[]>([]);
+  const [availableVps, setAvailableVps] = useState<Array<{ id: string; name: string; bp_name?: string | null; email?: string | null }>>([]);
   const [newObservationCategory, setNewObservationCategory] = useState('');
   const [availableFields, setAvailableFields] = useState<Array<{ key: string; label: string }>>([
     { key: 'requiere_presupuesto', label: '¿Requiere Presupuesto? (requiere_presupuesto)' },
@@ -121,6 +125,7 @@ export const NodeConfigPanel: React.FC = () => {
     { key: 'presupuesto_estimado', label: 'Presupuesto Estimado' },
     { key: 'fecha_estimada', label: 'Fecha Estimada' },
   ]);
+  const [allUsers, setAllUsers] = useState<Array<{ id: string; name: string; email: string; roles: string[] }>>([]);
 
   // Cargar formularios y consentimientos de etapa para asignación en flujos
   useEffect(() => {
@@ -153,6 +158,28 @@ export const NodeConfigPanel: React.FC = () => {
         } catch {
           const { data } = await supabase.from('stage_consents').select('*').order('title', { ascending: true });
           if (isMounted && data) setAvailableStageConsents(data as StageConsent[]);
+        }
+
+        // Document Templates
+        try {
+          const resD = await fetch('/api/document-templates');
+          if (resD.ok) {
+            const jsonD = await resD.json();
+            if (isMounted) setAvailableDocumentTemplates(jsonD.data || []);
+          } else {
+            throw new Error('Fallback document templates');
+          }
+        } catch {
+          const { data } = await supabase.from('document_templates').select('*').order('name', { ascending: true });
+          if (isMounted && data) setAvailableDocumentTemplates(data as DocumentTemplate[]);
+        }
+
+        // VPs
+        try {
+          const { data: vpsData } = await supabase.from('vps').select('id, name, bp_name, email').order('name', { ascending: true });
+          if (isMounted && vpsData) setAvailableVps(vpsData);
+        } catch (vpsErr) {
+          console.warn('Error loading VPs:', vpsErr);
         }
       } catch (err) {
         console.warn('Error loading stage catalogs in NodeConfigPanel:', err);
@@ -216,6 +243,57 @@ export const NodeConfigPanel: React.FC = () => {
       .catch(() => {});
   }, []);
 
+  // Cargar usuarios del sistema (profiles + allowed_users) con sus roles para la asignación de Salto Manual
+  useEffect(() => {
+    let isMounted = true;
+    const loadUsers = async () => {
+      try {
+        const [profRes, allowRes] = await Promise.all([
+          supabase.from('profiles').select('id, name, email, profile_roles(role)'),
+          supabase.from('allowed_users').select('id, name, email, user_roles_whitelist(role)'),
+        ]);
+
+        if (!isMounted) return;
+        const userMap = new Map<string, { id: string; name: string; email: string; roles: string[] }>();
+
+        (profRes.data || []).forEach((u: any) => {
+          const email = (u.email || '').toLowerCase().trim();
+          if (!email) return;
+          const roles = (u.profile_roles || []).map((r: any) => r.role);
+          userMap.set(email, {
+            id: u.id,
+            name: u.name || u.email,
+            email: u.email,
+            roles,
+          });
+        });
+
+        (allowRes.data || []).forEach((u: any) => {
+          const email = (u.email || '').toLowerCase().trim();
+          if (!email) return;
+          const roles = (u.user_roles_whitelist || []).map((r: any) => r.role);
+          if (!userMap.has(email)) {
+            userMap.set(email, {
+              id: u.id,
+              name: u.name || u.email,
+              email: u.email,
+              roles,
+            });
+          } else {
+            const existing = userMap.get(email)!;
+            existing.roles = Array.from(new Set([...existing.roles, ...roles]));
+          }
+        });
+
+        setAllUsers(Array.from(userMap.values()).sort((a, b) => a.name.localeCompare(b.name)));
+      } catch (err) {
+        console.warn('Error cargando usuarios en NodeConfigPanel:', err);
+      }
+    };
+    loadUsers();
+    return () => { isMounted = false; };
+  }, []);
+
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId);
@@ -229,6 +307,12 @@ export const NodeConfigPanel: React.FC = () => {
     if (!availableRoles || availableRoles.length === 0) return rawRoles;
     return rawRoles.filter((r) => availableRoles.some((ar) => ar.code === r.role_name));
   }, [rawRoles, availableRoles]);
+
+  // Usuarios pertenecientes al rol seleccionado para el Salto Manual
+  const filteredUsersForManualMove = useMemo(() => {
+    if (!nodeData.manualStateMoveRole) return [];
+    return allUsers.filter((u) => u.roles.includes(nodeData.manualStateMoveRole!));
+  }, [allUsers, nodeData.manualStateMoveRole]);
 
   if (!selectedNode && !selectedEdge) {
     return (
@@ -385,7 +469,22 @@ export const NodeConfigPanel: React.FC = () => {
                   Vista Previa en Requerimiento
                 </span>
                 <div className="flex items-center gap-2">
-                  <div className="px-3 py-1.5 rounded-xl bg-[#4F5AF5] text-white font-bold text-xs shadow-xs flex items-center gap-1.5">
+                  <div
+                    style={
+                      (edgeData.style_config?.button_color || edgeData.style_config?.button_bg)
+                        ? {
+                            backgroundColor: edgeData.style_config?.button_bg || edgeData.style_config?.button_color,
+                            borderColor: edgeData.style_config?.button_color || '#EB5F46',
+                            color: edgeData.style_config?.label_color || '#FFFFFF',
+                          }
+                        : undefined
+                    }
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs shadow-xs flex items-center gap-1.5 transition-all ${
+                      (edgeData.style_config?.button_color || edgeData.style_config?.button_bg)
+                        ? ''
+                        : 'bg-[#EB5F46] text-white'
+                    }`}
+                  >
                     <Send className="w-3.5 h-3.5" />
                     <span>{currentLabel || 'Avanzar'}</span>
                   </div>
@@ -439,9 +538,10 @@ export const NodeConfigPanel: React.FC = () => {
               Personaliza el color de la flecha en el diagrama y del botón que verá el usuario.
             </p>
 
-            {/* Paleta rápida de estilos predefinidos */}
-            <div className="grid grid-cols-4 gap-1.5 pt-1">
+            {/* Paleta rápida de estilos predefinidos con opción Por defecto */}
+            <div className="grid grid-cols-3 gap-1.5 pt-1">
               {[
+                { name: 'Por defecto', bg: '#EB5F46', border: '#EB5F46', text: '#FFFFFF', isDefault: true },
                 { name: 'Índigo', bg: '#EEF2FF', border: '#4F5AF5', text: '#4F5AF5' },
                 { name: 'Esmeralda', bg: '#ECFDF5', border: '#10B981', text: '#047857' },
                 { name: 'Ámbar', bg: '#FFFBEB', border: '#F59E0B', text: '#B45309' },
@@ -451,19 +551,40 @@ export const NodeConfigPanel: React.FC = () => {
                 { name: 'Pizarra', bg: '#F8FAFC', border: '#64748B', text: '#334155' },
                 { name: 'Oscuro', bg: '#1E293B', border: '#0F172A', text: '#FFFFFF' },
               ].map((preset) => {
-                const isCurrent = edgeData.style_config?.button_color === preset.border;
+                const hasCustom = Boolean(
+                  edgeData.style_config?.button_bg ||
+                  edgeData.style_config?.button_color ||
+                  edgeData.style_config?.label_color
+                );
+                const isCurrent = preset.isDefault
+                  ? !hasCustom
+                  : (edgeData.style_config?.button_color === preset.border && edgeData.style_config?.button_bg === preset.bg);
+
                 return (
                   <button
                     key={preset.name}
                     type="button"
-                    onClick={() => updateEdgeData(
-                      selectedEdge.id,
-                      currentLabel,
-                      conditionType,
-                      edgeData.condition_config,
-                      isSourceGateway ? [] : currentAllowedRoles,
-                      { button_bg: preset.bg, button_color: preset.border, label_color: preset.text }
-                    )}
+                    onClick={() => {
+                      if (preset.isDefault) {
+                        updateEdgeData(
+                          selectedEdge.id,
+                          currentLabel,
+                          conditionType,
+                          edgeData.condition_config,
+                          isSourceGateway ? [] : currentAllowedRoles,
+                          {}
+                        );
+                      } else {
+                        updateEdgeData(
+                          selectedEdge.id,
+                          currentLabel,
+                          conditionType,
+                          edgeData.condition_config,
+                          isSourceGateway ? [] : currentAllowedRoles,
+                          { button_bg: preset.bg, button_color: preset.border, label_color: preset.text }
+                        );
+                      }
+                    }}
                     style={{ backgroundColor: preset.bg, borderColor: preset.border, color: preset.text }}
                     className={`px-1.5 py-1 text-[10px] font-bold rounded-lg border transition-all truncate text-center ${
                       isCurrent ? 'ring-2 ring-offset-1 ring-slate-400 scale-105 shadow-xs font-black' : 'hover:scale-102 opacity-90 hover:opacity-100'
@@ -475,10 +596,95 @@ export const NodeConfigPanel: React.FC = () => {
               })}
             </div>
 
+            {/* Vista Preliminar en Tiempo Real */}
+            <div className="p-3 bg-gradient-to-br from-slate-50 to-indigo-50/20 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Vista Preliminar en Vivo
+                </span>
+                <span className="text-[9px] text-slate-400 font-medium">Actualización inmediata</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-0.5">
+                {/* Preview 1: En Diagrama (Canvas) */}
+                <div className="flex flex-col items-center justify-center p-2 bg-white border border-slate-200 rounded-lg shadow-2xs min-h-[62px]">
+                  <span className="text-[9px] text-slate-400 font-semibold mb-1.5 self-start">
+                    Etiqueta en Diagrama
+                  </span>
+                  <div
+                    style={{
+                      backgroundColor: edgeData.style_config?.button_bg || '#FFFFFF',
+                      borderColor: edgeData.style_config?.button_color || '#CBD5E1',
+                      color: edgeData.style_config?.label_color || '#334155',
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border shadow-xs transition-all max-w-full truncate"
+                  >
+                    <ArrowRight
+                      className="w-3 h-3 shrink-0"
+                      style={{ color: edgeData.style_config?.label_color || '#64748B' }}
+                    />
+                    <span className="truncate max-w-[95px]">{currentLabel || 'Transición'}</span>
+                  </div>
+                </div>
+
+                {/* Preview 2: En Detalle de Iniciativa */}
+                <div className="flex flex-col items-center justify-center p-2 bg-white border border-slate-200 rounded-lg shadow-2xs min-h-[62px]">
+                  <span className="text-[9px] text-slate-400 font-semibold mb-1.5 self-start">
+                    Botón de Acción (Usuario)
+                  </span>
+                  <div
+                    style={
+                      (edgeData.style_config?.button_color || edgeData.style_config?.button_bg)
+                        ? {
+                            backgroundColor: edgeData.style_config?.button_bg || edgeData.style_config?.button_color,
+                            borderColor: edgeData.style_config?.button_color,
+                            color: edgeData.style_config?.label_color || '#FFFFFF',
+                          }
+                        : undefined
+                    }
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all truncate max-w-full ${
+                      (edgeData.style_config?.button_color || edgeData.style_config?.button_bg)
+                        ? 'shadow-xs'
+                        : 'bg-[#EB5F46] text-white border-transparent shadow-xs'
+                    }`}
+                  >
+                    <Send className="w-3 h-3 shrink-0" />
+                    <span className="truncate max-w-[90px]">{currentLabel || 'Avanzar'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Selector fino de color */}
-            <div className="grid grid-cols-2 gap-2 pt-1.5">
+            <div className="grid grid-cols-3 gap-2 pt-1">
               <div>
-                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Color Flecha / Borde</label>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Color Fondo</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    value={edgeData.style_config?.button_bg || '#FFFFFF'}
+                    onChange={(e) => updateEdgeData(
+                      selectedEdge.id,
+                      currentLabel,
+                      conditionType,
+                      edgeData.condition_config,
+                      isSourceGateway ? [] : currentAllowedRoles,
+                      {
+                        ...(edgeData.style_config || {}),
+                        button_bg: e.target.value,
+                      }
+                    )}
+                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer p-0.5 bg-white shrink-0"
+                  />
+                  <span className="text-[10px] font-mono text-slate-600 truncate">
+                    {edgeData.style_config?.button_bg || '#FFFFFF'}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Flecha / Borde</label>
                 <div className="flex items-center gap-1.5">
                   <input
                     type="color"
@@ -494,9 +700,9 @@ export const NodeConfigPanel: React.FC = () => {
                         button_color: e.target.value,
                       }
                     )}
-                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
+                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer p-0.5 bg-white shrink-0"
                   />
-                  <span className="text-[10px] font-mono text-slate-600">
+                  <span className="text-[10px] font-mono text-slate-600 truncate">
                     {edgeData.style_config?.button_color || '#4F5AF5'}
                   </span>
                 </div>
@@ -519,9 +725,9 @@ export const NodeConfigPanel: React.FC = () => {
                         label_color: e.target.value,
                       }
                     )}
-                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer p-0.5 bg-white"
+                    className="w-7 h-7 rounded border border-slate-200 cursor-pointer p-0.5 bg-white shrink-0"
                   />
-                  <span className="text-[10px] font-mono text-slate-600">
+                  <span className="text-[10px] font-mono text-slate-600 truncate">
                     {edgeData.style_config?.label_color || '#1E293B'}
                   </span>
                 </div>
@@ -556,7 +762,6 @@ export const NodeConfigPanel: React.FC = () => {
   }
 
   // ── Configuración de Nodo ──────────────────────────────────────────────────
-  const requiredFields = nodeData.requiredFields || [];
   const isAINode = nodeData.nodeType === 'ai_agent' || nodeData.nodeType === 'ai_text';
 
   const handleRoleToggle = (roleCode: string) => {
@@ -592,15 +797,6 @@ export const NodeConfigPanel: React.FC = () => {
     updateNodeData(selectedNode!.id, { roles: newRoles });
   };
 
-  const handleFieldToggle = (fieldKey: string) => {
-    let newFields: string[];
-    if (requiredFields.includes(fieldKey)) {
-      newFields = requiredFields.filter((k) => k !== fieldKey);
-    } else {
-      newFields = [...requiredFields, fieldKey];
-    }
-    updateNodeData(selectedNode!.id, { requiredFields: newFields });
-  };
 
   // ── Configuración Específica para Compuertas de Decisión (Gateway) ──────────
   if (nodeData.nodeType === 'gateway') {
@@ -1119,15 +1315,6 @@ export const NodeConfigPanel: React.FC = () => {
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
           )}
         </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('fields')}
-          className={`flex-1 py-1 px-1.5 rounded-md font-medium transition-colors ${
-            activeTab === 'fields' ? 'bg-white text-[#4F5AF5] shadow-xs' : 'text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          Campos
-        </button>
         {isAINode && (
           <button
             type="button"
@@ -1155,28 +1342,6 @@ export const NodeConfigPanel: React.FC = () => {
                 onChange={(e) => updateNodeData(selectedNode!.id, { label: e.target.value })}
                 className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] text-xs font-medium"
               />
-            </div>
-
-            {/* Texto del Botón de Acción (Transición hacia este estado) */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-[11px] font-semibold text-slate-700">
-                  Nombre del Botón de Acción
-                </label>
-                <span className="text-[10px] text-indigo-600 font-medium bg-indigo-50 px-1.5 py-0.2 rounded">
-                  Transición
-                </span>
-              </div>
-              <input
-                type="text"
-                value={(nodeData.action_label as string) || ''}
-                onChange={(e) => updateNodeData(selectedNode!.id, { action_label: e.target.value })}
-                placeholder={`Ej: Mover a ${nodeData.label || 'este estado'}`}
-                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] text-xs bg-white text-slate-800 placeholder-slate-400 font-medium shadow-2xs"
-              />
-              <p className="text-[10px] text-slate-500 mt-1 leading-tight">
-                Texto visible en el botón que moverá la iniciativa hacia esta etapa (ej: <em>"Enviar a aprobación de Business Partner"</em>).
-              </p>
             </div>
 
             {nodeData.nodeType === 'state' && (
@@ -1517,43 +1682,170 @@ export const NodeConfigPanel: React.FC = () => {
               </div>
             )}
 
-            {nodeData.nodeType === 'state' && (
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
-                  Mecanismo de Despacho / Asignación
+            {/* ── 3. CONFIGURACIÓN DE APROBADORES SIGUIENTES (ESTADO DEL REQUERIMIENTO) ── */}
+            <div className="p-3 bg-slate-50 border border-slate-200/90 rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-[#4F5AF5]" />
+                  Aprobadores Siguientes (En Estado del Requerimiento)
+                </span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(nodeData.showNextApprovers)}
+                    onChange={(e) => updateNodeData(selectedNode!.id, { showNextApprovers: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#4F5AF5]" />
                 </label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => updateNodeData(selectedNode!.id, { dispatchMode: 'general_inbox' })}
-                    className={`p-2 rounded-lg border text-left flex items-center gap-2 transition-all ${
-                      (!nodeData.dispatchMode || nodeData.dispatchMode === 'general_inbox')
-                        ? 'bg-blue-50 border-blue-400 text-blue-800 font-semibold shadow-xs'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Inbox className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                    <span className="text-[11px] truncate">Bandeja General</span>
-                  </button>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-tight">
+                Muestra en la tarjeta "Estado del Requerimiento" de la iniciativa la relación de aprobadores pendientes (ej: lista de Vicepresidencias o roles) para avanzar.
+              </p>
 
-                  <button
-                    type="button"
-                    onClick={() => updateNodeData(selectedNode!.id, { dispatchMode: 'select_person' })}
-                    className={`p-2 rounded-lg border text-left flex items-center gap-2 transition-all ${
-                      nodeData.dispatchMode === 'select_person'
-                        ? 'bg-violet-50 border-violet-400 text-violet-800 font-semibold shadow-xs'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <UserCheck className="w-3.5 h-3.5 shrink-0 text-violet-600" />
-                    <span className="text-[11px] truncate">Persona Obligatoria</span>
-                  </button>
+              {nodeData.showNextApprovers && (
+                <div className="space-y-2.5 pt-2 border-t border-slate-200/70">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                      Título en la Tarjeta
+                    </label>
+                    <input
+                      type="text"
+                      value={(nodeData.nextApproversTitle as string) || ''}
+                      placeholder="Aprobadores siguientes (VPs)"
+                      onChange={(e) => updateNodeData(selectedNode!.id, { nextApproversTitle: e.target.value })}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-[#4F5AF5]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                      Relación / Origen de Aprobadores
+                    </label>
+                    <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-100/90 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700">
+                      <span className="w-2 h-2 rounded-full bg-[#4F5AF5]" />
+                      <span>Roles / Evaluadores del estado</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-1 border-t border-slate-200/60">
+                    <label className="flex items-center gap-2 text-[11px] font-medium text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(nodeData.includeAdminInApprovers)}
+                        onChange={(e) => updateNodeData(selectedNode!.id, { includeAdminInApprovers: e.target.checked })}
+                        className="w-3.5 h-3.5 text-[#4F5AF5] rounded cursor-pointer"
+                      />
+                      <span>Incluir Administrador en la lista de aprobadores</span>
+                    </label>
+                    <p className="text-[10px] text-slate-400 pl-5.5 leading-tight">
+                      Si está desactivado, el rol Administrador no se listará como aprobador requerido.
+                    </p>
+                  </div>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  {nodeData.dispatchMode === 'select_person'
-                    ? 'Quien aprueba debe seleccionar obligatoriamente con nombre a la persona destino.'
-                    : 'La iniciativa pasa a la bandeja común de todos los usuarios con este rol en la Dirección.'}
+              )}
+            </div>
+
+            {/* ── 4. CONFIGURACIÓN DEL BOTÓN 'MOVER ESTADO' (SALTO MANUAL) ── */}
+            {nodeData.nodeType === 'state' && (
+              <div className={`p-3 border rounded-xl space-y-2.5 transition-colors ${
+                nodeData.allowManualStateMove ? 'bg-purple-50/50 border-purple-200 shadow-2xs' : 'bg-slate-50 border-slate-200/90'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                    <Shuffle className={`w-3.5 h-3.5 ${nodeData.allowManualStateMove ? 'text-purple-600' : 'text-slate-400'}`} />
+                    Botón "Mover estado"
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(nodeData.allowManualStateMove)}
+                      onChange={(e) => {
+                        const enabled = e.target.checked;
+                        updateNodeData(selectedNode!.id, {
+                          allowManualStateMove: enabled,
+                          manualStateMoveRole: enabled ? (nodeData.manualStateMoveRole || '') : undefined,
+                          manualStateMoveUserId: enabled ? (nodeData.manualStateMoveUserId || '') : undefined,
+                          manualStateMoveUserEmail: enabled ? (nodeData.manualStateMoveUserEmail || '') : undefined,
+                          manualStateMoveUserName: enabled ? (nodeData.manualStateMoveUserName || '') : undefined,
+                        });
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-purple-600" />
+                  </label>
+                </div>
+                <p className="text-[10px] text-slate-400 leading-tight">
+                  Permite habilitar el botón "Mover estado" en la iniciativa desde esta etapa. Por defecto viene apagado en todos los estados.
                 </p>
+
+                {nodeData.allowManualStateMove && (
+                  <div className="space-y-2.5 pt-2 border-t border-purple-200/70">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                        Rol autorizado <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={nodeData.manualStateMoveRole || ''}
+                        onChange={(e) => {
+                          const nextRole = e.target.value;
+                          updateNodeData(selectedNode!.id, {
+                            manualStateMoveRole: nextRole,
+                            manualStateMoveUserId: '',
+                            manualStateMoveUserEmail: '',
+                            manualStateMoveUserName: '',
+                          });
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-white border border-purple-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-purple-500 focus:outline-none"
+                      >
+                        <option value="">-- Seleccionar Rol --</option>
+                        {availableRoles.map((r) => (
+                          <option key={r.code} value={r.code}>
+                            {r.name} ({r.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                        Usuario de ese rol autorizado <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={nodeData.manualStateMoveUserId || ''}
+                        disabled={!nodeData.manualStateMoveRole}
+                        onChange={(e) => {
+                          const selId = e.target.value;
+                          const selUser = filteredUsersForManualMove.find((u) => u.id === selId);
+                          updateNodeData(selectedNode!.id, {
+                            manualStateMoveUserId: selId,
+                            manualStateMoveUserEmail: selUser?.email || '',
+                            manualStateMoveUserName: selUser?.name || '',
+                          });
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-white border border-purple-200 rounded-lg text-xs font-medium focus:ring-1 focus:ring-purple-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">
+                          {!nodeData.manualStateMoveRole
+                            ? 'Primero seleccione un rol'
+                            : filteredUsersForManualMove.length === 0
+                            ? 'No hay usuarios registrados con este rol'
+                            : '-- Seleccionar Usuario Autorizado --'}
+                        </option>
+                        {filteredUsersForManualMove.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} — {u.email}
+                          </option>
+                        ))}
+                      </select>
+                      {nodeData.manualStateMoveRole && filteredUsersForManualMove.length === 0 && (
+                        <p className="text-[10px] text-amber-600 mt-1">
+                          No se encontraron usuarios registrados con el rol "{nodeData.manualStateMoveRole}".
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1905,6 +2197,43 @@ export const NodeConfigPanel: React.FC = () => {
               })()}
             </div>
 
+            {/* Selector de Documento / Plantilla PDF */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                Documento / Plantilla PDF de Etapa
+              </label>
+              <select
+                value={nodeData.document_template_id || ''}
+                onChange={(e) => updateNodeData(selectedNode!.id, { document_template_id: e.target.value || undefined })}
+                className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
+              >
+                <option value="">Ninguno (Sin documento asociado)</option>
+                {availableDocumentTemplates.map((dt) => (
+                  <option key={dt.id} value={dt.id}>
+                    {dt.name} ({dt.code})
+                  </option>
+                ))}
+              </select>
+
+              {nodeData.document_template_id && (() => {
+                const selDoc = availableDocumentTemplates.find((d) => d.id === nodeData.document_template_id);
+                if (!selDoc) return null;
+                return (
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] space-y-1">
+                    <div className="flex justify-between font-semibold text-slate-800">
+                      <span>{selDoc.name}</span>
+                      <span className="font-mono text-[10px] text-rose-600 font-bold">{selDoc.code}</span>
+                    </div>
+                    {selDoc.description && (
+                      <p className="text-[10px] text-slate-600 line-clamp-2">
+                        {selDoc.description}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
             <div className="pt-2 border-t border-slate-100">
               <a
                 href="/admin/formularios-consentimientos"
@@ -1912,39 +2241,9 @@ export const NodeConfigPanel: React.FC = () => {
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#4F5AF5] hover:text-indigo-700 hover:underline"
               >
-                <span>Administrar catálogo de formularios & consentimientos</span>
+                <span>Administrar catálogo de formularios, consentimientos & documentos</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'fields' && (
-          <div className="space-y-3">
-            <p className="text-[11px] text-slate-500">
-              Campos que deben completarse obligatoriamente para poder avanzar desde este nodo:
-            </p>
-
-            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-              {availableFields.map((f) => {
-                const isSelected = requiredFields.includes(f.key);
-                return (
-                  <label
-                    key={f.key}
-                    className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
-                      isSelected ? 'bg-indigo-50 border-indigo-300 text-indigo-900' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span>{f.label}</span>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleFieldToggle(f.key)}
-                      className="rounded text-[#4F5AF5] focus:ring-[#4F5AF5]"
-                    />
-                  </label>
-                );
-              })}
             </div>
           </div>
         )}

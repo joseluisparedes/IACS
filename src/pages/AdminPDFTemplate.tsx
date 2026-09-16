@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { formatDateDDMMYYYY } from '../lib/utils';
-import { FieldDefinition } from '../types';
+import { FieldDefinition, DocumentTemplate } from '../types';
 import {
   Save, Loader2, Eye, EyeOff, RotateCcw,
   Bold, Italic, Underline, Strikethrough,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
   List, ListOrdered, Image, Check, ZoomIn, ZoomOut,
   ChevronDown, ChevronUp, Search, X, Scissors, FileText, Eraser, Code, Copy, Sparkles,
+  ArrowLeft,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -258,7 +259,25 @@ function replaceVariables(html: string, data: Record<string, string>): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
-export default function AdminPDFTemplate() {
+export interface AdminPDFTemplateProps {
+  templateId?: string;
+  initialData?: Partial<DocumentTemplate>;
+  onBack?: () => void;
+  onSaveSuccess?: (template: DocumentTemplate) => void;
+}
+
+export default function AdminPDFTemplate({
+  templateId,
+  initialData,
+  onBack,
+  onSaveSuccess,
+}: AdminPDFTemplateProps = {}) {
+  const [docId,          setDocId]          = useState<string | undefined>(templateId || initialData?.id);
+  const [docName,        setDocName]        = useState<string>(initialData?.name || 'Plantilla del Informe Ejecutivo PDF');
+  const [docCode,        setDocCode]        = useState<string>(initialData?.code || 'DOC_CONSOLIDADO');
+  const [docDescription, setDocDescription] = useState<string>(initialData?.description || '');
+  const [isDefault,      setIsDefault]      = useState<boolean>(initialData?.is_default ?? false);
+
   const [margins,     setMargins]     = useState<Margins>({ top: 18, right: 20, bottom: 18, left: 20 });
   const [loading,     setLoading]     = useState(true);
   const [saving,      setSaving]      = useState(false);
@@ -438,8 +457,7 @@ export default function AdminPDFTemplate() {
   useEffect(() => {
     (async () => {
       try {
-        const [settingsRes, fieldsRes] = await Promise.all([
-          supabase.from('site_settings').select('pdf_template').eq('id', 1).single(),
+        const [fieldsRes] = await Promise.all([
           supabase.from('initiative_fields').select('*').order('sort_order', { ascending: true })
         ]);
 
@@ -447,11 +465,60 @@ export default function AdminPDFTemplate() {
           setDbFields(fieldsRes.data);
         }
 
-        const raw = settingsRes.data?.pdf_template ?? '';
-        const { html, margins: m } = parseStoredTemplate(raw);
-        setMargins(m);
+        let loadedHtml = '';
+        let loadedMargins: Margins = { top: 18, right: 20, bottom: 18, left: 20 };
 
-        const activeHtml = html ? html : DEFAULT_TEMPLATE_HTML;
+        const targetId = templateId || initialData?.id;
+        if (targetId) {
+          let docData: any = null;
+          try {
+            const res = await fetch('/api/document-templates');
+            if (res.ok) {
+              const json = await res.json();
+              docData = (json.data || []).find((d: any) => d.id === targetId);
+            }
+          } catch {}
+
+          if (!docData) {
+            const { data } = await supabase
+              .from('document_templates')
+              .select('*')
+              .eq('id', targetId)
+              .maybeSingle();
+            docData = data;
+          }
+
+          if (docData) {
+            setDocId(docData.id);
+            setDocName(docData.name);
+            setDocCode(docData.code);
+            setDocDescription(docData.description || '');
+            setIsDefault(!!docData.is_default);
+            loadedHtml = docData.template_html || '';
+            if (docData.margins) {
+              loadedMargins = { ...loadedMargins, ...docData.margins };
+            }
+          }
+        } else if (initialData) {
+          if (initialData.name) setDocName(initialData.name);
+          if (initialData.code) setDocCode(initialData.code);
+          if (initialData.description) setDocDescription(initialData.description);
+          if (initialData.template_html) loadedHtml = initialData.template_html;
+          if (initialData.margins) loadedMargins = { ...loadedMargins, ...initialData.margins };
+          if (initialData.is_default !== undefined) setIsDefault(initialData.is_default);
+        }
+
+        // Si aún no tenemos HTML cargado, cargar desde site_settings o DEFAULT
+        if (!loadedHtml) {
+          const settingsRes = await supabase.from('site_settings').select('pdf_template').eq('id', 1).single();
+          const raw = settingsRes.data?.pdf_template ?? '';
+          const { html, margins: m } = parseStoredTemplate(raw);
+          loadedHtml = html;
+          loadedMargins = m;
+        }
+
+        setMargins(loadedMargins);
+        const activeHtml = loadedHtml ? loadedHtml : DEFAULT_TEMPLATE_HTML;
         setCodeHtml(activeHtml);
 
         if (editorRef.current && !isInit.current) {
@@ -469,7 +536,7 @@ export default function AdminPDFTemplate() {
         setTimeout(updatePageCount, 150);
       }
     })();
-  }, []);
+  }, [templateId]);
 
   // ── Unificar todas las variables del sistema + campos del formulario ───────
   const allVariables = useMemo(() => {
@@ -529,13 +596,104 @@ export default function AdminPDFTemplate() {
     setSaving(true);
     setMessage(null);
     const payload = JSON.stringify({ html: activeHtml, margins });
+
     try {
-      const { error } = await supabase
-        .from('site_settings')
-        .update({ pdf_template: payload })
-        .eq('id', 1);
-      if (error) throw error;
+      let savedDoc: any = null;
+      const targetId = docId || templateId || initialData?.id;
+
+      if (targetId) {
+        // Update document_template
+        try {
+          const res = await fetch(`/api/document-templates/${targetId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: docName,
+              code: docCode,
+              description: docDescription,
+              template_html: activeHtml,
+              margins,
+              is_default: isDefault,
+            }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            savedDoc = json.data;
+          }
+        } catch {}
+
+        if (!savedDoc) {
+          const { data, error } = await supabase
+            .from('document_templates')
+            .update({
+              name: docName,
+              code: docCode,
+              description: docDescription,
+              template_html: activeHtml,
+              margins,
+              is_default: isDefault,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', targetId)
+            .select()
+            .single();
+          if (error) throw error;
+          savedDoc = data;
+        }
+      } else {
+        // Create new document_template
+        try {
+          const res = await fetch('/api/document-templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: docName,
+              code: docCode || `DOC_${Date.now().toString(36).toUpperCase()}`,
+              description: docDescription,
+              template_html: activeHtml,
+              margins,
+              is_default: isDefault,
+            }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            savedDoc = json.data;
+          }
+        } catch {}
+
+        if (!savedDoc) {
+          const { data, error } = await supabase
+            .from('document_templates')
+            .insert({
+              name: docName,
+              code: docCode || `DOC_${Date.now().toString(36).toUpperCase()}`,
+              description: docDescription,
+              template_html: activeHtml,
+              margins,
+              is_default: isDefault,
+            })
+            .select()
+            .single();
+          if (error) throw error;
+          savedDoc = data;
+        }
+        if (savedDoc?.id) {
+          setDocId(savedDoc.id);
+        }
+      }
+
+      // Also update site_settings if default
+      if (isDefault) {
+        await supabase
+          .from('site_settings')
+          .update({ pdf_template: payload })
+          .eq('id', 1);
+      }
+
       setMessage({ text: '✓ Plantilla guardada correctamente.', type: 'success' });
+      if (savedDoc && onSaveSuccess) {
+        onSaveSuccess(savedDoc);
+      }
     } catch (err: any) {
       setMessage({ text: 'Error al guardar: ' + err.message, type: 'error' });
     } finally {
@@ -706,18 +864,35 @@ export default function AdminPDFTemplate() {
       {/* ══ HEADER ══ */}
       <div className="shrink-0 bg-white border-b border-[#E2E8F0] px-5 py-2.5 flex items-center justify-between gap-4 shadow-sm z-20">
         <div className="flex items-center gap-3 min-w-0">
-          <div>
-            <h1 className="text-sm font-bold text-[#1E293B]">Plantilla del Informe Ejecutivo PDF</h1>
-            <p className="text-[10px] text-[#94A3B8] mt-0.5 hidden sm:block">
-              Editor A4 Multi-hoja · Conmutador entre Modo Visual y Editor de Código HTML
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all cursor-pointer shadow-xs shrink-0"
+              title="Volver al Generador de Documentos"
+            >
+              <ArrowLeft className="w-4 h-4 text-[#4F5AF5]" />
+              <span className="hidden sm:inline">Volver</span>
+            </button>
+          )}
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-bold text-[#1E293B] truncate">{docName}</h1>
+              <span className="font-mono text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md shrink-0">
+                {docCode}
+              </span>
+            </div>
+            <p className="text-[10px] text-[#94A3B8] mt-0.5 hidden sm:block truncate max-w-md">
+              {docDescription || 'Editor A4 Multi-hoja · Conmutador entre Modo Visual y Editor de Código HTML'}
             </p>
           </div>
 
           {/* Page counter badge */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#EEF2FF] border border-[#C7D2FE] rounded-lg">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#EEF2FF] border border-[#C7D2FE] rounded-lg shrink-0">
             <FileText className="w-3.5 h-3.5 text-[#4F5AF5]" />
             <span className="text-[11px] font-bold text-[#4F5AF5]">
-              {pageCount} {pageCount === 1 ? 'Página A4' : 'Páginas A4'}
+              {pageCount} {pageCount === 1 ? 'Pág A4' : 'Págs A4'}
             </span>
           </div>
         </div>

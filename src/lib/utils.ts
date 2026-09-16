@@ -104,7 +104,9 @@ export const SYSTEM_ROLES_MAP: Record<string, string> = {
   key_user: 'Key User',
   bp_ti: 'Business Partner TI',
   business_owner: 'Business Owner',
-  vp: 'Vicepresidencia',
+  vp: 'Vicepresidente',
+  vicepresidente: 'Vicepresidente',
+  vicepresidente_del_negocio: 'Vicepresidente del Negocio',
   gestor_demanda: 'Gestor de Demanda TI',
   gestor_de_demanda: 'Gestor de Demanda TI',
   lider_dominio: 'Líder de Dominio',
@@ -116,5 +118,9 @@ export const SYSTEM_ROLES_MAP: Record<string, string> = {
 export function formatRoleName(role?: string | null): string {
   if (!role) return 'Responsable';
   const clean = String(role).trim().toLowerCase();
-  return SYSTEM_ROLES_MAP[clean] || SYSTEM_ROLES_MAP[clean.replace(/\s+/g, '_')] || role;
+  return (
+    SYSTEM_ROLES_MAP[clean] || 
+    SYSTEM_ROLES_MAP[clean.replace(/[\s-]+/g, '_')] || 
+    role.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  );
 }

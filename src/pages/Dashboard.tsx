@@ -253,11 +253,11 @@ function DetailModal({ initiative, onClose }: { initiative: Initiative; onClose:
         <div className="px-6 py-4 border-t border-[#F1F5F9] bg-[#F8FAFC] flex items-center justify-between shrink-0">
           <p className="text-xs text-[#94A3B8]">Registrado el {formatDate(initiative.created_at)}</p>
           <Link
-            to={`/iniciativa/${initiative.id}`}
+            to={initiative.status === 'Borrador' ? `/nueva/${initiative.id}` : `/iniciativa/${initiative.id}`}
             onClick={onClose}
             className="flex items-center gap-2 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors shadow-sm cursor-pointer"
           >
-            Abrir Expediente Completo
+            {initiative.status === 'Borrador' ? 'Editar Borrador' : 'Abrir Expediente Completo'}
             <ExternalLink className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -889,10 +889,10 @@ export default function Dashboard() {
                         Vista rápida
                       </button>
                       <Link
-                        to={`/iniciativa/${ini.id}`}
+                        to={ini.status === 'Borrador' ? `/nueva/${ini.id}` : `/iniciativa/${ini.id}`}
                         className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#4F5AF5] hover:bg-[#3F49E0] text-xs font-semibold text-white transition-colors cursor-pointer shadow-2xs"
                       >
-                        Abrir
+                        {ini.status === 'Borrador' ? 'Editar' : 'Abrir'}
                         <ExternalLink className="w-3 h-3" />
                       </Link>
                     </div>

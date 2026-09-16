@@ -28,10 +28,14 @@ import {
   Image as ImageIcon,
   ArrowUpDown,
   UserCheck,
-  ListPlus
+  ListPlus,
+  Printer,
+  FileEdit,
+  ExternalLink,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import type { StageForm, StageConsent, StageFormField, StageFormFieldType } from '../types';
+import type { StageForm, StageConsent, StageFormField, StageFormFieldType, DocumentTemplate } from '../types';
+import AdminPDFTemplate from './AdminPDFTemplate';
 
 interface FieldOptionsEditorProps {
   options: string[] | undefined;
@@ -173,12 +177,13 @@ const FieldOptionsEditor: React.FC<FieldOptionsEditorProps> = ({ options = [], o
 };
 
 export const WorkflowCatalogManager: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'forms' | 'consents'>('forms');
+  const [activeTab, setActiveTab] = useState<'forms' | 'consents' | 'documents'>('forms');
   const [loading, setLoading] = useState<boolean>(true);
 
   // Data lists
   const [forms, setForms] = useState<StageForm[]>([]);
   const [consents, setConsents] = useState<StageConsent[]>([]);
+  const [documentTemplates, setDocumentTemplates] = useState<DocumentTemplate[]>([]);
   const [workflowNodes, setWorkflowNodes] = useState<any[]>([]);
   const [appRoles, setAppRoles] = useState<any[]>([]);
 
@@ -192,6 +197,11 @@ export const WorkflowCatalogManager: React.FC = () => {
   const [isFormDrawerOpen, setIsFormDrawerOpen] = useState(false);
   const [editingConsent, setEditingConsent] = useState<StageConsent | null>(null);
   const [isConsentDrawerOpen, setIsConsentDrawerOpen] = useState(false);
+
+  // Document templates state
+  const [editingDocument, setEditingDocument] = useState<DocumentTemplate | null>(null);
+  const [isDocModalOpen, setIsDocModalOpen] = useState(false);
+  const [isDocEditorOpen, setIsDocEditorOpen] = useState(false);
 
   // Field editor state inside form drawer
   const [activeFieldEditIndex, setActiveFieldEditIndex] = useState<number | null>(null);
@@ -250,7 +260,27 @@ export const WorkflowCatalogManager: React.FC = () => {
       }
       setConsents(fetchedConsents);
 
-      // 3. Load Active Workflow to find associated states
+      // 3. Load Document Templates
+      let fetchedDocs: DocumentTemplate[] = [];
+      try {
+        const res = await fetch('/api/document-templates');
+        if (res.ok) {
+          const json = await res.json();
+          fetchedDocs = json.data || [];
+        } else {
+          throw new Error('Fallback to Supabase');
+        }
+      } catch {
+        const { data, error } = await supabase
+          .from('document_templates')
+          .select('*')
+          .order('is_default', { ascending: false })
+          .order('name', { ascending: true });
+        if (!error && data) fetchedDocs = data as DocumentTemplate[];
+      }
+      setDocumentTemplates(fetchedDocs);
+
+      // 4. Load Active Workflow to find associated states
       try {
         const { data: dbWf } = await supabase
           .from('workflow_definitions')
@@ -264,7 +294,7 @@ export const WorkflowCatalogManager: React.FC = () => {
         console.warn('Error fetching workflow nodes for stage associations:', wfErr);
       }
 
-      // 4. Load System Roles
+      // 5. Load System Roles
       try {
         const { data: rolesData } = await supabase.from('app_roles').select('*').order('name');
         if (rolesData) setAppRoles(rolesData);
@@ -294,6 +324,15 @@ export const WorkflowCatalogManager: React.FC = () => {
       (n: any) =>
         (consentId && n.data?.consent_id === consentId) ||
         (consentCode && n.data?.consent_id === consentCode)
+    );
+  };
+
+  const getAssociatedNodesForDocument = (docId?: string, docCode?: string) => {
+    if (!docId && !docCode) return [];
+    return (workflowNodes || []).filter(
+      (n: any) =>
+        (docId && n.data?.document_template_id === docId) ||
+        (docCode && n.data?.document_template_id === docCode)
     );
   };
 
@@ -399,6 +438,33 @@ export const WorkflowCatalogManager: React.FC = () => {
       return 0;
     });
   }, [consents, searchTerm, statusFilter, sortBy, workflowNodes]);
+
+  // ── Documents Filtered & Sorted ─────────────────────────────────────────────
+  const filteredDocuments = useMemo(() => {
+    const list = documentTemplates.filter((d) => {
+      const matchSearch =
+        d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        d.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (d.description && d.description.toLowerCase().includes(searchTerm.toLowerCase()));
+      const matchStatus =
+        statusFilter === 'all' ? true : statusFilter === 'active' ? d.is_active : !d.is_active;
+      return matchSearch && matchStatus;
+    });
+
+    return list.sort((a, b) => {
+      if (sortBy === 'workflow_asc' || sortBy === 'workflow_desc') {
+        const rankA = getWorkflowRankForNodes(getAssociatedNodesForDocument(a.id, a.code));
+        const rankB = getWorkflowRankForNodes(getAssociatedNodesForDocument(b.id, b.code));
+        if (rankA !== rankB) {
+          return sortBy === 'workflow_asc' ? rankA - rankB : rankB - rankA;
+        }
+      }
+      if (a.is_default !== b.is_default) return a.is_default ? -1 : 1;
+      if (sortBy === 'name_asc') return a.name.localeCompare(b.name);
+      if (sortBy === 'name_desc') return b.name.localeCompare(a.name);
+      return a.name.localeCompare(b.name);
+    });
+  }, [documentTemplates, searchTerm, statusFilter, sortBy, workflowNodes]);
 
   // ── Form Actions ────────────────────────────────────────────────────────────
   const handleOpenNewForm = () => {
@@ -720,6 +786,210 @@ export const WorkflowCatalogManager: React.FC = () => {
     }
   };
 
+  // ── Document Actions ────────────────────────────────────────────────────────
+  const handleOpenNewDocument = () => {
+    setEditingDocument({
+      id: '',
+      code: `DOC_${Date.now().toString(36).slice(-6).toUpperCase()}`,
+      name: '',
+      description: '',
+      template_html: '',
+      margins: { top: 18, right: 20, bottom: 18, left: 20 },
+      is_active: true,
+      is_default: false,
+    });
+    setIsDocModalOpen(true);
+  };
+
+  const handleEditDocument = (doc: DocumentTemplate) => {
+    setEditingDocument(JSON.parse(JSON.stringify(doc)));
+    setIsDocModalOpen(true);
+  };
+
+  const handleOpenDocumentEditor = (doc: DocumentTemplate) => {
+    setEditingDocument(doc);
+    setIsDocEditorOpen(true);
+  };
+
+  const handleDuplicateDocument = async (doc: DocumentTemplate) => {
+    const duplicated: Partial<DocumentTemplate> = {
+      name: `${doc.name} (Copia)`,
+      code: `${doc.code}_COPIA_${Date.now().toString(36).slice(-4).toUpperCase()}`,
+      description: doc.description,
+      template_html: doc.template_html,
+      margins: doc.margins,
+      is_active: true,
+      is_default: false,
+    };
+
+    try {
+      let saved: any = null;
+      try {
+        const res = await fetch('/api/document-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(duplicated),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          saved = json.data;
+        }
+      } catch {}
+
+      if (!saved) {
+        const { data, error } = await supabase
+          .from('document_templates')
+          .insert(duplicated)
+          .select()
+          .single();
+        if (error) throw error;
+        saved = data;
+      }
+
+      setDocumentTemplates((prev) => [saved, ...prev]);
+      showNotification('success', 'Formato PDF duplicado con éxito.');
+    } catch (err: any) {
+      showNotification('error', `Error al duplicar formato: ${err.message}`);
+    }
+  };
+
+  const handleDeleteDocument = async (doc: DocumentTemplate) => {
+    if (doc.is_default) {
+      alert('No es posible eliminar el formato PDF marcado por defecto.');
+      return;
+    }
+    if (!window.confirm(`¿Estás seguro de eliminar el formato "${doc.name}"? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      try {
+        await fetch(`/api/document-templates/${doc.id}`, { method: 'DELETE' });
+      } catch {}
+      await supabase.from('document_templates').delete().eq('id', doc.id);
+      setDocumentTemplates((prev) => prev.filter((d) => d.id !== doc.id));
+      showNotification('success', 'Formato PDF eliminado correctamente.');
+    } catch (err: any) {
+      showNotification('error', `Error al eliminar formato: ${err.message}`);
+    }
+  };
+
+  const handleSaveDocumentMetadata = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDocument) return;
+    if (!editingDocument.name.trim() || !editingDocument.code.trim()) {
+      showNotification('error', 'El nombre y código del documento son obligatorios.');
+      return;
+    }
+
+    const payload = {
+      name: editingDocument.name.trim(),
+      code: editingDocument.code.trim().toUpperCase().replace(/\s+/g, '_'),
+      description: editingDocument.description?.trim() || null,
+      is_active: editingDocument.is_active,
+      is_default: editingDocument.is_default,
+      margins: editingDocument.margins || { top: 18, right: 20, bottom: 18, left: 20 },
+    };
+
+    try {
+      let savedData: DocumentTemplate | null = null;
+      if (editingDocument.id) {
+        // Update
+        try {
+          const res = await fetch(`/api/document-templates/${editingDocument.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            savedData = json.data;
+          }
+        } catch {}
+
+        if (!savedData) {
+          const { data, error } = await supabase
+            .from('document_templates')
+            .update({ ...payload, updated_at: new Date().toISOString() })
+            .eq('id', editingDocument.id)
+            .select()
+            .single();
+          if (error) throw error;
+          savedData = data as DocumentTemplate;
+        }
+
+        setDocumentTemplates((prev) => prev.map((d) => (d.id === editingDocument.id ? savedData! : d)));
+        showNotification('success', 'Metadatos del formato PDF actualizados.');
+      } else {
+        // Create
+        let baseHtml = editingDocument.template_html;
+        if (!baseHtml) {
+          // Copiar plantilla por defecto si existe
+          const def = documentTemplates.find(d => d.is_default);
+          baseHtml = def?.template_html || '<h1>Documento de Flujo</h1><p>{{titulo_de_la_necesidad}}</p>';
+        }
+
+        const createPayload = {
+          ...payload,
+          template_html: baseHtml,
+        };
+        try {
+          const res = await fetch('/api/document-templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(createPayload),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            savedData = json.data;
+          }
+        } catch {}
+
+        if (!savedData) {
+          const { data, error } = await supabase
+            .from('document_templates')
+            .insert(createPayload)
+            .select()
+            .single();
+          if (error) throw error;
+          savedData = data as DocumentTemplate;
+        }
+
+        setDocumentTemplates((prev) => [savedData!, ...prev]);
+        showNotification('success', 'Nuevo formato PDF registrado. Abriendo Editor PDF...');
+        setEditingDocument(savedData);
+        setIsDocModalOpen(false);
+        setIsDocEditorOpen(true);
+        return;
+      }
+
+      setIsDocModalOpen(false);
+      setEditingDocument(null);
+    } catch (err: any) {
+      showNotification('error', `Error al guardar formato: ${err.message}`);
+    }
+  };
+
+  // ── Render PDF Editor View ──────────────────────────────────────────
+  if (isDocEditorOpen && editingDocument) {
+    return (
+      <div className="-m-4 md:-m-8 flex flex-col h-[calc(100vh-4rem-3.2rem)] min-h-[600px] overflow-hidden bg-slate-900">
+        <AdminPDFTemplate
+          templateId={editingDocument.id}
+          initialData={editingDocument}
+          onBack={() => {
+            setIsDocEditorOpen(false);
+            setEditingDocument(null);
+            loadCatalogs();
+          }}
+          onSaveSuccess={() => {
+            loadCatalogs();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       {/* ── Top Hero Header ──────────────────────────────────────────────────── */}
@@ -748,21 +1018,33 @@ export const WorkflowCatalogManager: React.FC = () => {
             <div className="flex items-center gap-2.5">
               <button
                 type="button"
-                onClick={activeTab === 'forms' ? handleOpenNewForm : handleOpenNewConsent}
+                onClick={
+                  activeTab === 'forms'
+                    ? handleOpenNewForm
+                    : activeTab === 'consents'
+                    ? handleOpenNewConsent
+                    : handleOpenNewDocument
+                }
                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#4F5AF5] to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shadow-md shadow-indigo-500/25 transition-all transform active:scale-95"
               >
                 <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>{activeTab === 'forms' ? 'Nuevo Formulario' : 'Nuevo Consentimiento'}</span>
+                <span>
+                  {activeTab === 'forms'
+                    ? 'Nuevo Formulario'
+                    : activeTab === 'consents'
+                    ? 'Nuevo Consentimiento'
+                    : 'Nuevo Formato PDF'}
+                </span>
               </button>
             </div>
           </div>
 
           {/* Tab Navigation */}
-          <div className="flex items-center gap-2 mt-6 border-b border-slate-100">
+          <div className="flex items-center gap-2 mt-6 border-b border-slate-100 overflow-x-auto custom-scrollbar">
             <button
               type="button"
               onClick={() => { setActiveTab('forms'); setSearchTerm(''); }}
-              className={`flex items-center gap-2.5 px-4 py-3 text-sm font-bold border-b-2 transition-all ${
+              className={`flex items-center gap-2.5 px-4 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
                 activeTab === 'forms'
                   ? 'border-[#4F5AF5] text-[#4F5AF5]'
                   : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -780,7 +1062,7 @@ export const WorkflowCatalogManager: React.FC = () => {
             <button
               type="button"
               onClick={() => { setActiveTab('consents'); setSearchTerm(''); }}
-              className={`flex items-center gap-2.5 px-4 py-3 text-sm font-bold border-b-2 transition-all ${
+              className={`flex items-center gap-2.5 px-4 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
                 activeTab === 'consents'
                   ? 'border-[#4F5AF5] text-[#4F5AF5]'
                   : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -792,6 +1074,24 @@ export const WorkflowCatalogManager: React.FC = () => {
                 activeTab === 'consents' ? 'bg-indigo-100 text-[#4F5AF5]' : 'bg-slate-100 text-slate-600'
               }`}>
                 {consents.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setActiveTab('documents'); setSearchTerm(''); }}
+              className={`flex items-center gap-2.5 px-4 py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
+                activeTab === 'documents'
+                  ? 'border-[#4F5AF5] text-[#4F5AF5]'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Generador de documentos</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                activeTab === 'documents' ? 'bg-indigo-100 text-[#4F5AF5]' : 'bg-slate-100 text-slate-600'
+              }`}>
+                {documentTemplates.length}
               </span>
             </button>
           </div>
@@ -830,7 +1130,13 @@ export const WorkflowCatalogManager: React.FC = () => {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder={activeTab === 'forms' ? 'Buscar formulario por nombre, código...' : 'Buscar consentimiento...'}
+              placeholder={
+                activeTab === 'forms'
+                  ? 'Buscar formulario por nombre, código...'
+                  : activeTab === 'consents'
+                  ? 'Buscar consentimiento...'
+                  : 'Buscar formato PDF por nombre, código...'
+              }
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]/20 focus:border-[#4F5AF5]"
@@ -1078,7 +1384,7 @@ export const WorkflowCatalogManager: React.FC = () => {
               })}
             </div>
           )
-        ) : (
+        ) : activeTab === 'consents' ? (
           /* ── Consents List ── */
           filteredConsents.length === 0 ? (
             <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center">
@@ -1225,6 +1531,143 @@ export const WorkflowCatalogManager: React.FC = () => {
                 </div>
               );
             })}
+            </div>
+          )
+        ) : (
+          /* ── Documents List (Generador de Documentos) ── */
+          filteredDocuments.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center">
+              <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-slate-700">No se encontraron formatos de documentos PDF</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
+                {searchTerm
+                  ? 'No hay formatos que coincidan con la búsqueda.'
+                  : 'Diseña formatos ejecutivos PDF y conéctalos a etapas específicas del flujo o mantenlos como expedientes integrales.'}
+              </p>
+              <button
+                type="button"
+                onClick={handleOpenNewDocument}
+                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-[#4F5AF5] hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Crear Formato PDF</span>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredDocuments.map((doc) => {
+                const associatedNodes = getAssociatedNodesForDocument(doc.id, doc.code);
+                return (
+                  <div
+                    key={doc.id}
+                    className="group bg-white rounded-2xl border border-slate-200 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-200 flex flex-col justify-between overflow-hidden"
+                  >
+                    <div className="p-5">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {doc.is_default && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-amber-600" />
+                              Principal
+                            </span>
+                          )}
+                          <span className="px-2.5 py-1 rounded-md text-[11px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                            {doc.code}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              doc.is_active
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-500 border border-slate-200'
+                            }`}
+                          >
+                            {doc.is_active ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleEditDocument(doc)}
+                            title="Editar propiedades del documento"
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicateDocument(doc)}
+                            title="Duplicar formato PDF"
+                            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          {!doc.is_default && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteDocument(doc)}
+                              title="Eliminar formato PDF"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <h3 className="text-base font-bold text-slate-900 group-hover:text-[#4F5AF5] transition-colors leading-snug">
+                        {doc.name}
+                      </h3>
+
+                      {doc.description && (
+                        <p className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed">
+                          {doc.description}
+                        </p>
+                      )}
+
+                      {/* Etapas de Flujo Asignadas */}
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                        <span className="font-semibold text-slate-700 text-[11px]">Etapas vinculadas:</span>
+                        {associatedNodes.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 justify-end max-w-[65%]">
+                            {associatedNodes.map((n: any) => (
+                              <span
+                                key={n.id}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                <span className="truncate max-w-[130px]">{n.data?.label || n.id}</span>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">
+                            {doc.is_default ? 'Todas (Por Defecto)' : 'Sin vincular en flujo'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDocumentEditor(doc)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-xs"
+                      >
+                        <FileEdit className="w-3.5 h-3.5" />
+                        <span>Diseñar en Editor PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleEditDocument(doc)}
+                        className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+                      >
+                        Propiedades
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )
         )}
@@ -2008,6 +2451,183 @@ export const WorkflowCatalogManager: React.FC = () => {
                 <Check className="w-4 h-4 stroke-[2.5]" />
                 <span>Guardar Consentimiento</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ── DOCUMENT DRAWER (METADATA & CONFIG) ─────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {isDocModalOpen && editingDocument && (
+        <div className="fixed inset-0 z-[9999] overflow-hidden bg-slate-900/50 backdrop-blur-xs flex justify-end">
+          <div className="w-full max-w-xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/70 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-[#4F5AF5] flex items-center justify-center font-bold">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    {editingDocument.id ? 'Propiedades del Formato PDF' : 'Nuevo Formato de Documento PDF'}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Configura los datos del documento y diseña su maqueta A4 en el Editor PDF.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setIsDocModalOpen(false); setEditingDocument(null); }}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <form id="docForm" onSubmit={handleSaveDocumentMetadata} className="flex-1 overflow-y-auto p-6 space-y-5">
+              {/* Etapas de Flujo Asignadas Banner */}
+              {editingDocument.id && (() => {
+                const associated = getAssociatedNodesForDocument(editingDocument.id, editingDocument.code);
+                return (
+                  <div className="p-3.5 bg-gradient-to-r from-indigo-50/90 to-blue-50/70 border border-indigo-200/90 rounded-2xl space-y-1.5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                        <Workflow className="w-4 h-4 text-[#4F5AF5]" />
+                        <span>Vinculación en Etapas del Flujo</span>
+                      </span>
+                      <span className="text-[10px] font-bold text-indigo-700 bg-white px-2 py-0.5 rounded-full border border-indigo-200">
+                        {associated.length > 0 ? `${associated.length} ${associated.length === 1 ? 'etapa vinculada' : 'etapas vinculadas'}` : 'Sin vincular'}
+                      </span>
+                    </div>
+                    {associated.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {associated.map((n: any) => (
+                          <span
+                            key={n.id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-white text-indigo-900 border border-indigo-200 shadow-2xs"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            <span>{n.data?.label || n.id}</span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-600">
+                        Para asociar este documento a una etapa específica, abre el <strong>Editor de Flujos</strong> y selecciónalo en el nodo correspondiente.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Nombre del Documento *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. Dictamen de Negocio — Líder de Dominio"
+                    value={editingDocument.name}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      const update: any = { name };
+                      if (!editingDocument.id) {
+                        update.code = 'DOC_' + name.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24).toUpperCase();
+                      }
+                      setEditingDocument({ ...editingDocument, ...update });
+                    }}
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]/20 focus:border-[#4F5AF5]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Código Único Identificador *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="DOC_EJEMPLO"
+                    value={editingDocument.code}
+                    onChange={(e) => setEditingDocument({ ...editingDocument, code: e.target.value.toUpperCase().replace(/\s+/g, '_') })}
+                    className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]/20 focus:border-[#4F5AF5]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Descripción / Propósito
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Explica a qué audiencia está dirigido o en qué momento del flujo se emite..."
+                    value={editingDocument.description || ''}
+                    onChange={(e) => setEditingDocument({ ...editingDocument, description: e.target.value })}
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]/20 focus:border-[#4F5AF5]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <label className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingDocument.is_active}
+                      onChange={(e) => setEditingDocument({ ...editingDocument, is_active: e.target.checked })}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="text-xs font-semibold text-slate-700">Formato Activo</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingDocument.is_default}
+                      onChange={(e) => setEditingDocument({ ...editingDocument, is_default: e.target.checked })}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="text-xs font-semibold text-slate-700">Formato por Defecto</span>
+                  </label>
+                </div>
+              </div>
+            </form>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-200 bg-white shadow-xl shrink-0 sticky bottom-0 z-20 flex items-center justify-between gap-2.5">
+              <button
+                type="button"
+                onClick={() => { setIsDocModalOpen(false); setEditingDocument(null); }}
+                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <div className="flex items-center gap-2">
+                {editingDocument.id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDocModalOpen(false);
+                      setIsDocEditorOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border border-indigo-300 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-all cursor-pointer"
+                  >
+                    <FileEdit className="w-4 h-4" />
+                    <span>Diseñar en Editor PDF</span>
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  form="docForm"
+                  className="flex items-center gap-1.5 px-6 py-2.5 text-xs font-bold bg-gradient-to-r from-[#4F5AF5] to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white rounded-xl shadow-md shadow-indigo-500/20 transition-all cursor-pointer"
+                >
+                  <Check className="w-4 h-4 stroke-[2.5]" />
+                  <span>{editingDocument.id ? 'Guardar Propiedades' : 'Guardar y Abrir Editor'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

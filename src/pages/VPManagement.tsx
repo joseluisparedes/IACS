@@ -1,20 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Network, Plus, Trash2, Save, X, Edit2, Mail, User } from 'lucide-react';
+import { Building2, Network, Trash2, Save, X, Edit2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface VP {
   id: string;
   name: string;
-  bp_name: string | null;
-  email: string | null;
 }
 
 interface Direccion {
   id: string;
   name: string;
   vp_id: string;
-  director_name: string | null;
-  email: string | null;
 }
 
 export default function VPManagement() {
@@ -26,13 +22,9 @@ export default function VPManagement() {
 
   // Forms
   const [vpName, setVpName] = useState('');
-  const [vpBpName, setVpBpName] = useState('');
-  const [vpEmail, setVpEmail] = useState('');
   const [editingVP, setEditingVP] = useState<string | null>(null);
 
   const [dirName, setDirName] = useState('');
-  const [dirDirectorName, setDirDirectorName] = useState('');
-  const [dirEmail, setDirEmail] = useState('');
   const [editingDir, setEditingDir] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,8 +34,8 @@ export default function VPManagement() {
   const fetchData = async () => {
     setLoading(true);
     const [vpRes, dirRes] = await Promise.all([
-      supabase.from('vps').select('*').order('name'),
-      supabase.from('direcciones').select('*').order('name')
+      supabase.from('vps').select('id, name').order('name'),
+      supabase.from('direcciones').select('id, name, vp_id').order('name')
     ]);
 
     if (vpRes.data) setVps(vpRes.data);
@@ -63,39 +55,29 @@ export default function VPManagement() {
       const { error } = await supabase
         .from('vps')
         .update({ 
-          name: vpName.trim(), 
-          bp_name: vpBpName.trim() || null, 
-          email: vpEmail.trim() || null 
+          name: vpName.trim()
         })
         .eq('id', editingVP);
         
       if (!error) {
         setVps(vps.map(vp => vp.id === editingVP ? { 
           ...vp, 
-          name: vpName.trim(), 
-          bp_name: vpBpName.trim() || null, 
-          email: vpEmail.trim() || null 
+          name: vpName.trim()
         } : vp));
         setEditingVP(null);
         setVpName('');
-        setVpBpName('');
-        setVpEmail('');
       } else alert(error.message);
     } else {
       const { data, error } = await supabase
         .from('vps')
         .insert([{ 
-          name: vpName.trim(), 
-          bp_name: vpBpName.trim() || null, 
-          email: vpEmail.trim() || null 
+          name: vpName.trim()
         }])
         .select();
         
       if (!error && data) {
         setVps([...vps, data[0]]);
         setVpName('');
-        setVpBpName('');
-        setVpEmail('');
         setSelectedVP(data[0].id);
       } else alert(error?.message);
     }
@@ -113,15 +95,11 @@ export default function VPManagement() {
   const handleEditVP = (vp: VP) => {
     setEditingVP(vp.id);
     setVpName(vp.name);
-    setVpBpName(vp.bp_name || '');
-    setVpEmail(vp.email || '');
   };
 
   const handleCancelEditVP = () => {
     setEditingVP(null);
     setVpName('');
-    setVpBpName('');
-    setVpEmail('');
   };
 
   const handleSaveDir = async (e: React.FormEvent) => {
@@ -132,40 +110,30 @@ export default function VPManagement() {
       const { error } = await supabase
         .from('direcciones')
         .update({ 
-          name: dirName.trim(), 
-          director_name: dirDirectorName.trim() || null, 
-          email: dirEmail.trim() || null 
+          name: dirName.trim()
         })
         .eq('id', editingDir);
 
       if (!error) {
         setDirecciones(direcciones.map(d => d.id === editingDir ? { 
           ...d, 
-          name: dirName.trim(), 
-          director_name: dirDirectorName.trim() || null, 
-          email: dirEmail.trim() || null 
+          name: dirName.trim()
         } : d));
         setEditingDir(null);
         setDirName('');
-        setDirDirectorName('');
-        setDirEmail('');
       } else alert(error.message);
     } else {
       const { data, error } = await supabase
         .from('direcciones')
         .insert([{ 
           name: dirName.trim(), 
-          vp_id: selectedVP, 
-          director_name: dirDirectorName.trim() || null, 
-          email: dirEmail.trim() || null 
+          vp_id: selectedVP
         }])
         .select();
 
       if (!error && data) {
         setDirecciones([...direcciones, data[0]]);
         setDirName('');
-        setDirDirectorName('');
-        setDirEmail('');
       } else alert(error?.message);
     }
   };
@@ -181,15 +149,11 @@ export default function VPManagement() {
   const handleEditDir = (dir: Direccion) => {
     setEditingDir(dir.id);
     setDirName(dir.name);
-    setDirDirectorName(dir.director_name || '');
-    setDirEmail(dir.email || '');
   };
 
   const handleCancelEditDir = () => {
     setEditingDir(null);
     setDirName('');
-    setDirDirectorName('');
-    setDirEmail('');
   };
 
   const currentDirecciones = direcciones.filter(d => d.vp_id === selectedVP);
@@ -202,7 +166,7 @@ export default function VPManagement() {
           Estructura Organizativa
         </h1>
         <p className="text-[#64748B] mt-1 text-sm">
-          Configura las Vicepresidencias y sus Direcciones respectivas. Asocia nombres y correos electrónicos para direccionar notificaciones y aprobaciones.
+          Configura las Vicepresidencias y sus Direcciones respectivas para la organización institucional.
         </p>
       </div>
 
@@ -225,25 +189,6 @@ export default function VPManagement() {
                 onChange={e => setVpName(e.target.value)} 
                 className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm outline-none focus:border-[#4F5AF5]" 
                 placeholder="Ej: VP Finanzas" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1">Nombre del Vicepresidente</label>
-              <input 
-                value={vpBpName} 
-                onChange={e => setVpBpName(e.target.value)} 
-                className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm outline-none focus:border-[#4F5AF5]" 
-                placeholder="Ej: Juan Perez" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1">Correo de la Vicepresidencia</label>
-              <input 
-                type="email"
-                value={vpEmail} 
-                onChange={e => setVpEmail(e.target.value)} 
-                className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm outline-none focus:border-[#4F5AF5]" 
-                placeholder="Ej: vp_finanzas@empresa.com" 
               />
             </div>
             <div className="flex gap-2">
@@ -269,7 +214,7 @@ export default function VPManagement() {
                 <div 
                   key={vp.id} 
                   onClick={() => setSelectedVP(vp.id)}
-                  className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                  className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all ${
                     selectedVP === vp.id 
                       ? 'bg-violet-50 border-violet-200 shadow-sm' 
                       : 'bg-white border-[#E2E8F0] hover:border-violet-200 hover:bg-violet-50/50'
@@ -277,8 +222,6 @@ export default function VPManagement() {
                 >
                   <div className="min-w-0">
                     <p className={`font-semibold text-sm truncate ${selectedVP === vp.id ? 'text-[#4F5AF5]' : 'text-[#1E293B]'}`}>{vp.name}</p>
-                    {vp.bp_name && <p className="text-xs text-[#64748B] flex items-center gap-1 mt-0.5"><User className="w-3 h-3 text-[#94A3B8]" /> VP: {vp.bp_name}</p>}
-                    {vp.email && <p className="text-[10px] text-[#94A3B8] font-mono flex items-center gap-1 mt-0.5"><Mail className="w-3 h-3" /> {vp.email}</p>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0 ml-2">
                     <button onClick={(e) => { e.stopPropagation(); handleEditVP(vp); }} className="p-1.5 text-[#94A3B8] hover:text-[#4F5AF5] hover:bg-violet-100 rounded-lg transition-colors">
@@ -320,25 +263,6 @@ export default function VPManagement() {
                     placeholder="Ej: Dirección de TI" 
                   />
                 </div>
-                <div>
-                  <label className="block text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1">Nombre del Director</label>
-                  <input 
-                    value={dirDirectorName} 
-                    onChange={e => setDirDirectorName(e.target.value)} 
-                    className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm outline-none focus:border-[#4F5AF5]" 
-                    placeholder="Ej: Carlos Gómez" 
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1">Correo electrónico del Director</label>
-                  <input 
-                    type="email"
-                    value={dirEmail} 
-                    onChange={e => setDirEmail(e.target.value)} 
-                    className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm outline-none focus:border-[#4F5AF5]" 
-                    placeholder="Ej: carlos.gomez@empresa.com" 
-                  />
-                </div>
                 <div className="flex gap-2">
                   <button type="submit" className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold py-2 rounded-xl transition-colors flex items-center justify-center gap-2">
                     <Save className="w-4 h-4" />
@@ -359,11 +283,9 @@ export default function VPManagement() {
                   <p className="text-center text-sm text-[#94A3B8] italic p-4">No hay Direcciones en esta VP.</p>
                 ) : (
                   currentDirecciones.map(dir => (
-                    <div key={dir.id} className="flex items-center justify-between p-3 rounded-xl bg-white border border-[#E2E8F0] shadow-sm">
+                    <div key={dir.id} className="flex items-center justify-between p-3.5 rounded-xl bg-white border border-[#E2E8F0] shadow-sm">
                       <div className="min-w-0">
                         <p className="font-semibold text-sm text-[#1E293B] truncate">{dir.name}</p>
-                        {dir.director_name && <p className="text-xs text-[#64748B] flex items-center gap-1 mt-0.5"><User className="w-3 h-3 text-[#94A3B8]" /> Director: {dir.director_name}</p>}
-                        {dir.email && <p className="text-[10px] text-[#94A3B8] font-mono flex items-center gap-1 mt-0.5"><Mail className="w-3 h-3" /> {dir.email}</p>}
                       </div>
                       <div className="flex items-center gap-1 shrink-0 ml-2">
                         <button onClick={() => handleEditDir(dir)} className="p-1.5 text-[#94A3B8] hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors">

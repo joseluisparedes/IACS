@@ -52,9 +52,13 @@ input[type="date"] { color-scheme: light; }
   background-color: var(--primary) !important;
 }
 .hover\:bg-\[\#3F49E0\]:hover,
+.hover\:bg-\[\#4F5AF5\]:hover,
 .hover\:bg-indigo-700:hover,
 .hover\:bg-\[\#4F5AF5\/90\]:hover {
   background-color: var(--primary-hov) !important;
+}
+.hover\:text-white:hover {
+  color: #ffffff !important;
 }
 .text-\[\#4F5AF5\] {
   color: var(--primary) !important;

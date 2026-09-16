@@ -81,11 +81,11 @@ export const WorkflowEdge = memo(({
         interactionWidth={isSelected ? 25 : 12}
         style={{
           ...style,
-          stroke: isSelected ? '#4F5AF5' : customBorderColor || style.stroke || '#94a3b8',
+          stroke: customBorderColor || (isSelected ? '#4F5AF5' : (style.stroke as string) || '#94a3b8'),
           strokeWidth: isSelected ? 3 : 2,
           zIndex: isSelected ? 50 : 1,
           transition: 'stroke 0.2s, stroke-width 0.2s',
-          filter: isSelected ? 'drop-shadow(0 0 6px rgba(79, 90, 245, 0.7))' : undefined,
+          filter: isSelected ? `drop-shadow(0 0 6px ${customBorderColor || 'rgba(79, 90, 245, 0.7)'})` : undefined,
         }}
       />
 
@@ -102,17 +102,17 @@ export const WorkflowEdge = memo(({
         >
           <div
             style={{
-              backgroundColor: isSelected ? undefined : (customBg || undefined),
-              color: isSelected ? undefined : (customLabelColor || undefined),
-              borderColor: isSelected ? undefined : (customBorderColor || undefined),
+              backgroundColor: customBg || undefined,
+              color: customLabelColor || (isSelected && !customLabelColor ? '#4F5AF5' : undefined),
+              borderColor: customBorderColor || (isSelected && !customBorderColor ? '#4F5AF5' : undefined),
             }}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium border shadow-xs transition-all cursor-pointer select-none ${
               isSelected
-                ? 'bg-white border-[#4F5AF5] text-[#4F5AF5] ring-2 ring-[#4F5AF5]/40 shadow-md scale-105'
-                : 'bg-white/95 border-slate-300 text-slate-700 hover:border-[#4F5AF5] hover:bg-white hover:shadow-xs'
-            }`}
+                ? 'ring-2 ring-[#4F5AF5] ring-offset-2 scale-105 shadow-md'
+                : 'hover:border-[#4F5AF5] hover:shadow-xs'
+            } ${!customBg ? 'bg-white/95' : ''} ${!customBorderColor ? (isSelected ? 'border-[#4F5AF5]' : 'border-slate-300') : ''} ${!customLabelColor ? (isSelected ? 'text-[#4F5AF5]' : 'text-slate-700') : ''}`}
           >
-            <ArrowRight className={`w-3 h-3 shrink-0 ${isSelected ? 'text-[#4F5AF5]' : (customLabelColor ? 'text-current' : 'text-slate-400')}`} />
+            <ArrowRight className={`w-3 h-3 shrink-0 ${customLabelColor ? 'text-current' : (isSelected && !customBorderColor ? 'text-[#4F5AF5]' : 'text-slate-400')}`} />
             <span className="truncate max-w-[150px] font-semibold">{label || 'Transición'}</span>
 
             {conditionType && conditionType !== 'always' && (

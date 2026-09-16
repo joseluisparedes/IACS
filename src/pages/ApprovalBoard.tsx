@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Filter, Eye, ChevronRight, User, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, X, FileText, Building2, SlidersHorizontal, GripVertical, Copy, Check, RotateCcw } from "lucide-react";
-import { Initiative } from "@/src/types";
+import { Initiative, DocumentTemplate } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
 import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
 import { useReactToPrint } from "react-to-print";
 import { formatDateDDMMYYYY } from "../lib/utils";
+import { formatHtmlText, stripHtml } from "../lib/formatHtml";
 
 interface SearchableFilterDropdownProps {
   label: string;
@@ -147,13 +148,13 @@ export type TabKey =
 
 const TABS: { key: TabKey; label: string; dot: string }[] = [
   { key: "todas", label: "Todas", dot: "bg-[#4F5AF5]" },
-  { key: "borrador", label: "1. Borrador", dot: "bg-slate-400" },
-  { key: "eval_bp", label: "2. Viabilidad BP TI", dot: "bg-indigo-500" },
-  { key: "aprob_bo", label: "3. Patrocinio BO", dot: "bg-blue-500" },
-  { key: "aprob_vp", label: "4. Aprobación VP", dot: "bg-purple-500" },
-  { key: "asig_demanda", label: "5. Demanda TI", dot: "bg-cyan-500" },
-  { key: "estimacion", label: "6. Estimación", dot: "bg-amber-500" },
-  { key: "planificacion", label: "7. Planificación", dot: "bg-emerald-500" },
+  { key: "borrador", label: "Borrador", dot: "bg-slate-400" },
+  { key: "eval_bp", label: "Evaluación BP TI", dot: "bg-indigo-500" },
+  { key: "aprob_bo", label: "Aprobación BO", dot: "bg-blue-500" },
+  { key: "aprob_vp", label: "Aprobación VP", dot: "bg-purple-500" },
+  { key: "asig_demanda", label: "Asignación Líder TI", dot: "bg-cyan-500" },
+  { key: "estimacion", label: "Estimación", dot: "bg-amber-500" },
+  { key: "planificacion", label: "Planificación", dot: "bg-emerald-500" },
   { key: "observada", label: "Observadas", dot: "bg-rose-500" },
   { key: "desestimada", label: "Desestimadas", dot: "bg-slate-500" },
 ];
@@ -176,23 +177,40 @@ const STATUS_TO_NODE: Record<string, string> = {
   '1. Borrador': 'borrador',
   'Pendiente de aprobación': 'eval_bp',
   '2. Evaluación BP TI': 'eval_bp',
+  'En evaluación del BP TI': 'eval_bp',
   'En evaluación de BP TI': 'eval_bp',
   '3. Aprobación BO': 'aprob_bo',
+  'Pendiente de aprobación BO': 'aprob_bo',
   '4. Aprobación VP': 'aprob_vp',
+  'Pendiente de aprobación VP': 'aprob_vp',
+  '5. Asignación Líder TI': 'asig_demanda',
   '5. Asignación Gestor Demanda': 'asig_demanda',
   '5. Asignación de Dominio': 'asig_demanda',
+  '5. Demanda TI': 'asig_demanda',
+  'Pendiente de asignar líder TI': 'asig_demanda',
+  '6. Estimación': 'ventana_est',
   '6. Ventana de Estimación': 'ventana_est',
   '6. Compromiso Estimación': 'ventana_est',
+  'Pendiente de Estimación': 'ventana_est',
   '7A. Estimación con Presupuesto': 'est_con_presupuesto',
+  'Pendiente de estimación con Presupuesto': 'est_con_presupuesto',
   '7B. Estimación sin Presupuesto': 'est_sin_presupuesto',
+  'Pendiente de estimación sin Presupuesto': 'est_sin_presupuesto',
   '8A. Validación Estimación BP': 'val_est_bp',
+  'Pendiente que el BP TI valide estimación': 'val_est_bp',
   '8B. VoBo Estimación BO': 'vobo_est_bo',
+  'Pendiente de confirmación de la estimación del BO': 'vobo_est_bo',
   '9. Planificación de Fechas': 'plan_fechas',
+  'Pendiente de planificar iniciativa': 'plan_fechas',
   '10. Validación Planificación BP': 'val_plan_bp',
   '10. Validación Planificación': 'val_plan_bp',
+  'Pendiente de que BP TI valide fechas de planificación': 'val_plan_bp',
   '11. Aprobación Final Fechas': 'aprob_plan_bo',
+  'Pendiente de aprobación de fechas planificadas por BO': 'aprob_plan_bo',
   '12. Planificación': 'planificacion',
+  'Iniciativa planificada': 'end',
   'Observada': 'observada',
+  'Observada (Hub BP TI)': 'observada',
   '⚠️ Observada (Hub BP TI)': 'observada',
   'En demanda': 'planificacion',
   'Desestimada': 'desestimada',
@@ -223,11 +241,11 @@ function getInitiativeStatusInfo(i: any, activeWorkflow: any) {
     tabKey = "aprob_bo";
   } else if (currNodeId === "aprob_vp" || lowerLabel.includes("vp") || lowerStatus.includes("vp") || lowerLabel.includes("vicepresiden") || lowerStatus.includes("vicepresiden")) {
     tabKey = "aprob_vp";
-  } else if (currNodeId === "asig_demanda" || lowerLabel.includes("dominio") || lowerStatus.includes("dominio") || lowerLabel.includes("demanda ti") || lowerStatus.includes("demanda ti")) {
+  } else if (currNodeId === "asig_demanda" || lowerLabel.includes("líder ti") || lowerLabel.includes("lider ti") || lowerLabel.includes("dominio") || lowerStatus.includes("dominio") || lowerLabel.includes("demanda ti") || lowerStatus.includes("demanda ti")) {
     tabKey = "asig_demanda";
   } else if (['ventana_est', 'est_con_presupuesto', 'est_sin_presupuesto', 'val_est_bp', 'vobo_est_bo'].includes(currNodeId) || lowerLabel.includes("estimaci") || lowerStatus.includes("estimaci")) {
     tabKey = "estimacion";
-  } else if (['plan_fechas', 'val_plan_bp', 'aprob_plan_bo', 'planificacion'].includes(currNodeId) || lowerLabel.includes("planificaci") || lowerStatus.includes("planificaci") || lowerLabel.includes("en demanda") || lowerStatus.includes("en demanda")) {
+  } else if (['plan_fechas', 'val_plan_bp', 'aprob_plan_bo', 'planificacion', 'end'].includes(currNodeId) || lowerLabel.includes("planificaci") || lowerStatus.includes("planificaci") || lowerLabel.includes("en demanda") || lowerStatus.includes("en demanda") || lowerLabel.includes("planificada")) {
     tabKey = "planificacion";
   }
 
@@ -257,15 +275,15 @@ interface ColumnDef {
 }
 
 const ALL_COLUMNS: ColumnDef[] = [
-  { id: "codigo", label: "Código ID", defaultWidth: 140, minWidth: 120, canHide: true },
-  { id: "solicitud", label: "Solicitud", defaultWidth: 320, minWidth: 220, canHide: false },
-  { id: "vicepresidencia", label: "Vicepresidencia", defaultWidth: 170, minWidth: 130, canHide: true },
-  { id: "direccion", label: "Dirección", defaultWidth: 170, minWidth: 130, canHide: true },
-  { id: "fecha", label: "Fecha", defaultWidth: 130, minWidth: 100, canHide: true },
-  { id: "key_user", label: "Key User", defaultWidth: 180, minWidth: 140, canHide: true },
-  { id: "bp", label: "IT Business Partner", defaultWidth: 170, minWidth: 130, canHide: true },
-  { id: "estado", label: "Estado", defaultWidth: 170, minWidth: 130, canHide: true },
-  { id: "acciones", label: "Acciones", defaultWidth: 165, minWidth: 150, canHide: false }
+  { id: "codigo", label: "Código ID", defaultWidth: 130, minWidth: 110, canHide: true },
+  { id: "solicitud", label: "Solicitud", defaultWidth: 290, minWidth: 200, canHide: false },
+  { id: "vicepresidencia", label: "Vicepresidencia", defaultWidth: 160, minWidth: 120, canHide: true },
+  { id: "direccion", label: "Dirección", defaultWidth: 160, minWidth: 120, canHide: true },
+  { id: "fecha", label: "Fecha", defaultWidth: 120, minWidth: 95, canHide: true },
+  { id: "key_user", label: "Key User", defaultWidth: 170, minWidth: 130, canHide: true },
+  { id: "bp", label: "BP TI", defaultWidth: 160, minWidth: 120, canHide: true },
+  { id: "estado", label: "Estado Actual", defaultWidth: 320, minWidth: 240, canHide: true },
+  { id: "acciones", label: "Acciones", defaultWidth: 160, minWidth: 150, canHide: false }
 ];
 
 const DEFAULT_COLUMN_ORDER = ALL_COLUMNS.map(c => c.id);
@@ -335,7 +353,12 @@ export default function ApprovalBoard() {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed.column_order)) setColumnOrder(parsed.column_order);
-        if (parsed.column_widths) setColumnWidths(parsed.column_widths);
+        if (parsed.column_widths) {
+          const widths = { ...DEFAULT_COLUMN_WIDTHS, ...parsed.column_widths };
+          if (widths.estado && widths.estado < 320) widths.estado = 320;
+          if (widths.acciones && widths.acciones < 155) widths.acciones = 160;
+          setColumnWidths(widths);
+        }
         if (Array.isArray(parsed.hidden_columns)) setHiddenColumns(parsed.hidden_columns);
       }
     } catch {}
@@ -352,7 +375,12 @@ export default function ApprovalBoard() {
           if (json.preferences) {
             const p = json.preferences;
             if (Array.isArray(p.column_order)) setColumnOrder(p.column_order);
-            if (p.column_widths) setColumnWidths(p.column_widths);
+            if (p.column_widths) {
+              const widths = { ...DEFAULT_COLUMN_WIDTHS, ...p.column_widths };
+              if (widths.estado && widths.estado < 320) widths.estado = 320;
+              if (widths.acciones && widths.acciones < 155) widths.acciones = 160;
+              setColumnWidths(widths);
+            }
             if (Array.isArray(p.hidden_columns)) setHiddenColumns(p.hidden_columns);
             localStorage.setItem(`iacs_table_prefs_approval_board_${currentUserId}`, JSON.stringify(p));
           }
@@ -368,7 +396,12 @@ export default function ApprovalBoard() {
         if (data?.preferences) {
           const p = data.preferences as any;
           if (Array.isArray(p.column_order)) setColumnOrder(p.column_order);
-          if (p.column_widths) setColumnWidths(p.column_widths);
+          if (p.column_widths) {
+            const widths = { ...DEFAULT_COLUMN_WIDTHS, ...p.column_widths };
+            if (widths.estado && widths.estado < 320) widths.estado = 320;
+            if (widths.acciones && widths.acciones < 155) widths.acciones = 160;
+            setColumnWidths(widths);
+          }
           if (Array.isArray(p.hidden_columns)) setHiddenColumns(p.hidden_columns);
         }
       }
@@ -571,8 +604,7 @@ export default function ApprovalBoard() {
   const [pdfInitiative, setPdfInitiative] = useState<any>(null);
   const [pdfTemplate, setPdfTemplate] = useState<string>("");
   const [pdfVariant, setPdfVariant] = useState<'ld' | 'consolidado'>('consolidado');
-  const [pdfModalOpen, setPdfModalOpen] = useState(false);
-  const [selectedInitForPdf, setSelectedInitForPdf] = useState<any>(null);
+  const [docTemplates, setDocTemplates] = useState<DocumentTemplate[]>([]);
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = useReactToPrint({
@@ -580,15 +612,47 @@ export default function ApprovalBoard() {
     documentTitle: pdfInitiative ? `Informe_Ejecutivo_${pdfInitiative.summary?.id_corta || pdfInitiative.id}` : 'Informe_Ejecutivo',
   });
 
-  const openPdfDialog = (init: any) => {
-    setSelectedInitForPdf(init);
-    setPdfModalOpen(true);
+  const getStageDocTemplate = (init: any): DocumentTemplate | null => {
+    if (!init || !activeWorkflow) return null;
+    const nodes: any[] = activeWorkflow.graph_json?.nodes || [];
+    
+    // 1. Resolver por current_node_id si está presente
+    let node = null;
+    if (init.current_node_id) {
+      node = nodes.find((n: any) => String(n.id).toLowerCase() === String(init.current_node_id).toLowerCase());
+    }
+    
+    // 2. Si no se encontró, resolver por mapeo de estados conocidos (STATUS_TO_NODE)
+    if (!node && init.status && STATUS_TO_NODE[init.status]) {
+      const mappedId = STATUS_TO_NODE[init.status].toLowerCase();
+      node = nodes.find((n: any) => String(n.id).toLowerCase() === mappedId);
+    }
+    
+    // 3. Si aún no se encontró, resolver por coincidencia de texto/label del nodo
+    if (!node && init.status) {
+      const cleanStatus = String(init.status).toLowerCase().trim();
+      node = nodes.find((n: any) => {
+        const label = String(n.data?.label || '').toLowerCase().trim();
+        return label === cleanStatus || label.includes(cleanStatus) || cleanStatus.includes(label);
+      });
+    }
+
+    if (!node) return null;
+    const templateId = node.data?.document_template_id;
+    if (!templateId || templateId === 'none' || templateId === 'ninguno' || String(templateId).trim() === '') {
+      return null;
+    }
+
+    return docTemplates.find(
+      d => (d.id === templateId || d.code === templateId) && d.is_active !== false
+    ) || null;
   };
 
-  const handleGeneratePdf = (init: any, variant: 'ld' | 'consolidado' = 'consolidado') => {
+  const handleGeneratePdf = (init: any, selectedTemplate: DocumentTemplate) => {
     setPdfInitiative(init);
-    setPdfVariant(variant);
-    setPdfModalOpen(false);
+    setPdfVariant(selectedTemplate.code === 'DOC_DICTAMEN_LD' ? 'ld' : 'consolidado');
+    const payload = JSON.stringify({ html: selectedTemplate.template_html, margins: selectedTemplate.margins });
+    setPdfTemplate(payload);
     setTimeout(() => {
       handlePrint();
     }, 150);
@@ -606,6 +670,19 @@ export default function ApprovalBoard() {
       }
     });
 
+    // Cargar catálogo de plantillas de documentos
+    fetch('/api/document-templates')
+      .then(async res => {
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        const json = await res.json();
+        if (Array.isArray(json.data)) setDocTemplates(json.data);
+      })
+      .catch(() => {
+        supabase.from('document_templates').select('*').then(({ data }) => {
+          if (data) setDocTemplates(data as DocumentTemplate[]);
+        });
+      });
+
     supabase.from('direcciones').select('id, name').then(({ data }) => {
       if (data) {
         const map: Record<string, string> = {};
@@ -618,8 +695,20 @@ export default function ApprovalBoard() {
       .then(async res => {
         if (res.ok) {
           const json = await res.json();
-          if (json.data) setActiveWorkflow(json.data);
+          if (json.data) return json.data;
         }
+        throw new Error('Fallback to Supabase');
+      })
+      .catch(async () => {
+        const { data } = await supabase
+          .from('workflow_definitions')
+          .select('*, workflow_node_roles(*), workflow_transitions(*)')
+          .eq('status', 'published')
+          .maybeSingle();
+        return data;
+      })
+      .then(wf => {
+        if (wf) setActiveWorkflow(wf);
       })
       .catch(() => {});
 
@@ -1138,7 +1227,7 @@ export default function ApprovalBoard() {
               No hay solicitudes en esta sección.
             </div>
           ) : (
-            <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: `${Math.max(totalTableWidth, 1280)}px` }}>
+            <table className="w-full text-left border-collapse table-fixed" style={{ minWidth: `${Math.max(totalTableWidth, 1200)}px` }}>
               <thead>
                 <tr className="border-b border-[#F1F5F9] bg-[#F8FAFC] text-[11px] font-bold text-[#64748B] uppercase tracking-wider relative">
                   {visibleColumns.map((colId) => {
@@ -1147,6 +1236,7 @@ export default function ApprovalBoard() {
                     const isSortable = colId !== "acciones";
                     const width = columnWidths[colId] || colDef.defaultWidth;
                     const isOver = dragOverColId === colId;
+                    const isActions = colId === "acciones";
 
                     return (
                       <th 
@@ -1158,6 +1248,8 @@ export default function ApprovalBoard() {
                         onDrop={(e) => handleDrop(e, colId)}
                         style={{ width: `${width}px`, minWidth: `${colDef.minWidth}px` }}
                         className={`px-4 py-3 select-none relative transition-colors group ${
+                          isActions ? "sticky right-0 bg-[#F8FAFC] z-20 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.06)]" : ""
+                        } ${
                           isOver ? "border-l-2 border-l-[#4F5AF5] bg-indigo-50/80" : ""
                         } ${draggedColId === colId ? "opacity-30" : ""}`}
                       >
@@ -1186,11 +1278,13 @@ export default function ApprovalBoard() {
                         </div>
 
                         {/* Drag Handle to Resize Column */}
-                        <div
-                          onMouseDown={(e) => handleResizeStart(e, colId)}
-                          className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#4F5AF5]/40 active:bg-[#4F5AF5] group-hover:bg-slate-300/40 transition-colors z-20"
-                          title="Arrastra para cambiar el ancho de la columna"
-                        />
+                        {colId !== "acciones" && (
+                          <div
+                            onMouseDown={(e) => handleResizeStart(e, colId)}
+                            className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#4F5AF5]/40 active:bg-[#4F5AF5] group-hover:bg-slate-300/40 transition-colors z-20"
+                            title="Arrastra para cambiar el ancho de la columna"
+                          />
+                        )}
                       </th>
                     );
                   })}
@@ -1204,7 +1298,7 @@ export default function ApprovalBoard() {
                   const { label: statusLabel, tabKey } = getInitiativeStatusInfo(i, activeWorkflow);
 
                   return (
-                    <tr key={i.id} className="hover:bg-[#F8FAFC] transition-colors">
+                    <tr key={i.id} className="hover:bg-[#F8FAFC] transition-colors group">
                       {visibleColumns.map((colId) => {
                         switch (colId) {
                           case "codigo":
@@ -1230,11 +1324,11 @@ export default function ApprovalBoard() {
                             return (
                               <td key={colId} className="px-4 py-4">
                                 <Link
-                                  to={`/iniciativa/${i.id}`}
+                                  to={i.status === 'Borrador' ? `/nueva/${i.id}` : `/iniciativa/${i.id}`}
                                   className="font-semibold text-[#1E293B] hover:text-[#4F5AF5] text-sm leading-snug line-clamp-2 transition-colors block"
-                                  title={title}
+                                  title={stripHtml(title)}
                                 >
-                                  {title}
+                                  <span dangerouslySetInnerHTML={{ __html: formatHtmlText(title, "Sin título") }} />
                                 </Link>
                               </td>
                             );
@@ -1309,7 +1403,7 @@ export default function ApprovalBoard() {
 
                           case "estado":
                             return (
-                              <td key={colId} className="px-4 py-4 whitespace-nowrap">
+                              <td key={colId} className="px-4 py-3.5">
                                 {(isBP || isAdmin) && (i.status === "Pendiente de aprobación" || i.status === "Desestimada" || i.status === "En demanda") ? (
                                   editingStatusId === i.id ? (
                                     <select
@@ -1317,7 +1411,7 @@ export default function ApprovalBoard() {
                                       onChange={(e) => handleStatusChange(i.id, e.target.value)}
                                       onBlur={() => setEditingStatusId(null)}
                                       autoFocus
-                                      className="text-xs font-semibold bg-white border border-[#CBD5E1] rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-[#4F5AF5] text-[#1E293B]"
+                                      className="text-xs font-semibold bg-white border border-[#CBD5E1] rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-[#4F5AF5] text-[#1E293B] max-w-full"
                                     >
                                       {i.status === "Pendiente de aprobación" && (
                                         <>
@@ -1344,46 +1438,58 @@ export default function ApprovalBoard() {
                                   ) : (
                                     <span 
                                       onDoubleClick={() => setEditingStatusId(i.id)}
-                                      title="Doble clic para cambiar estado"
-                                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity ${STATUS_BADGE[tabKey]}`}
+                                      title={`Doble clic para cambiar estado: ${statusLabel}`}
+                                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold cursor-pointer select-none hover:opacity-80 transition-opacity leading-snug whitespace-normal text-left ${STATUS_BADGE[tabKey]}`}
                                     >
-                                      <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
-                                      {statusLabel}
+                                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${TABS.find(t => t.key === tabKey)?.dot}`} />
+                                      <span className="leading-snug">{statusLabel}</span>
                                     </span>
                                   )
                                 ) : (
-                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[tabKey]}`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full ${TABS.find(t => t.key === tabKey)?.dot}`} />
-                                    {statusLabel}
+                                  <span 
+                                    title={statusLabel}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold leading-snug whitespace-normal text-left ${STATUS_BADGE[tabKey]}`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${TABS.find(t => t.key === tabKey)?.dot}`} />
+                                    <span className="leading-snug">{statusLabel}</span>
                                   </span>
                                 )}
                               </td>
                             );
 
-                          case "acciones":
+                          case "acciones": {
+                            const stageDocTemplate = getStageDocTemplate(i);
                             return (
-                              <td key={colId} className="px-4 py-4 whitespace-nowrap overflow-visible" style={{ width: `${columnWidths[colId] || 165}px` }}>
+                              <td 
+                                key={colId} 
+                                className="px-4 py-3.5 whitespace-nowrap sticky right-0 bg-white group-hover:bg-[#F8FAFC] z-10 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.06)] transition-colors" 
+                                style={{ width: `${columnWidths[colId] || 160}px` }}
+                              >
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   <Link
-                                    to={`/iniciativa/${i.id}`}
+                                    to={i.status === 'Borrador' ? `/nueva/${i.id}` : `/iniciativa/${i.id}`}
                                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-[#4F5AF5] hover:text-[#3F49E0] text-xs font-semibold transition-colors shrink-0"
+                                    title={i.status === 'Borrador' ? 'Editar borrador' : 'Revisar iniciativa'}
                                   >
                                     <Eye className="w-3.5 h-3.5" />
-                                    Revisar
+                                    {i.status === 'Borrador' ? 'Editar' : 'Revisar'}
                                   </Link>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => openPdfDialog(i)}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-semibold text-xs transition-colors whitespace-nowrap cursor-pointer shrink-0"
-                                    title="Generar e imprimir informe ejecutivo PDF"
-                                  >
-                                    <FileText className="w-3.5 h-3.5 text-rose-600" />
-                                    PDF
-                                  </button>
+                                  {stageDocTemplate && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleGeneratePdf(i, stageDocTemplate)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 hover:text-rose-700 font-semibold text-xs transition-colors whitespace-nowrap cursor-pointer shrink-0 shadow-2xs"
+                                      title={`Generar documento oficial: ${stageDocTemplate.name}`}
+                                    >
+                                      <FileText className="w-3.5 h-3.5 text-rose-600" />
+                                      PDF
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             );
+                          }
 
                           default:
                             return null;
@@ -1402,70 +1508,6 @@ export default function ApprovalBoard() {
       <div className="hidden">
         <ExecutiveReportPDF ref={pdfRef} initiative={pdfInitiative} template={pdfTemplate} variant={pdfVariant} />
       </div>
-
-      {/* Modal de Selección de Versión de PDF */}
-      {pdfModalOpen && selectedInitForPdf && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-md w-full p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-slate-800 font-bold text-base">
-                <FileText className="w-5 h-5 text-rose-600" />
-                <span>Generar Informe PDF</span>
-              </div>
-              <button 
-                onClick={() => setPdfModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Selecciona la versión del informe ejecutivo que deseas emitir para la iniciativa <strong className="text-slate-700 font-semibold">#{selectedInitForPdf.summary?.id_corta || selectedInitForPdf.id?.slice(0, 8)}</strong>:
-            </p>
-
-            <div className="space-y-2.5">
-              <button
-                type="button"
-                onClick={() => handleGeneratePdf(selectedInitForPdf, 'ld')}
-                className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group cursor-pointer"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 group-hover:text-indigo-700">Dictamen de Negocio (Líder de Dominio)</span>
-                  <span className="text-[10px] uppercase font-semibold text-indigo-600 bg-indigo-100/80 px-2 py-0.5 rounded">Etapa Inicial</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Enfocado en el requerimiento del negocio, justificación, alcance, entregables y enlaces directos a archivos de soporte adjuntos.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleGeneratePdf(selectedInitForPdf, 'consolidado')}
-                className="w-full text-left p-3.5 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/50 transition-all group cursor-pointer"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">Expediente Consolidado Ejecutivo</span>
-                  <span className="text-[10px] uppercase font-semibold text-emerald-600 bg-emerald-100/80 px-2 py-0.5 rounded">Integral</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Expediente completo con requerimiento inicial, estimaciones técnicas de TI, cronograma estimado, presupuesto y firmas de aprobación.
-                </p>
-              </button>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setPdfModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

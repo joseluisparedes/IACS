@@ -88,6 +88,7 @@ export interface WorkflowNodeData {
   requiredFields?: string[];
   form_id?: string;
   consent_id?: string;
+  document_template_id?: string;
   action_label?: string;
   aiConfig?: { promptTemplate?: string; outputFields?: string[] };
   requireObservationComment?: boolean;
@@ -104,6 +105,16 @@ export interface WorkflowNodeData {
       txt?: { enabled: boolean; maxMb: number };
     };
   };
+  showNextApprovers?: boolean;
+  includeAdminInApprovers?: boolean;
+  nextApproversSource?: 'all_vps' | 'initiative_vp' | 'specific_vps' | 'target_stage_roles';
+  nextApproversTitle?: string;
+  nextApproversSelectedVps?: string[];
+  allowManualStateMove?: boolean;
+  manualStateMoveRole?: string;
+  manualStateMoveUserId?: string;
+  manualStateMoveUserEmail?: string;
+  manualStateMoveUserName?: string;
   [key: string]: unknown;
 }
 
@@ -214,3 +225,15 @@ export interface InitiativeStageRecord {
   submitted_at: string;
 }
 
+export interface DocumentTemplate {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  template_html: string;
+  margins: { top: number; right: number; bottom: number; left: number };
+  is_active: boolean;
+  is_default: boolean;
+  created_at?: string;
+  updated_at?: string;
+}

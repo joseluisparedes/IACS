@@ -454,7 +454,7 @@ function isApiKeyConfigured(): boolean {
 
 function getMockChatResponse(history: any[], initialData: any, message: string): string {
   if (message === "[INICIALIZAR_CHAT]") {
-    return `¡Hola! Soy Teo, Analista de Negocio Senior. Cuéntame, ¿cuál es la necesidad o el problema de negocio que deseas abordar? Así podré entender mejor el contexto y acompañarte en la definición de la iniciativa.`;
+    return `¡Hola! Soy Teo, tu asesor de arquitectura y proyectos de TI. Cuéntame qué necesidad, dolor operativo o mejora deseas abordar. También puedes adjuntar documentos o evidencias de sustento con el botón del clip 📎 para analizarlos y estructurar tu iniciativa en conjunto.`;
   }
 
   const isMediaAttachment = message.includes("[El usuario adjuntó") || message.includes("[Imagen adjunta]") || message.includes("[Video adjunto]") || message.includes("[Audio adjunto]") || message.includes("[Archivo multimedia adjunto");
@@ -2110,6 +2110,14 @@ RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
     return sanitized;
   }
 
+  function cleanExtractedField(val?: string): string | undefined {
+    if (!val) return undefined;
+    let clean = val.trim();
+    // Remove leading asterisks, colons, quotes or hyphens left over from "**Título:**"
+    clean = clean.replace(/^[\s*:'"“”#\-]+/, '').replace(/[\s*'"“”]+$/, '').trim();
+    return clean || undefined;
+  }
+
   function extractProposalFromHistory(history: any[]): { titulo?: string; objetivo?: string } {
     if (!history || !Array.isArray(history)) return {};
     for (let i = history.length - 1; i >= 0; i--) {
@@ -2120,8 +2128,8 @@ RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
         const oMatch = text.match(/Objetivo\s*[-:]\s*['"“]?([^'"”]+?)(?:['"”]?\s*\.|\?|$)/i);
         if (tMatch || oMatch) {
           return {
-            titulo: tMatch ? tMatch[1].trim() : undefined,
-            objetivo: oMatch ? oMatch[1].trim() : undefined,
+            titulo: cleanExtractedField(tMatch ? tMatch[1] : undefined),
+            objetivo: cleanExtractedField(oMatch ? oMatch[1] : undefined),
           };
         }
       }
@@ -2134,6 +2142,15 @@ RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
     const { history, message, initialData, aiFields } = req.body;
     const sanitizedInitialData = sanitizeInitialDataForAI(initialData);
     const isInitialGreeting = message === "[INICIALIZAR_CHAT]";
+
+    if (isInitialGreeting) {
+      return res.json({
+        text: `¡Hola! Soy Teo, tu asesor de arquitectura y proyectos de TI. Cuéntame qué necesidad, dolor operativo o mejora deseas abordar. También puedes adjuntar documentos o evidencias de sustento con el botón del clip 📎 para analizarlos y estructurar tu iniciativa en conjunto.`,
+        options: [],
+        allow_multiple: false,
+        extractedFields: {}
+      });
+    }
 
     const isUserAcceptance = /^\s*(sí|si|de acuerdo|estoy de acuerdo|acepto|conforme|ok|perfecto|adelante|excelente)/i.test(message || "");
     let extractedProposal: { titulo?: string; objetivo?: string } = {};
@@ -2161,6 +2178,7 @@ RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
       return res.json({
         text: getMockChatResponse(history, sanitizedInitialData, message),
         options: getMockOptions(history, message),
+        allow_multiple: false,
         extractedFields: extractedProposal
       });
     }
@@ -2176,12 +2194,16 @@ RESPONDE EXCLUSIVAMENTE EN FORMATO JSON ESTRICTO con la siguiente estructura:
         ? `${systemPrompt}
 
 Este es el INICIO de la conversación con el usuario. El usuario acaba de abrir la ventana del asistente Teo.
-Aplica estrictamente tus directivas de identidad y tus guardarraíles (incluyendo las reglas de bienvenida y el manejo de opciones).
+REGLA DE BIENVENIDA OBLIGATORIA:
+- Saludo muy breve, empático y ejecutivo (máximo 2 a 3 líneas en total).
+- Saluda al usuario e indícale claramente que puede escribir su necesidad o dolor operativo, o bien adjuntar documentos o archivos de sustento (PDF, Word, Excel, imágenes) con el botón del clip 📎 para leerlos, analizarlos y estructurar la iniciativa en conjunto.
+- No formules discursos largos ni explicaciones teóricas de metodología en este primer mensaje de bienvenida.
 
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
-  "text": "Tu mensaje respetando tus guardarraíles e identidad.",
-  "options": []
+  "text": "Tu mensaje breve de bienvenida respetando las directivas.",
+  "options": [],
+  "allow_multiple": false
 }`
         : `${systemPrompt}
 
@@ -2213,8 +2235,10 @@ REGLAS DINÁMICAS DE LA SESIÓN:
 IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructura:
 {
   "text": "Tu respuesta respetando los guardarrieles. Si ya se completaron todos los puntos, incluye '[INFORMACION_COMPLETA]'.",
-  "options": ["Opción sugerida 1", "Opción sugerida 2"]
-}`;
+  "options": ["Opción sugerida 1", "Opción sugerida 2"],
+  "allow_multiple": false
+}
+* REGLA DE SELECCIÓN MÚLTIPLE: Usa "allow_multiple": true únicamente si la pregunta requiere o permite marcar varias opciones a la vez (ej: varias áreas o sistemas beneficiados). Para alternativas simples, confirmaciones o preguntas excluyentes, usa siempre "allow_multiple": false.`;
 
       let rawChat = "";
       try {
@@ -2232,9 +2256,16 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
         console.log("[AI Chat] Remote AI rate limited or unavailable. Executing local intelligent chat fallback.");
         parsed = {
           text: getMockChatResponse(history, sanitizedInitialData, message),
-          options: getMockOptions(history, message)
+          options: getMockOptions(history, message),
+          allow_multiple: false
         };
       }
+
+      const isMulti = Boolean(
+        parsed.allow_multiple ?? 
+        parsed.allowMultiple ?? 
+        /selecciona una o m[aá]s|cu[aá]les de las siguientes|marca todas|elige las opciones/i.test(parsed.text || '')
+      );
 
       await updateAgentTask(tOrqId, 100, 'completed', { action: "Orquestación de la conversación", user_message: message });
       await updateAgentTask(tPoId, 100, 'completed', { action: "Análisis de contexto", ai_response: parsed });
@@ -2243,6 +2274,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       res.json({
         text: parsed.text,
         options: parsed.options || [],
+        allow_multiple: isMulti,
         extractedFields: extractedProposal
       });
     } catch (e: any) {
@@ -2252,6 +2284,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
       res.json({
         text: getMockChatResponse(history, sanitizedInitialData, message),
         options: getMockOptions(history, message),
+        allow_multiple: false,
         extractedFields: extractedProposal
       });
     }
@@ -2984,7 +3017,7 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
       if (!vpRecord) {
         const { data: newVp, error } = await supabase
           .from("vps")
-          .insert([{ name: vpNameVal, bp_name: vpVPNameVal || null, email: vpEmailVal || null }])
+          .insert([{ name: vpNameVal }])
           .select()
           .single();
         if (error) throw new Error(`Error al crear VP ${vpNameVal}: ${error.message}`);
@@ -2992,28 +3025,7 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
         vpRecord = newVp;
         vpMap.set(cleanVpName, vpRecord);
         stats.vpsCreated++;
-        logs.push(`VP Creada: "${vpNameVal}" con Vicepresidente "${vpVPNameVal || 'No asignado'}"`);
-      } else {
-        const needsUpdate = 
-          (vpVPNameVal && vpRecord.bp_name !== vpVPNameVal) || 
-          (vpEmailVal && vpRecord.email !== vpEmailVal);
-        if (needsUpdate) {
-          const updatedFields = {
-            bp_name: vpVPNameVal || vpRecord.bp_name,
-            email: vpEmailVal || vpRecord.email
-          };
-          const { error } = await supabase
-            .from("vps")
-            .update(updatedFields)
-            .eq("id", vpRecord.id);
-          if (!error) {
-            vpRecord.bp_name = updatedFields.bp_name;
-            vpRecord.email = updatedFields.email;
-            vpMap.set(cleanVpName, vpRecord);
-            stats.vpsUpdated++;
-            logs.push(`VP Actualizada: "${vpNameVal}"`);
-          }
-        }
+        logs.push(`VP Creada: "${vpNameVal}"`);
       }
 
       // 2. Dirección Get or Create
@@ -3023,7 +3035,7 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
       if (!dirRecord) {
         const { data: newDir, error } = await supabase
           .from("direcciones")
-          .insert([{ name: dirNameVal, vp_id: vpRecord.id, director_name: dirDirectorVal || null, email: dirEmailVal || null }])
+          .insert([{ name: dirNameVal, vp_id: vpRecord.id }])
           .select()
           .single();
         if (error) throw new Error(`Error al crear Dirección ${dirNameVal}: ${error.message}`);
@@ -3031,28 +3043,7 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
         dirRecord = newDir;
         dirMap.set(dirMapKey, dirRecord);
         stats.direccionesCreated++;
-        logs.push(`Dirección Creada: "${dirNameVal}" bajo la VP "${vpNameVal}" con Director "${dirDirectorVal || 'No asignado'}"`);
-      } else {
-        const needsUpdate = 
-          (dirDirectorVal && dirRecord.director_name !== dirDirectorVal) || 
-          (dirEmailVal && dirRecord.email !== dirEmailVal);
-        if (needsUpdate) {
-          const updatedFields = {
-            director_name: dirDirectorVal || dirRecord.director_name,
-            email: dirEmailVal || dirRecord.email
-          };
-          const { error } = await supabase
-            .from("direcciones")
-            .update(updatedFields)
-            .eq("id", dirRecord.id);
-          if (!error) {
-            dirRecord.director_name = updatedFields.director_name;
-            dirRecord.email = updatedFields.email;
-            dirMap.set(dirMapKey, dirRecord);
-            stats.direccionesUpdated++;
-            logs.push(`Dirección Actualizada: "${dirNameVal}"`);
-          }
-        }
+        logs.push(`Dirección Creada: "${dirNameVal}" bajo la VP "${vpNameVal}"`);
       }
 
       // 3. VP role assignment
@@ -3665,7 +3656,7 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
   // GET /api/workflow/validate-transition
   app.get("/api/workflow/validate-transition", async (req, res) => {
     try {
-      const { current_node_id, target_node_id, gateway_node_id, user_role, transition_label, form_data } = req.query;
+      const { current_node_id, target_node_id, gateway_node_id, user_role, transition_label, form_data, is_free_jump } = req.query;
       let parsedFormData = {};
       try {
         if (typeof form_data === "string") parsedFormData = JSON.parse(form_data);
@@ -3680,10 +3671,40 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
         userRole: (user_role as string) || "registrador",
         formData: parsedFormData,
         transitionLabel: (transition_label as string) || "",
+        isFreeJump: is_free_jump === 'true' || transition_label === 'Salto Libre',
       });
 
       return res.json({ data: result });
     } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Initiatives Draft & Auto-Save (Chats en curso y Borradores) ─────────────
+  app.post("/api/initiatives/draft", async (req, res) => {
+    try {
+      const payload = req.body;
+      if (!payload || !payload.id) {
+        return res.status(400).json({ error: "El ID de la iniciativa es obligatorio" });
+      }
+
+      const { data, error } = await supabase
+        .from("initiatives")
+        .upsert([{
+          ...payload,
+          updated_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error upserting draft in /api/initiatives/draft:", error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      return res.json({ success: true, data });
+    } catch (err: any) {
+      console.error("Exception in /api/initiatives/draft:", err);
       return res.status(500).json({ error: err.message });
     }
   });
@@ -3835,6 +3856,87 @@ REGLAS OBLIGATORIAS PARA EL TÍTULO ("titulo"):
     try {
       const { error } = await supabase
         .from("stage_consents")
+        .delete()
+        .eq("id", req.params.id);
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Document Templates CRUD (Generador de Documentos / Plantillas PDF) ────────
+  app.get("/api/document-templates", async (_req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("document_templates")
+        .select("*")
+        .order("is_default", { ascending: false })
+        .order("name", { ascending: true });
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ data: data || [] });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/document-templates", requireAdminAuth, async (req, res) => {
+    try {
+      const { code, name, description, template_html, margins, is_active, is_default } = req.body;
+      if (!name || !code) {
+        return res.status(400).json({ error: "Nombre y código son obligatorios" });
+      }
+      const { data, error } = await supabase
+        .from("document_templates")
+        .insert({
+          code: code.trim().toUpperCase().replace(/\s+/g, "_"),
+          name: name.trim(),
+          description: description?.trim() || null,
+          template_html: template_html || "<h1>Nuevo Documento</h1>",
+          margins: margins || { top: 18, right: 20, bottom: 18, left: 20 },
+          is_active: is_active !== false,
+          is_default: !!is_default,
+        })
+        .select()
+        .single();
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/document-templates/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const { name, description, template_html, margins, is_active, is_default, code } = req.body;
+      const updatePayload: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (name !== undefined) updatePayload.name = name.trim();
+      if (code !== undefined) updatePayload.code = code.trim().toUpperCase().replace(/\s+/g, "_");
+      if (description !== undefined) updatePayload.description = description?.trim() || null;
+      if (template_html !== undefined) updatePayload.template_html = template_html;
+      if (margins !== undefined) updatePayload.margins = margins;
+      if (is_active !== undefined) updatePayload.is_active = !!is_active;
+      if (is_default !== undefined) updatePayload.is_default = !!is_default;
+
+      const { data, error } = await supabase
+        .from("document_templates")
+        .update(updatePayload)
+        .eq("id", req.params.id)
+        .select()
+        .single();
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/document-templates/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const { error } = await supabase
+        .from("document_templates")
         .delete()
         .eq("id", req.params.id);
       if (error) return res.status(500).json({ error: error.message });
