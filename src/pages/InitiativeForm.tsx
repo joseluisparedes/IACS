@@ -1222,7 +1222,7 @@ export default function InitiativeForm() {
       .finally(() => setLoadingFields(false));
   }, [id, location.pathname, location.search]);
 
-  const autoSave = async (currentHistory: any[], currentSummary: any, currentFormData = formData) => {
+  const autoSave = async (currentHistory: any[], currentSummary: any, currentFormData = formData, forcedStatus?: string) => {
     // Always save to localStorage first as a reliable offline backup
     try {
       localStorage.setItem(localKey, JSON.stringify({
@@ -1236,6 +1236,12 @@ export default function InitiativeForm() {
       }));
     } catch (_) { /* localStorage may be unavailable in private mode */ }
 
+    const hasReachedSummary = Boolean(currentFormData?._reached_summary);
+    const hasValidSummary = Boolean(currentSummary && typeof currentSummary === 'object' && Object.keys(currentSummary).length > 0 && (currentSummary.titulo || currentSummary.objetivo));
+    const isRealBorrador = forcedStatus === "Borrador" || hasReachedSummary || hasValidSummary;
+    const computedStatus = forcedStatus || (isRealBorrador ? "Borrador" : "Chat pendiente");
+    const computedNodeId = isRealBorrador ? "borrador" : null;
+
     // Sync to backend — include user_id so the draft appears in "Chats pendientes" for this user
     const initiativePayload = {
       id: draftIdRef.current,
@@ -1247,7 +1253,8 @@ export default function InitiativeForm() {
       summary: currentSummary,
       confirmed_fields: confirmedFields,
       unstructured_text: unstructuredText,
-      status: "Borrador",
+      status: computedStatus,
+      current_node_id: computedNodeId,
       user_id: profile?.id ?? null,
       updated_at: new Date().toISOString(),
     };
@@ -1634,7 +1641,12 @@ export default function InitiativeForm() {
 
       // Transition to Step 2 (Revisión con IA y Envío a Aprobación)
       setStep(2);
-      autoSave([], summaryObj, updatedFormData);
+      const updatedFormDataWithSummary = {
+        ...updatedFormData,
+        _reached_summary: true,
+      };
+      setFormData(updatedFormDataWithSummary);
+      autoSave([], summaryObj, updatedFormDataWithSummary, "Borrador");
     } catch (e: any) {
       console.error(e);
       setError(e.message || "Error al procesar el texto con la IA.");
@@ -1810,7 +1822,7 @@ export default function InitiativeForm() {
         _reached_summary: true,
       };
       setFormData(mergedFormData);
-      await autoSave(fullHistory, data, mergedFormData);
+      await autoSave(fullHistory, data, mergedFormData, "Borrador");
     } catch { showToast("Error al generar resumen.", "error"); setStep(2); }
     finally { setIsAiTyping(false); }
   };

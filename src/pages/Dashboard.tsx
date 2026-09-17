@@ -415,7 +415,19 @@ export default function Dashboard() {
       supabase.from("direcciones").select("*").order("name"),
     ]);
     clearTimeout(slowTimer);
-    if (Array.isArray(initRes)) setInitiatives(initRes);
+    if (Array.isArray(initRes)) {
+      const valid = initRes.filter((i: any) => {
+        if (i.status === 'Chat pendiente') return false;
+        const isBorradorStage = !i.status || i.status === 'Borrador' || i.status === '1. Borrador' || i.current_node_id === 'borrador';
+        if (isBorradorStage) {
+          const reached = Boolean(i.form_data?._reached_summary);
+          const hasSum = Boolean(i.summary && typeof i.summary === 'object' && Object.keys(i.summary).length > 0 && (i.summary.titulo || i.summary.objetivo));
+          if (!reached && !hasSum) return false;
+        }
+        return true;
+      });
+      setInitiatives(valid);
+    }
     if (vpRes.data) setVps(vpRes.data);
     if (dirRes.data) setDirecciones(dirRes.data);
     setLoading(false);

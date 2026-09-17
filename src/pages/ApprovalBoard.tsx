@@ -724,7 +724,22 @@ export default function ApprovalBoard() {
         return inits || [];
       })
       .then(data => {
-        setInitiatives(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        // Filtro estricto: Las iniciativas que siguen en etapa de chat no son consideradas "Borrador".
+        // Recién se consideran "Borrador" cuando llegan a la ventana de "Resumen".
+        const validInitiatives = list.filter((i: any) => {
+          if (i.status === 'Chat pendiente') return false;
+          const isBorradorStage = !i.status || i.status === 'Borrador' || i.status === '1. Borrador' || i.current_node_id === 'borrador';
+          if (isBorradorStage) {
+            const hasReachedSummary = Boolean(i.form_data?._reached_summary);
+            const hasValidSummary = Boolean(i.summary && typeof i.summary === 'object' && Object.keys(i.summary).length > 0 && (i.summary.titulo || i.summary.objetivo));
+            if (!hasReachedSummary && !hasValidSummary) {
+              return false;
+            }
+          }
+          return true;
+        });
+        setInitiatives(validInitiatives);
         setLoading(false);
         clearTimeout(slowTimer);
       })

@@ -2,6 +2,7 @@ export type Role = 'Solicitante' | 'Aprobador' | 'Administrador';
 
 export type Status = 
   | 'Borrador' 
+  | 'Chat pendiente'
   | 'Pendiente de aprobación' 
   | 'Observada' 
   | 'Desestimada' 

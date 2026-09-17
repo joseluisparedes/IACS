@@ -1428,6 +1428,19 @@ Responde estrictamente en formato JSON:
       .order("created_at", { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
 
+    const filterValidInitiatives = (list: any[]) => {
+      return (list || []).filter((init: any) => {
+        if (init.status === 'Chat pendiente') return false;
+        const isBorradorStage = !init.status || init.status === 'Borrador' || init.status === '1. Borrador' || init.current_node_id === 'borrador';
+        if (isBorradorStage) {
+          const reached = Boolean(init.form_data?._reached_summary);
+          const hasSum = Boolean(init.summary && typeof init.summary === 'object' && Object.keys(init.summary).length > 0 && (init.summary.titulo || init.summary.objetivo));
+          if (!reached && !hasSum) return false;
+        }
+        return true;
+      });
+    };
+
     try {
       const activeWf = await getActiveWorkflow();
       const nodes: any[] = activeWf?.graph_json?.nodes || [];
@@ -1438,7 +1451,9 @@ Responde estrictamente en formato JSON:
         }
       }
 
-      const enriched = (data || []).map((init: any) => {
+      const nonChatData = filterValidInitiatives(data || []);
+
+      const enriched = nonChatData.map((init: any) => {
         const nodeId = init.current_node_id || LEGACY_STATUS_TO_NODE[init.status];
         if (nodeId && nodeMap.has(nodeId)) {
           return {
@@ -1452,7 +1467,7 @@ Responde estrictamente en formato JSON:
 
       return res.json(enriched);
     } catch {
-      return res.json(data);
+      return res.json(filterValidInitiatives(data || []));
     }
   });
 

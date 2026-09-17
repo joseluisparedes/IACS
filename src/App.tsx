@@ -63,18 +63,19 @@ function Layout({ children }: { children: React.ReactNode }) {
       const fetchDrafts = async () => {
         const { data } = await supabase
           .from('initiatives')
-          .select('id, form_data, created_at, updated_at, user_id, chat_history, summary')
-          .eq('status', 'Borrador')
+          .select('id, form_data, created_at, updated_at, user_id, chat_history, summary, status')
+          .in('status', ['Borrador', 'Chat pendiente'])
           .order('updated_at', { ascending: false, nullsFirst: false });
         if (data) {
           // Filtro: solo iniciativas que se quedaron en chat y NO llegaron al resumen
           const pendingChats = data.filter(d => {
             const isMine = d.user_id === profile.id || (!d.user_id && d.form_data?.registrador === profile.name);
             if (!isMine) return false;
-            const hasSummary = d.summary && typeof d.summary === 'object' && Object.keys(d.summary).length > 0 && (d.summary.titulo || d.summary.objetivo);
             const reachedSummary = Boolean(d.form_data?._reached_summary);
+            const hasSummary = Boolean(d.summary && typeof d.summary === 'object' && Object.keys(d.summary).length > 0 && (d.summary.titulo || d.summary.objetivo));
             const hasChat = Array.isArray(d.chat_history) && d.chat_history.length > 0;
-            return !hasSummary && !reachedSummary && hasChat;
+            const isChatPending = d.status === 'Chat pendiente' || (!hasSummary && !reachedSummary && hasChat);
+            return isChatPending && !reachedSummary;
           });
           setDrafts(pendingChats);
         }
