@@ -1404,7 +1404,7 @@ ${draft.descripcion_de_la_necesidad || 'No especificado aún.'}
 
           {/* Panel Footer: Executive Actions */}
           <div className="p-4 border-t border-slate-200 bg-slate-50/90 space-y-2">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {/* Copiar Markdown */}
               <button
                 type="button"
@@ -1425,18 +1425,6 @@ ${draft.descripcion_de_la_necesidad || 'No especificado aún.'}
               >
                 <Download className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Descargar</span>
-              </button>
-
-              {/* Convertir en Borrador Oficial */}
-              <button
-                type="button"
-                onClick={handleConvertToOfficialDraft}
-                disabled={isSavingOfficial || Boolean(officialDraftCreatedId)}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#EB5F46] hover:bg-[#D94F37] disabled:opacity-50 text-white font-bold text-xs transition-all shadow-xs"
-                title="Guardar como Borrador formal en IACS"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>{officialDraftCreatedId ? '¡Guardado!' : 'Guardar en IACS'}</span>
               </button>
             </div>
 
