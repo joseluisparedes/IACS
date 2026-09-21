@@ -1,15 +1,18 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   BrainCircuit, User, BookOpen, MessageSquare, ShieldAlert,
   ThumbsUp, Bot, Send, RefreshCw, Plus, Trash2, GripVertical,
   ToggleLeft, ToggleRight, Upload, FileText, CheckCircle, X,
-  ChevronDown, ChevronUp, Pencil, Save, AlertCircle, Loader2,
+  ChevronDown, ChevronUp, ChevronRight, Pencil, Save, AlertCircle, Loader2,
   Mic, MicOff, Paperclip, Image as ImageIcon, HelpCircle, Sparkles,
-  Brain, Copy, ExternalLink
+  Brain, Copy, ExternalLink, Layers,
+  Folder, FolderPlus, FolderOpen, FolderTree, MoreVertical, Search, CornerDownRight, FolderInput, ShieldCheck
 } from 'lucide-react';
 import { HybridSpeechRecognizer } from '../lib/speechService';
 import { supabase } from '../lib/supabase';
 import { formatDateDDMMYYYY } from '../lib/utils';
+import ReactMarkdown from 'react-markdown';
+import { parseHtmlToMarkdown } from '../lib/formatHtml';
 import {
   DndContext,
   closestCenter,
@@ -29,6 +32,16 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+export interface TrainingFolder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  level: number; // 1, 2, or 3
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface TrainingEntry {
   id: string;
   layer: 'identity' | 'context' | 'examples' | 'guardrails' | 'settings';
@@ -37,6 +50,7 @@ interface TrainingEntry {
   is_active: boolean;
   sort_order: number;
   source: string;
+  folder_id?: string | null;
   created_at: string;
 }
 
@@ -112,6 +126,7 @@ export default function AITraining() {
   const [activeTab, setActiveTab] = useState<TabId>('identity');
   const [entries, setEntries] = useState<TrainingEntry[]>([]);
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
+  const [folders, setFolders] = useState<TrainingFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
@@ -215,7 +230,7 @@ export default function AITraining() {
 
   const loadAll = async () => {
     setLoading(true);
-    const [trainRes, fbRes] = await Promise.all([
+    const [trainRes, fbRes, folderRes] = await Promise.all([
       fetch('/api/ai-training')
         .then(async r => {
           if (!r.ok) throw new Error(`API status ${r.status}`);
@@ -245,9 +260,25 @@ export default function AITraining() {
             .order('created_at', { ascending: false });
           return data || [];
         }),
+      fetch('/api/ai-training/folders')
+        .then(async r => {
+          if (!r.ok) throw new Error(`API status ${r.status}`);
+          const json = await r.json();
+          if (!Array.isArray(json)) throw new Error("Invalid format");
+          return json;
+        })
+        .catch(async () => {
+          const { data } = await supabase
+            .from('ai_knowledge_folders')
+            .select('*')
+            .order('sort_order', { ascending: true })
+            .order('name', { ascending: true });
+          return data || [];
+        }),
     ]);
     setEntries(Array.isArray(trainRes) ? trainRes : []);
     setFeedback(Array.isArray(fbRes) ? fbRes : []);
+    setFolders(Array.isArray(folderRes) ? folderRes : []);
 
     try {
       const sRes = await fetch('/api/sandbox/status');
@@ -378,6 +409,107 @@ export default function AITraining() {
   const toggleEntry = (id: string) => {
     const entry = entries.find(e => e.id === id);
     if (entry) updateEntry(id, { is_active: !entry.is_active });
+  };
+
+  // ── Folders CRUD helpers ──────────────────────────────────────────────────
+  const createFolder = async (payload: { name: string; parent_id?: string | null }) => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ai-training/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFolders(prev => [...prev, data]);
+        showSave('Carpeta creada ✓');
+        return data;
+      }
+      throw new Error('Error al crear carpeta');
+    } catch {
+      let level = 1;
+      if (payload.parent_id) {
+        const parent = folders.find(f => f.id === payload.parent_id);
+        if (parent) {
+          if (parent.level >= 3) throw new Error('No se pueden crear más de 3 niveles');
+          level = parent.level + 1;
+        }
+      }
+      const { data, error } = await supabase
+        .from('ai_knowledge_folders')
+        .insert([{
+          name: payload.name.trim(),
+          parent_id: payload.parent_id || null,
+          level,
+          updated_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+      if (error) throw error;
+      setFolders(prev => [...prev, data]);
+      showSave('Carpeta creada ✓');
+      return data;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateFolder = async (id: string, payload: { name?: string; sort_order?: number; parent_id?: string | null }) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ai-training/folders/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFolders(prev => prev.map(f => f.id === id ? data : f));
+        showSave('Carpeta actualizada ✓');
+        return data;
+      }
+      throw new Error('Error al actualizar carpeta');
+    } catch {
+      const { data, error } = await supabase
+        .from('ai_knowledge_folders')
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      setFolders(prev => prev.map(f => f.id === id ? data : f));
+      showSave('Carpeta actualizada ✓');
+      return data;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteFolder = async (id: string, deleteItems = false) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ai-training/folders/${id}?deleteItems=${deleteItems}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        await loadAll();
+        showSave('Carpeta eliminada ✓');
+        return;
+      }
+      throw new Error('Error al eliminar');
+    } catch {
+      if (deleteItems) {
+        await supabase.from('ai_training_config').delete().eq('folder_id', id);
+      } else {
+        await supabase.from('ai_training_config').update({ folder_id: null }).eq('folder_id', id);
+      }
+      await supabase.from('ai_knowledge_folders').delete().eq('id', id);
+      await loadAll();
+      showSave('Carpeta eliminada ✓');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Send preview chat (with optional file context) ────────────────────────
@@ -633,8 +765,25 @@ export default function AITraining() {
 
         {/* Tab content */}
         {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="animate-spin rounded-full h-10 w-10 border-4 border-[#4F5AF5] border-t-transparent" />
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs space-y-4 animate-pulse">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-[#4F5AF5]">
+                <Loader2 className="w-5 h-5 animate-spin" />
+              </div>
+              <div>
+                <div className="h-4 bg-slate-200 rounded w-48 mb-1.5" />
+                <div className="h-3 bg-slate-100 rounded w-72" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-32 bg-slate-50 border border-slate-100 rounded-xl p-4 space-y-2">
+                  <div className="h-4 bg-slate-200 rounded w-2/3" />
+                  <div className="h-3 bg-slate-100 rounded w-full" />
+                  <div className="h-3 bg-slate-100 rounded w-4/5" />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <>
@@ -645,7 +794,17 @@ export default function AITraining() {
               <AppearanceTab entries={entries} onCreate={createEntry} onUpdate={updateEntry} />
             )}
             {activeTab === 'context' && (
-              <ContextTab entries={byLayer('context')} onCreate={createEntry} onUpdate={updateEntry} onDelete={deleteEntry} onToggle={toggleEntry} />
+              <ContextTab
+                entries={byLayer('context')}
+                folders={folders}
+                onCreate={createEntry}
+                onUpdate={updateEntry}
+                onDelete={deleteEntry}
+                onToggle={toggleEntry}
+                onCreateFolder={createFolder}
+                onUpdateFolder={updateFolder}
+                onDeleteFolder={deleteFolder}
+              />
             )}
             {activeTab === 'examples' && (
               <ExamplesTab entries={byLayer('examples')} onCreate={createEntry} onUpdate={updateEntry} onDelete={deleteEntry} onToggle={toggleEntry} />
@@ -724,7 +883,30 @@ export default function AITraining() {
               <div className={`px-3 py-2 rounded-xl text-xs leading-relaxed max-w-[calc(100%-2.5rem)] shadow-sm ${
                 msg.role === 'user' ? 'bg-[#4F5AF5] text-white rounded-tr-sm' : 'bg-white border border-[#E2E8F0] text-[#1E293B] rounded-tl-sm'
               }`}>
-                {msg.text}
+                {msg.role === 'user' ? (
+                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                ) : (
+                  <div className="prose prose-xs max-w-none text-[#1E293B] prose-p:my-1.5 prose-p:leading-relaxed prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:my-2 prose-headings:font-bold prose-headings:text-slate-900 prose-strong:font-bold prose-strong:text-slate-900 prose-hr:my-2 leading-relaxed break-words">
+                    <ReactMarkdown>{parseHtmlToMarkdown(msg.text)}</ReactMarkdown>
+                  </div>
+                )}
+                {msg.role === 'model' && msg.options && msg.options.length > 0 && i === chatMsgs.length - 1 && !chatLoading && (
+                  <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-1">
+                    <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Sugerencias:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {msg.options.map((opt, optIdx) => (
+                        <button
+                          key={optIdx}
+                          type="button"
+                          onClick={() => setChatInput(opt)}
+                          className="text-left text-[10px] bg-violet-50 hover:bg-violet-100 text-violet-700 px-2 py-1 rounded-md transition-colors border border-violet-100 font-medium cursor-pointer"
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -918,50 +1100,368 @@ function IdentityTab({ entries, onCreate, onUpdate }: {
   );
 }
 
-// ─── Tab: Contexto ────────────────────────────────────────────────────────────
-function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
+// ─── Helpers de Formato y Archivos para la Base de Conocimiento ──────────────
+function formatKnowledgeFileSize(bytes: number) {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getKnowledgeFileMeta(fileName: string, mime?: string) {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.pdf') || mime === 'application/pdf') {
+    return { label: 'Documento PDF', color: 'text-rose-600 bg-rose-50 border-rose-200', icon: 'pdf' };
+  }
+  if (lower.endsWith('.docx') || mime?.includes('word')) {
+    return { label: 'Documento Word', color: 'text-blue-600 bg-blue-50 border-blue-200', icon: 'docx' };
+  }
+  if (lower.match(/\.(png|jpg|jpeg|webp)$/i) || mime?.startsWith('image/')) {
+    return { label: 'Diagrama con Visión IA', color: 'text-purple-600 bg-purple-50 border-purple-200', icon: 'image' };
+  }
+  return { label: 'Documento de Texto', color: 'text-emerald-600 bg-emerald-50 border-emerald-200', icon: 'txt' };
+}
+
+// ─── Tab: Contexto con Sistema de Carpetas Jerárquicas (Máximo 3 Niveles) ─────
+interface FolderTreeNode extends TrainingFolder {
+  children: FolderTreeNode[];
+  itemCount: number;
+}
+
+function ContextTab({
+  entries,
+  folders,
+  onCreate,
+  onUpdate,
+  onDelete,
+  onToggle,
+  onCreateFolder,
+  onUpdateFolder,
+  onDeleteFolder,
+}: {
   entries: TrainingEntry[];
+  folders: TrainingFolder[];
   onCreate: (p: Partial<TrainingEntry>) => Promise<TrainingEntry>;
   onUpdate: (id: string, p: Partial<TrainingEntry>) => void;
   onDelete: (id: string) => void;
   onToggle: (id: string) => void;
+  onCreateFolder: (payload: { name: string; parent_id?: string | null }) => Promise<any>;
+  onUpdateFolder: (id: string, payload: { name?: string; sort_order?: number; parent_id?: string | null }) => Promise<any>;
+  onDeleteFolder: (id: string, deleteItems?: boolean) => Promise<any>;
 }) {
+  // Navigation / Explorer state
+  const [selectedFolderId, setSelectedFolderId] = useState<string>('all');
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
+  const [folderSearchTerm, setFolderSearchTerm] = useState('');
+  const [entrySearchTerm, setEntrySearchTerm] = useState('');
+
+  // Modals state
+  const [folderModal, setFolderModal] = useState<{
+    isOpen: boolean;
+    mode: 'create' | 'edit';
+    parentFolder?: TrainingFolder | null;
+    folderToEdit?: TrainingFolder | null;
+  }>({ isOpen: false, mode: 'create' });
+  const [folderNameInput, setFolderNameInput] = useState('');
+
+  const [deleteFolderModal, setDeleteFolderModal] = useState<{
+    isOpen: boolean;
+    folder: TrainingFolder | null;
+    deleteItems: boolean;
+  }>({ isOpen: false, folder: null, deleteItems: false });
+
+  const [moveEntryModal, setMoveEntryModal] = useState<{
+    isOpen: boolean;
+    entry: TrainingEntry | null;
+    targetFolderId: string;
+  }>({ isOpen: false, entry: null, targetFolderId: '' });
+
+  // Entry creation / edition form state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<TrainingEntry | null>(null);
-  const [form, setForm] = useState({ title: '', content: '' });
+  const [form, setForm] = useState({ title: '', content: '', folder_id: '' });
+
+  // Document upload state
   const [showUpload, setShowUpload] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState<{ name: string; size: number; type: string } | null>(null);
+  const [uploadSeconds, setUploadSeconds] = useState(0);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const uploadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [extracted, setExtracted] = useState<{ title: string; content: string }[]>([]);
+  const [uploadTargetFolderId, setUploadTargetFolderId] = useState<string>('');
+  const [editingChunkIdx, setEditingChunkIdx] = useState<number | null>(null);
+  const [expandedChunkIdxs, setExpandedChunkIdxs] = useState<Record<number, boolean>>({});
   const [showGuide, setShowGuide] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    return () => {
+      if (uploadTimerRef.current) clearInterval(uploadTimerRef.current);
+    };
+  }, []);
+
+  // Deleting entry confirmation
   const [deletingEntry, setDeletingEntry] = useState<TrainingEntry | null>(null);
 
-  const openNew = () => { setForm({ title: '', content: '' }); setEditing(null); setShowForm(true); };
-  const openEdit = (e: TrainingEntry) => { setForm({ title: e.title, content: e.content }); setEditing(e); setShowForm(true); };
+  // Toast state
+  const [toast, setToast] = useState<{ type: 'error' | 'success' | 'info'; message: string } | null>(null);
+  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4500);
+  };
 
+  // Build folder map & full path map
+  const folderById = useMemo(() => new Map<string, TrainingFolder>(folders.map(f => [f.id, f])), [folders]);
+
+  const folderPathMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const getPath = (id: string | null): string => {
+      if (!id) return '';
+      const f = folderById.get(id);
+      if (!f) return '';
+      const parent = getPath(f.parent_id);
+      return parent ? `${parent} > ${f.name}` : f.name;
+    };
+    folders.forEach(f => {
+      map.set(f.id, getPath(f.id));
+    });
+    return map;
+  }, [folders, folderById]);
+
+  // Build hierarchical folder tree with counts
+  const folderTree = useMemo(() => {
+    const nodeMap = new Map<string, FolderTreeNode>();
+    folders.forEach(f => {
+      nodeMap.set(f.id, { ...f, children: [], itemCount: 0 });
+    });
+
+    entries.forEach(e => {
+      if (e.folder_id && nodeMap.has(e.folder_id)) {
+        nodeMap.get(e.folder_id)!.itemCount += 1;
+      }
+    });
+
+    const roots: FolderTreeNode[] = [];
+    folders.forEach(f => {
+      const node = nodeMap.get(f.id)!;
+      if (f.parent_id && nodeMap.has(f.parent_id)) {
+        nodeMap.get(f.parent_id)!.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+
+    return roots;
+  }, [folders, entries]);
+
+  // Toggle folder expansion
+  const toggleFolderExpand = (folderId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedFolderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  };
+
+  // Auto-expand parent folders when selectedFolderId changes
+  useEffect(() => {
+    if (selectedFolderId !== 'all' && selectedFolderId !== 'root') {
+      const target = folderById.get(selectedFolderId);
+      if (target?.parent_id) {
+        setExpandedFolderIds(prev => new Set([...prev, target.parent_id!]));
+      }
+    }
+  }, [selectedFolderId, folderById]);
+
+  // Filter entries according to active folder and search term
+  const filteredEntries = useMemo(() => {
+    let list = entries;
+    if (selectedFolderId === 'root') {
+      list = list.filter(e => !e.folder_id);
+    } else if (selectedFolderId !== 'all') {
+      list = list.filter(e => e.folder_id === selectedFolderId);
+    }
+    if (entrySearchTerm.trim()) {
+      const q = entrySearchTerm.toLowerCase();
+      list = list.filter(e => e.title.toLowerCase().includes(q) || e.content.toLowerCase().includes(q));
+    }
+    return list;
+  }, [entries, selectedFolderId, entrySearchTerm]);
+
+  // Flattened folders for selectors with depth indentation
+  const flattenedFolderOptions = useMemo(() => {
+    const result: { id: string; name: string; level: number; path: string }[] = [];
+    const traverse = (node: FolderTreeNode, depth: number) => {
+      result.push({
+        id: node.id,
+        name: node.name,
+        level: node.level,
+        path: folderPathMap.get(node.id) || node.name
+      });
+      node.children.forEach(c => traverse(c, depth + 1));
+    };
+    folderTree.forEach(r => traverse(r, 1));
+    return result;
+  }, [folderTree, folderPathMap]);
+
+  // Open modal to create folder
+  const handleOpenCreateFolder = (parentFolder?: TrainingFolder | null) => {
+    if (parentFolder && parentFolder.level >= 3) {
+      showToast('Límite alcanzado: máximo se permiten 3 niveles de carpetas.', 'error');
+      return;
+    }
+    setFolderNameInput('');
+    setFolderModal({
+      isOpen: true,
+      mode: 'create',
+      parentFolder: parentFolder || null,
+      folderToEdit: null
+    });
+  };
+
+  // Open modal to rename folder
+  const handleOpenEditFolder = (folder: TrainingFolder) => {
+    setFolderNameInput(folder.name);
+    setFolderModal({
+      isOpen: true,
+      mode: 'edit',
+      parentFolder: null,
+      folderToEdit: folder
+    });
+  };
+
+  // Save folder (create or edit)
+  const handleSaveFolderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = folderNameInput.trim();
+    if (!name) return;
+
+    try {
+      if (folderModal.mode === 'edit' && folderModal.folderToEdit) {
+        await onUpdateFolder(folderModal.folderToEdit.id, { name });
+        showToast(`Carpeta renombrada a "${name}"`, 'success');
+      } else {
+        const created = await onCreateFolder({
+          name,
+          parent_id: folderModal.parentFolder ? folderModal.parentFolder.id : null
+        });
+        if (created?.id) {
+          setSelectedFolderId(created.id);
+          if (folderModal.parentFolder) {
+            setExpandedFolderIds(prev => new Set([...prev, folderModal.parentFolder!.id]));
+          }
+        }
+        showToast(`Carpeta "${name}" creada exitosamente`, 'success');
+      }
+      setFolderModal({ isOpen: false, mode: 'create' });
+    } catch (err: any) {
+      showToast(err.message || 'Error al guardar carpeta', 'error');
+    }
+  };
+
+  // Open delete folder modal
+  const handleOpenDeleteFolder = (folder: TrainingFolder) => {
+    setDeleteFolderModal({
+      isOpen: true,
+      folder,
+      deleteItems: false
+    });
+  };
+
+  // Confirm delete folder
+  const handleConfirmDeleteFolder = async () => {
+    if (!deleteFolderModal.folder) return;
+    try {
+      const folderName = deleteFolderModal.folder.name;
+      await onDeleteFolder(deleteFolderModal.folder.id, deleteFolderModal.deleteItems);
+      if (selectedFolderId === deleteFolderModal.folder.id) {
+        setSelectedFolderId('all');
+      }
+      showToast(`Carpeta "${folderName}" eliminada correctamente.`, 'info');
+      setDeleteFolderModal({ isOpen: false, folder: null, deleteItems: false });
+    } catch (err: any) {
+      showToast(err.message || 'Error al eliminar carpeta', 'error');
+    }
+  };
+
+  // Open form for new entry
+  const openNew = () => {
+    const defaultFolder = selectedFolderId !== 'all' && selectedFolderId !== 'root' ? selectedFolderId : '';
+    setForm({ title: '', content: '', folder_id: defaultFolder });
+    setEditing(null);
+    setShowForm(true);
+  };
+
+  // Open form for editing entry
+  const openEdit = (e: TrainingEntry) => {
+    setForm({ title: e.title, content: e.content, folder_id: e.folder_id || '' });
+    setEditing(e);
+    setShowForm(true);
+  };
+
+  // Save entry
   const save = async () => {
     if (!form.title.trim() || !form.content.trim()) return;
     if (editing) {
-      onUpdate(editing.id, { title: form.title, content: form.content });
+      onUpdate(editing.id, {
+        title: form.title.trim(),
+        content: form.content.trim(),
+        folder_id: form.folder_id || null
+      });
+      showToast(`Ficha "${form.title}" actualizada`, 'success');
     } else {
-      await onCreate({ layer: 'context', ...form, is_active: true, sort_order: entries.length });
+      await onCreate({
+        layer: 'context',
+        title: form.title.trim(),
+        content: form.content.trim(),
+        folder_id: form.folder_id || null,
+        is_active: true,
+        sort_order: entries.length,
+        source: 'manual'
+      });
+      showToast(`Ficha "${form.title}" agregada a la Base de Conocimiento`, 'success');
     }
     setShowForm(false);
     setEditing(null);
   };
 
-  const [toast, setToast] = useState<{ type: 'error' | 'success' | 'info'; message: string } | null>(null);
-
-  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4500);
+  // Move entry modal
+  const handleOpenMoveEntry = (entry: TrainingEntry) => {
+    setMoveEntryModal({
+      isOpen: true,
+      entry,
+      targetFolderId: entry.folder_id || ''
+    });
   };
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleConfirmMoveEntry = async () => {
+    if (!moveEntryModal.entry) return;
+    try {
+      const targetId = moveEntryModal.targetFolderId || null;
+      onUpdate(moveEntryModal.entry.id, { folder_id: targetId });
+      const targetName = targetId ? (folderPathMap.get(targetId) || 'la carpeta seleccionada') : 'la Raíz';
+      showToast(`Ficha movida a ${targetName} ✓`, 'success');
+      setMoveEntryModal({ isOpen: false, entry: null, targetFolderId: '' });
+    } catch {
+      showToast('Error al mover la ficha', 'error');
+    }
+  };
+
+  // Document upload & drag-and-drop processing
+  const processFile = async (file: File) => {
     if (!file) return;
     setUploading(true);
+    setUploadingFile({ name: file.name, size: file.size, type: file.type });
+    setUploadSeconds(0);
+
+    if (uploadTimerRef.current) clearInterval(uploadTimerRef.current);
+    uploadTimerRef.current = setInterval(() => {
+      setUploadSeconds(s => s + 1);
+    }, 1000);
+
     const fd = new FormData();
     fd.append('file', file);
     try {
@@ -971,24 +1471,102 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
         showToast(data.error || 'Error al procesar el archivo', 'error');
       } else {
         setExtracted(data.chunks || []);
+        setUploadTargetFolderId(selectedFolderId !== 'all' && selectedFolderId !== 'root' ? selectedFolderId : '');
         setShowUpload(true);
         showToast(`Se extrajeron ${data.chunks?.length || 1} fichas con éxito. Revisa y aprueba para guardar.`, 'info');
       }
     } catch {
       showToast('Error de conexión al procesar el archivo o diagrama.', 'error');
+    } finally {
+      if (uploadTimerRef.current) {
+        clearInterval(uploadTimerRef.current);
+        uploadTimerRef.current = null;
+      }
+      setUploading(false);
+      setUploadingFile(null);
+      setUploadSeconds(0);
     }
-    setUploading(false);
+  };
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await processFile(file);
+    }
     e.target.value = '';
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!uploading) setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (uploading) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      await processFile(file);
+    }
+  };
+
+  const uploadMeta = useMemo(() => {
+    if (!uploadingFile) return null;
+    return getKnowledgeFileMeta(uploadingFile.name, uploadingFile.type);
+  }, [uploadingFile]);
+
+  const { stageNumber, stageText, progressPercent } = useMemo(() => {
+    if (uploadSeconds < 3) {
+      return {
+        stageNumber: 1,
+        stageText: 'Transfiriendo archivo al servidor seguro...',
+        progressPercent: Math.min(25, Math.max(12, uploadSeconds * 8))
+      };
+    }
+    if (uploadSeconds < 8) {
+      return {
+        stageNumber: 2,
+        stageText: uploadMeta?.icon === 'image'
+          ? 'Analizando diagrama con Visión Artificial IA...'
+          : 'Extrayendo texto y analizando estructura de contenido...',
+        progressPercent: Math.min(58, 25 + (uploadSeconds - 3) * 6)
+      };
+    }
+    if (uploadSeconds < 14) {
+      return {
+        stageNumber: 3,
+        stageText: 'Segmentando reglas de negocio y políticas institucionales...',
+        progressPercent: Math.min(88, 58 + (uploadSeconds - 8) * 5)
+      };
+    }
+    return {
+      stageNumber: 4,
+      stageText: 'Estructurando y afinando fichas semánticas para TEO...',
+      progressPercent: Math.min(96, 88 + (uploadSeconds - 14) * 1)
+    };
+  }, [uploadSeconds, uploadMeta]);
+
   const approveChunk = async (chunk: { title: string; content: string }) => {
-    await onCreate({ layer: 'context', ...chunk, is_active: true, sort_order: entries.length, source: 'document' });
+    await onCreate({
+      layer: 'context',
+      ...chunk,
+      folder_id: uploadTargetFolderId || null,
+      is_active: true,
+      sort_order: entries.length,
+      source: 'document'
+    });
     setExtracted(prev => prev.filter(c => c.title !== chunk.title));
     showToast(`Ficha "${chunk.title}" agregada a la Base de Conocimiento`, 'success');
   };
-
-  const [editingChunkIdx, setEditingChunkIdx] = useState<number | null>(null);
-  const [expandedChunkIdxs, setExpandedChunkIdxs] = useState<Record<number, boolean>>({});
 
   const updateChunk = (index: number, field: 'title' | 'content', value: string) => {
     setExtracted(prev => {
@@ -1002,9 +1580,118 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
     setExpandedChunkIdxs(prev => ({ ...prev, [index]: !prev[index] }));
   };
 
+  // Helper count of entries in root
+  const rootCount = entries.filter(e => !e.folder_id).length;
+
+  // Active folder details for breadcrumbs
+  const activeFolder = selectedFolderId !== 'all' && selectedFolderId !== 'root' ? folderById.get(selectedFolderId) : null;
+
   return (
     <div className="space-y-4">
-      {/* Upload doc modal */}
+      {/* ── Document Upload Processing Modal / Overlay de Alta Visibilidad ── */}
+      {uploading && uploadingFile && (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300" />
+
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-lg border border-indigo-100 overflow-hidden animate-in zoom-in-95 duration-200 p-6 sm:p-7 text-center space-y-5">
+            {/* Animated Glowing AI Badge */}
+            <div className="relative mx-auto w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#4F5AF5] via-indigo-600 to-[#EB5F46] flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 ring-8 ring-indigo-50/80">
+              <Sparkles className="w-8 h-8 animate-spin" style={{ animationDuration: '6s' }} />
+              <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 border-2 border-white"></span>
+              </span>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-black text-slate-900 tracking-tight">
+                Procesando Documento con IA
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                TEO está extrayendo y segmentando las reglas de negocio para incorporarlas a la Base de Conocimiento.
+              </p>
+            </div>
+
+            {/* File info card */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex items-center gap-3 text-left">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${uploadMeta?.color || 'text-indigo-600 bg-indigo-50 border-indigo-200'}`}>
+                {uploadMeta?.icon === 'image' ? <ImageIcon className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800 truncate" title={uploadingFile.name}>
+                    {uploadingFile.name}
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-500 shrink-0 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                    {formatKnowledgeFileSize(uploadingFile.size)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] font-medium text-slate-500 truncate flex items-center gap-1">
+                    <Folder className="w-3 h-3 text-amber-500 shrink-0" />
+                    Destino: <strong className="text-slate-700">{activeFolder ? activeFolder.name : 'Raíz (General)'}</strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Animated Progress Bar */}
+            <div className="space-y-1.5 text-left">
+              <div className="flex items-center justify-between text-xs font-semibold">
+                <span className="text-indigo-600 flex items-center gap-1.5">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  <span className="truncate">{stageText}</span>
+                </span>
+                <span className="text-[11px] text-slate-400 font-bold shrink-0">
+                  {uploadSeconds}s
+                </span>
+              </div>
+              <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200">
+                <div
+                  className="h-full bg-gradient-to-r from-[#4F5AF5] via-violet-500 to-[#EB5F46] rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Realtime 4-step checklist */}
+            <div className="bg-slate-50/70 border border-slate-200/60 rounded-2xl p-3 text-left space-y-2 text-[11px]">
+              <div className="flex items-center gap-2 text-slate-700">
+                <CheckCircle className={`w-3.5 h-3.5 shrink-0 ${stageNumber > 1 ? 'text-emerald-500' : 'text-[#4F5AF5] animate-pulse'}`} />
+                <span className={stageNumber === 1 ? 'font-bold text-[#4F5AF5]' : stageNumber > 1 ? 'text-slate-500 line-through' : 'text-slate-400'}>
+                  1. Carga y validación segura del documento
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-700">
+                <CheckCircle className={`w-3.5 h-3.5 shrink-0 ${stageNumber > 2 ? 'text-emerald-500' : stageNumber === 2 ? 'text-[#4F5AF5] animate-pulse' : 'text-slate-300'}`} />
+                <span className={stageNumber === 2 ? 'font-bold text-[#4F5AF5]' : stageNumber > 2 ? 'text-slate-500 line-through' : 'text-slate-400'}>
+                  2. {uploadMeta?.icon === 'image' ? 'Visión Artificial IA e interpretación de diagramas' : 'Extracción de texto y lectura de contenido'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-700">
+                <CheckCircle className={`w-3.5 h-3.5 shrink-0 ${stageNumber > 3 ? 'text-emerald-500' : stageNumber === 3 ? 'text-[#4F5AF5] animate-pulse' : 'text-slate-300'}`} />
+                <span className={stageNumber === 3 ? 'font-bold text-[#4F5AF5]' : stageNumber > 3 ? 'text-slate-500 line-through' : 'text-slate-400'}>
+                  3. Segmentación semántica de políticas y reglas
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-700">
+                <CheckCircle className={`w-3.5 h-3.5 shrink-0 ${stageNumber >= 4 ? 'text-[#4F5AF5] animate-pulse' : 'text-slate-300'}`} />
+                <span className={stageNumber >= 4 ? 'font-bold text-[#4F5AF5]' : 'text-slate-400'}>
+                  4. Generación de fichas institucionales para TEO
+                </span>
+              </div>
+            </div>
+
+            {/* Reassurance footnote */}
+            <div className="flex items-center justify-center gap-1.5 text-[10px] text-slate-400 pt-0.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              <span>Directriz The Architect: Preservando la integridad conceptual de cada política</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Document Upload Preview Modal ── */}
       {showUpload && extracted.length > 0 && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs" onClick={() => setShowUpload(false)} />
@@ -1019,29 +1706,35 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
                   <p className="text-xs text-[#64748B]">Revisa, edita o afina el contenido antes de integrarlo a la Base de Conocimiento.</p>
                 </div>
               </div>
-              <button onClick={() => setShowUpload(false)} className="text-[#94A3B8] hover:text-[#1E293B] p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+              <button onClick={() => setShowUpload(false)} className="text-[#94A3B8] hover:text-[#1E293B] p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* ── Leyenda explicativa de qué pasa al agregar ── */}
-            <div className="mx-6 mt-4 p-3.5 bg-gradient-to-r from-blue-50/90 to-indigo-50/90 border border-blue-200/80 rounded-xl flex items-start gap-3 text-xs text-[#1E293B] shadow-2xs">
-              <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center shrink-0 text-blue-600 mt-0.5">
-                <Sparkles className="w-3.5 h-3.5" />
+            {/* Selector de Carpeta de Destino en el modal de carga */}
+            <div className="mx-6 mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                <Folder className="w-4 h-4 text-amber-500" />
+                <span>Carpeta de destino para las fichas:</span>
               </div>
-              <div className="leading-relaxed">
-                <p className="font-bold text-[#1E293B] mb-0.5">¿Qué sucederá al hacer clic en "Agregar"?</p>
-                <p className="text-[#475569]">
-                  La ficha se registrará inmediatamente en la <strong>Base de Conocimiento activa de TEO</strong> (con la etiqueta <em>Doc</em>). A partir de ese momento, TEO utilizará esta información para contrastar, validar y guiar las preguntas en las iniciativas de los usuarios. Puedes hacer clic en <strong>"Editar"</strong> para ajustar el título o pulir el texto antes de confirmar.
-                </p>
-              </div>
+              <select
+                value={uploadTargetFolderId}
+                onChange={e => setUploadTargetFolderId(e.target.value)}
+                className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] cursor-pointer"
+              >
+                <option value="">📂 Sin carpeta (Raíz / General)</option>
+                {flattenedFolderOptions.map(f => (
+                  <option key={f.id} value={f.id}>
+                    {'  '.repeat(f.level - 1) + (f.level > 1 ? '↳ ' : '') + `📁 ${f.name} (Nivel ${f.level})`}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {extracted.map((chunk, i) => (
                 <div key={i} className="border border-[#E2E8F0] bg-white rounded-xl p-4 shadow-2xs hover:border-[#4F5AF5]/40 transition-all space-y-3">
                   {editingChunkIdx === i ? (
-                    /* ── Modo Edición ── */
                     <div className="space-y-3 animate-in fade-in duration-150">
                       <div>
                         <label className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">Título de la Ficha</label>
@@ -1049,90 +1742,65 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
                           type="text"
                           value={chunk.title}
                           onChange={e => updateChunk(i, 'title', e.target.value)}
-                          className="w-full border border-[#CBD5E1] rounded-lg px-3 py-2 text-sm font-semibold text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
-                          placeholder="Título descriptivo de la ficha..."
+                          className="w-full text-xs font-semibold text-[#1E293B] border border-[#CBD5E1] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">Contenido que leerá TEO</label>
+                        <label className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">Contenido de Conocimiento</label>
                         <textarea
                           rows={6}
                           value={chunk.content}
                           onChange={e => updateChunk(i, 'content', e.target.value)}
-                          className="w-full border border-[#CBD5E1] rounded-lg px-3 py-2 text-xs font-mono text-[#334155] focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] leading-relaxed resize-y"
-                          placeholder="Escribe o afina el contenido..."
+                          className="w-full text-xs text-[#334155] border border-[#CBD5E1] rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] font-sans resize-none leading-relaxed"
                         />
                       </div>
                       <div className="flex justify-end gap-2 pt-1">
                         <button
                           type="button"
                           onClick={() => setEditingChunkIdx(null)}
-                          className="px-4 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer flex items-center gap-1.5"
+                          className="text-xs font-bold text-[#4F5AF5] bg-indigo-50 hover:bg-indigo-100 px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer"
                         >
-                          <Save className="w-3.5 h-3.5" />
-                          <span>Listo</span>
+                          Listo
                         </button>
                       </div>
                     </div>
                   ) : (
-                    /* ── Modo Preliminar / Lectura ── */
                     <div>
-                      <div className="flex items-start justify-between gap-3 mb-2.5">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-bold text-[#1E293B]">{chunk.title}</span>
-                            <span className="text-[10px] bg-indigo-50 text-indigo-700 font-semibold px-2 py-0.5 rounded-full border border-indigo-100">
-                              Preliminar
-                            </span>
-                          </div>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="min-w-0">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md mr-2">
+                            Ficha {i + 1} de {extracted.length}
+                          </span>
+                          <h4 className="font-bold text-sm text-[#1E293B] mt-1">{chunk.title}</h4>
                         </div>
-
                         <div className="flex items-center gap-2 shrink-0">
                           <button
                             type="button"
                             onClick={() => setEditingChunkIdx(i)}
-                            className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-[#4F5AF5] bg-slate-50 hover:bg-indigo-50 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-indigo-200 transition-colors cursor-pointer"
-                            title="Editar título y contenido antes de registrar"
+                            className="text-xs font-semibold text-[#64748B] hover:text-[#4F5AF5] hover:bg-slate-100 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                             <span>Editar</span>
                           </button>
-
                           <button
                             type="button"
                             onClick={() => approveChunk(chunk)}
                             className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 px-4 py-1.5 rounded-xl shadow-xs transition-all cursor-pointer"
-                            title="Registrar en la base de conocimiento"
                           >
                             <CheckCircle className="w-4 h-4 stroke-[2.5]" />
                             <span>Agregar</span>
                           </button>
                         </div>
                       </div>
-
-                      {/* Contenido expandible */}
                       <div className="text-xs text-[#475569] bg-slate-50 border border-slate-100 rounded-lg p-3 whitespace-pre-wrap leading-relaxed font-sans">
-                        {expandedChunkIdxs[i] || chunk.content.length <= 220 ? (
-                          chunk.content
-                        ) : (
-                          <>
-                            {chunk.content.slice(0, 220)}...
-                            <button
-                              type="button"
-                              onClick={() => toggleExpandChunk(i)}
-                              className="ml-2 font-bold text-[#4F5AF5] hover:underline cursor-pointer"
-                            >
-                              Ver texto completo
-                            </button>
-                          </>
-                        )}
-                        {expandedChunkIdxs[i] && chunk.content.length > 220 && (
+                        {expandedChunkIdxs[i] || chunk.content.length <= 220 ? chunk.content : `${chunk.content.slice(0, 220)}...`}
+                        {chunk.content.length > 220 && (
                           <button
                             type="button"
                             onClick={() => toggleExpandChunk(i)}
-                            className="block mt-2 font-bold text-[#4F5AF5] hover:underline cursor-pointer"
+                            className="ml-2 font-bold text-[#4F5AF5] hover:underline cursor-pointer"
                           >
-                            Mostrar menos
+                            {expandedChunkIdxs[i] ? 'Mostrar menos' : 'Ver texto completo'}
                           </button>
                         )}
                       </div>
@@ -1140,13 +1808,11 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
                   )}
                 </div>
               ))}
-              {extracted.length === 0 && <p className="text-center text-sm text-[#94A3B8] py-8">Todas las fichas han sido procesadas.</p>}
             </div>
 
-            {/* Footer con opción de agregar todas */}
             <div className="px-6 py-3.5 border-t border-[#E2E8F0] bg-slate-50/70 flex items-center justify-between">
               <span className="text-xs text-[#64748B]">
-                {extracted.length} {extracted.length === 1 ? 'ficha pendiente de revisión' : 'fichas pendientes de revisión'}
+                {extracted.length} {extracted.length === 1 ? 'ficha pendiente' : 'fichas pendientes'}
               </span>
               <div className="flex items-center gap-2.5">
                 {extracted.length > 1 && (
@@ -1154,7 +1820,14 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
                     type="button"
                     onClick={async () => {
                       for (const c of extracted) {
-                        await onCreate({ layer: 'context', ...c, is_active: true, sort_order: entries.length, source: 'document' });
+                        await onCreate({
+                          layer: 'context',
+                          ...c,
+                          folder_id: uploadTargetFolderId || null,
+                          is_active: true,
+                          sort_order: entries.length,
+                          source: 'document'
+                        });
                       }
                       setExtracted([]);
                       setShowUpload(false);
@@ -1179,125 +1852,650 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-sm border border-[#E2E8F0] p-6">
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <h2 className="font-bold text-[#1E293B]">Contexto del Negocio</h2>
-              <button
-                type="button"
-                onClick={() => setShowGuide(prev => !prev)}
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EEF2FF] text-[#4F5AF5] hover:bg-[#E0E7FF] transition-colors border border-[#4F5AF5]/20 shadow-xs cursor-pointer"
-                title="Ver tipos de archivos permitidos y cómo los interpreta Teo"
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-                <span>{showGuide ? 'Ocultar Guía' : '¿Qué puedo subir?'}</span>
-              </button>
+      {/* ── Main Two-Column Explorer Layout ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* ── COLUMNA IZQUIERDA: Árbol de Carpetas (Max 3 niveles) ── */}
+        <div className="lg:col-span-4 bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-4 space-y-3.5">
+          <div className="flex items-center justify-between pb-3 border-b border-[#F1F5F9]">
+            <div className="flex items-center gap-2">
+              <FolderTree className="w-5 h-5 text-[#4F5AF5]" />
+              <div>
+                <h3 className="font-bold text-sm text-[#1E293B]">Carpetas de Base</h3>
+                <p className="text-[11px] text-[#64748B]">Jerarquía hasta 3 niveles</p>
+              </div>
             </div>
-            <p className="text-xs text-[#64748B] mt-0.5">Fichas de conocimiento que el agente usa como referencia en cada conversación.</p>
-          </div>
-          <div className="flex items-center gap-2.5 shrink-0">
-            <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" className="hidden" onChange={handleFile} />
             <button
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="flex items-center gap-2 border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#64748B] px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
-              title="Sube documentos (.pdf, .docx, .txt) o imágenes de diagramas (.png, .jpg)"
+              type="button"
+              onClick={() => handleOpenCreateFolder(null)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-[#4F5AF5] text-xs font-bold transition-colors cursor-pointer"
+              title="Crear una nueva carpeta raíz (Nivel 1)"
             >
-              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              {uploading ? 'Analizando...' : 'Subir Documento'}
-            </button>
-            <button
-              onClick={openNew}
-              className="flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
-            >
-              <Plus className="w-4 h-4" /> Nueva Ficha
+              <FolderPlus className="w-3.5 h-3.5" />
+              <span>+ Raíz</span>
             </button>
           </div>
-        </div>
 
-        {/* ── Leyenda / Guía Desplegable de Formatos e Interpretación ── */}
-        {showGuide && (
-          <div className="mb-5 bg-gradient-to-br from-[#F8FAFC] via-[#F1F5F9] to-[#EEF2FF] border border-[#E2E8F0] rounded-xl p-4 text-xs text-[#334155] shadow-xs">
-            <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-[#E2E8F0]">
+          {/* Quick Nav: Todas y Sin Carpeta */}
+          <div className="space-y-1">
+            <button
+              type="button"
+              onClick={() => setSelectedFolderId('all')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                selectedFolderId === 'all'
+                  ? 'bg-[#4F5AF5] text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-[#4F5AF5]" />
-                <span className="font-bold text-sm text-[#1E293B]">Guía de Archivos y Cómo los Interpreta TEO</span>
+                <BookOpen className="w-4 h-4" />
+                <span>Todas las Fichas</span>
               </div>
-              <button
-                onClick={() => setShowGuide(false)}
-                className="text-[#94A3B8] hover:text-[#1E293B] p-1 rounded-md hover:bg-slate-200/60 transition-colors"
-                title="Cerrar guía"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                selectedFolderId === 'all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {entries.length}
+              </span>
+            </button>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {/* Bloque 1: Documentos */}
-              <div className="bg-white rounded-xl p-3 border border-[#E2E8F0] shadow-2xs space-y-1.5">
-                <div className="flex items-center gap-2 text-[#1E293B] font-bold">
-                  <FileText className="w-4 h-4 text-blue-600" />
-                  <span>Documentos de Texto</span>
-                  <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono font-medium">.pdf, .docx, .txt</span>
-                </div>
-                <p className="text-[#64748B] leading-relaxed">
-                  <strong className="text-[#334155]">Cómo se procesa:</strong> Se extrae el texto íntegro y se divide automáticamente en fragmentos de ~500 palabras para que apruebes cuáles sumar.
-                </p>
-                <p className="text-[#64748B] leading-relaxed">
-                  <strong className="text-[#334155]">Uso ideal:</strong> Glosarios, políticas de TI, catálogos de sistemas vigentes y manuales normativos.
-                </p>
+            <button
+              type="button"
+              onClick={() => setSelectedFolderId('root')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                selectedFolderId === 'root'
+                  ? 'bg-[#4F5AF5] text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4" />
+                <span>Sin Carpeta (General)</span>
               </div>
-
-              {/* Bloque 2: Diagramas */}
-              <div className="bg-white rounded-xl p-3 border border-[#E2E8F0] shadow-2xs space-y-1.5">
-                <div className="flex items-center gap-2 text-[#1E293B] font-bold">
-                  <ImageIcon className="w-4 h-4 text-purple-600" />
-                  <span>Diagramas y Gráficos (IA Vision)</span>
-                  <span className="text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-mono font-medium">.png, .jpg, .webp</span>
-                </div>
-                <p className="text-[#64748B] leading-relaxed">
-                  <strong className="text-[#334155]">Cómo se procesa:</strong> Gemini Vision inspecciona cajas, flechas y decisiones, y redacta una ficha técnica con flujo secuencial y reglas.
-                </p>
-                <p className="text-[#64748B] leading-relaxed">
-                  <strong className="text-[#334155]">Uso ideal:</strong> Diagramas de arquitectura (C4/Cloud), flujos de proceso BPMN, organigramas y esquemas de decisión.
-                </p>
-              </div>
-            </div>
-
-            {/* Bloque 3: Interpretación de Teo */}
-            <div className="mt-3 pt-2.5 border-t border-[#E2E8F0] flex items-start gap-2 text-[11px] text-[#475569]">
-              <Bot className="w-4 h-4 text-[#4F5AF5] shrink-0 mt-0.5" />
-              <p className="leading-normal">
-                <strong className="text-[#1E293B]">¿Cómo lo interpreta TEO en las iniciativas?</strong> Cada ficha activa se inyecta como memoria institucional en el chat. TEO la utiliza para detectar sistemas duplicados, validar estándares de arquitectura y exigir justificaciones cuantitativas a los solicitantes.
-              </p>
-            </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                selectedFolderId === 'root' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {rootCount}
+              </span>
+            </button>
           </div>
-        )}
 
-        {showForm && (
-          <div className="mb-4 border border-[#4F5AF5]/30 bg-[#EEF2FF] rounded-xl p-4 space-y-3">
-            <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Título de la ficha (ej: Glosario de VPs)" className="w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]" />
-            <textarea value={form.content} onChange={e => setForm(p => ({ ...p, content: e.target.value }))} rows={5} placeholder="Contenido del conocimiento..." className="w-full border border-[#E2E8F0] bg-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] resize-none" />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => { setShowForm(false); setEditing(null); }} className="border border-[#E2E8F0] bg-white px-3 py-1.5 rounded-lg text-sm font-semibold text-[#64748B] hover:bg-[#F8FAFC]">Cancelar</button>
-              <button onClick={save} className="bg-[#4F5AF5] text-white px-4 py-1.5 rounded-lg text-sm font-semibold hover:bg-[#3F49E0]">Guardar Ficha</button>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {entries.length === 0 && !showForm && (
-            <div className="text-center py-12 text-[#94A3B8]">
-              <BookOpen className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-              <p className="text-sm">No hay fichas de contexto. Crea una o sube un documento.</p>
+          {/* Buscador de carpetas */}
+          {folders.length > 5 && (
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={folderSearchTerm}
+                onChange={e => setFolderSearchTerm(e.target.value)}
+                placeholder="Buscar carpeta..."
+                className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#4F5AF5]"
+              />
             </div>
           )}
-          {entries.map(e => (
-            <ContextCard key={e.id} entry={e} onEdit={() => openEdit(e)} onToggle={() => onToggle(e.id)} onDelete={() => setDeletingEntry(e)} />
-          ))}
+
+          {/* Renderizado del Árbol de Carpetas */}
+          <div className="pt-2 border-t border-[#F1F5F9] max-h-[58vh] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+            {folders.length === 0 ? (
+              <div className="text-center py-6 text-slate-400">
+                <Folder className="w-7 h-7 mx-auto mb-1.5 text-slate-300 stroke-[1.5]" />
+                <p className="text-xs">Aún no hay carpetas creadas.</p>
+                <button
+                  type="button"
+                  onClick={() => handleOpenCreateFolder(null)}
+                  className="mt-2 text-xs font-bold text-[#4F5AF5] hover:underline cursor-pointer"
+                >
+                  + Crear primera carpeta raíz
+                </button>
+              </div>
+            ) : (
+              folderTree
+                .filter(node => !folderSearchTerm.trim() || node.name.toLowerCase().includes(folderSearchTerm.toLowerCase()))
+                .map(rootNode => renderFolderTreeNode(rootNode))
+            )}
+          </div>
+        </div>
+
+        {/* ── COLUMNA DERECHA: Fichas de la Carpeta Seleccionada ── */}
+        <div
+          className="lg:col-span-8 space-y-4 relative"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {/* Drag & Drop Overlay */}
+          {isDragOver && (
+            <div className="absolute inset-0 z-40 bg-indigo-50/95 border-2 border-dashed border-[#4F5AF5] rounded-2xl flex flex-col items-center justify-center p-6 text-center backdrop-blur-xs animate-in fade-in duration-150">
+              <div className="w-14 h-14 rounded-2xl bg-white shadow-md border border-indigo-200 flex items-center justify-center text-[#4F5AF5] mb-3 animate-bounce">
+                <Upload className="w-7 h-7" />
+              </div>
+              <h4 className="text-base font-bold text-slate-900">Suelta tu archivo aquí</h4>
+              <p className="text-xs text-slate-600 mt-1 max-w-sm">
+                Se procesará e integrará automáticamente en {activeFolder ? `la carpeta "${activeFolder.name}"` : 'la Base de Conocimiento'}.
+              </p>
+              <span className="mt-3 text-[10px] font-bold text-[#4F5AF5] bg-white px-3 py-1 rounded-full border border-indigo-200 shadow-2xs">
+                Formatos permitidos: PDF, DOCX, TXT, Diagramas PNG/JPG/WEBP (hasta 25 MB)
+              </span>
+            </div>
+          )}
+          {/* Header Panel Derecho con Breadcrumbs y Acciones */}
+          <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-4 sm:p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#F1F5F9]">
+              {/* Breadcrumb Path */}
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium overflow-x-auto whitespace-nowrap">
+                  <span
+                    onClick={() => setSelectedFolderId('all')}
+                    className="hover:text-[#4F5AF5] cursor-pointer font-semibold text-slate-500"
+                  >
+                    Base de Conocimiento
+                  </span>
+                  <span>/</span>
+                  {selectedFolderId === 'all' && (
+                    <span className="text-slate-800 font-bold">Todas las Fichas</span>
+                  )}
+                  {selectedFolderId === 'root' && (
+                    <span className="text-slate-800 font-bold">Sin Carpeta (General)</span>
+                  )}
+                  {activeFolder && (
+                    <>
+                      {activeFolder.parent_id && (
+                        <>
+                          <span
+                            onClick={() => setSelectedFolderId(activeFolder.parent_id!)}
+                            className="hover:text-[#4F5AF5] cursor-pointer text-slate-500"
+                          >
+                            {folderById.get(activeFolder.parent_id)?.name}
+                          </span>
+                          <span>/</span>
+                        </>
+                      )}
+                      <span className="text-slate-900 font-bold flex items-center gap-1">
+                        <Folder className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        {activeFolder.name}
+                        <span className="text-[10px] font-black uppercase px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                          Nivel {activeFolder.level}
+                        </span>
+                      </span>
+                    </>
+                  )}
+                </div>
+                <h2 className="text-base font-bold text-slate-900 mt-1">
+                  {selectedFolderId === 'all'
+                    ? 'Todas las Fichas Institucionales'
+                    : selectedFolderId === 'root'
+                    ? 'Fichas sin Carpeta Asignada'
+                    : activeFolder?.name || 'Carpeta'}
+                </h2>
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowGuide(prev => !prev)}
+                  className="p-2 rounded-xl text-slate-500 hover:text-[#4F5AF5] hover:bg-slate-100 transition-colors border border-slate-200"
+                  title="¿Qué puedo subir y cómo lo interpreta Teo?"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </button>
+
+                {activeFolder && activeFolder.level < 3 && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenCreateFolder(activeFolder)}
+                    className="flex items-center gap-1.5 border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-[#4F5AF5] px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                    title={`Crear subcarpeta dentro de "${activeFolder.name}" (Nivel ${activeFolder.level + 1})`}
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" />
+                    <span>+ Subcarpeta</span>
+                  </button>
+                )}
+
+                <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" className="hidden" onChange={handleFile} />
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    uploading
+                      ? 'border border-indigo-300 bg-indigo-50 text-[#4F5AF5] shadow-xs ring-2 ring-indigo-400/20 animate-pulse'
+                      : 'border border-[#E2E8F0] hover:bg-slate-50 text-[#64748B]'
+                  }`}
+                  title="Subir documento o diagrama a esta carpeta"
+                >
+                  {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4F5AF5]" /> : <Upload className="w-3.5 h-3.5" />}
+                  <span>{uploading ? 'Procesando documento...' : 'Subir Doc'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openNew}
+                  className="flex items-center gap-1.5 bg-[#4F5AF5] hover:bg-[#3F49E0] text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Nueva Ficha</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Buscador de fichas */}
+            <div className="mt-3.5 relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={entrySearchTerm}
+                onChange={e => setEntrySearchTerm(e.target.value)}
+                placeholder="Buscar fichas por título o contenido..."
+                className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]/20 focus:border-[#4F5AF5]"
+              />
+              {entrySearchTerm && (
+                <button
+                  onClick={() => setEntrySearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* ── Guía Desplegable ── */}
+          {showGuide && (
+            <div className="bg-gradient-to-br from-[#F8FAFC] via-[#F1F5F9] to-[#EEF2FF] border border-[#E2E8F0] rounded-2xl p-4 text-xs text-[#334155] shadow-xs">
+              <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-[#E2E8F0]">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#4F5AF5]" />
+                  <span className="font-bold text-sm text-[#1E293B]">Guía de Formatos e Interpretación de TEO</span>
+                </div>
+                <button onClick={() => setShowGuide(false)} className="text-[#94A3B8] hover:text-[#1E293B]">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                <div className="bg-white rounded-xl p-3 border border-[#E2E8F0] space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-[#1E293B]">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    <span>Documentos de Texto (.pdf, .docx, .txt)</span>
+                  </div>
+                  <p className="text-[#64748B] leading-relaxed">
+                    Extrae fragmentos temáticos para alimentar políticas, glosarios, normativas y reglas de negocio por carpeta.
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl p-3 border border-[#E2E8F0] space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-[#1E293B]">
+                    <ImageIcon className="w-4 h-4 text-purple-600" />
+                    <span>Diagramas con IA Vision (.png, .jpg)</span>
+                  </div>
+                  <p className="text-[#64748B] leading-relaxed">
+                    Gemini Vision transcribe esquemas C4, BPMN y arquitecturas Cloud generando fichas detalladas de integración.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Formulario de Nueva / Edición de Ficha ── */}
+          {showForm && (
+            <div className="bg-[#EEF2FF] border border-[#4F5AF5]/30 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-sm animate-in fade-in duration-150">
+              <div className="flex items-center justify-between pb-2 border-b border-[#4F5AF5]/20">
+                <h4 className="font-bold text-sm text-[#1E293B]">
+                  {editing ? 'Editar Ficha de Conocimiento' : 'Nueva Ficha de Conocimiento'}
+                </h4>
+                <button onClick={() => { setShowForm(false); setEditing(null); }} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">Título de la Ficha</label>
+                <input
+                  type="text"
+                  value={form.title}
+                  onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+                  placeholder="Ej: Glosario de VPs y Direcciones TI"
+                  className="w-full border border-[#CBD5E1] bg-white rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">Carpeta de Destino</label>
+                <select
+                  value={form.folder_id}
+                  onChange={e => setForm(p => ({ ...p, folder_id: e.target.value }))}
+                  className="w-full border border-[#CBD5E1] bg-white rounded-xl px-3.5 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
+                >
+                  <option value="">📂 Sin carpeta (Raíz / General)</option>
+                  {flattenedFolderOptions.map(f => (
+                    <option key={f.id} value={f.id}>
+                      {'  '.repeat(f.level - 1) + (f.level > 1 ? '↳ ' : '') + `📁 ${f.name} (Nivel ${f.level})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">Contenido de la Ficha</label>
+                <textarea
+                  rows={6}
+                  value={form.content}
+                  onChange={e => setForm(p => ({ ...p, content: e.target.value }))}
+                  placeholder="Redacta la política, regla, estándar o definición técnica que TEO debe recordar..."
+                  className="w-full border border-[#CBD5E1] bg-white rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#4F5AF5] resize-none leading-relaxed font-sans"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => { setShowForm(false); setEditing(null); }}
+                  className="px-4 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={save}
+                  className="px-4 py-1.5 rounded-xl bg-[#4F5AF5] hover:bg-indigo-600 text-white text-xs font-bold transition-all shadow-xs"
+                >
+                  Guardar Ficha
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Lista de Fichas ── */}
+          <div className="space-y-3">
+            {/* Si está subiendo y procesando un archivo, mostrar banner y skeletons activos */}
+            {uploading && uploadingFile && (
+              <div className="space-y-3 animate-in fade-in duration-300">
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-white to-indigo-50/50 border border-indigo-200/80 flex items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-[#4F5AF5] text-white flex items-center justify-center shrink-0 shadow-xs ring-4 ring-indigo-100 animate-pulse">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#1E293B] truncate">
+                          Extrayendo fichas de "{uploadingFile.name}"
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-100 text-[#4F5AF5] shrink-0">
+                          {uploadSeconds}s
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-indigo-700/90 font-medium truncate mt-0.5">
+                        {stageText}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Loader2 className="w-4 h-4 text-[#4F5AF5] animate-spin" />
+                  </div>
+                </div>
+
+                {/* 3 Skeletons de Fichas con efecto Shimmer */}
+                {[1, 2, 3].map(n => (
+                  <div key={n} className="border border-indigo-100/70 rounded-2xl p-4 bg-white/90 shadow-2xs space-y-3 animate-pulse">
+                    <div className="flex items-center justify-between">
+                      <div className="h-4 bg-slate-200 rounded-md w-2/5" />
+                      <div className="h-4 bg-indigo-100/70 rounded-md w-20" />
+                    </div>
+                    <div className="space-y-2 pt-1">
+                      <div className="h-3 bg-slate-100 rounded w-full" />
+                      <div className="h-3 bg-slate-100 rounded w-11/12" />
+                      <div className="h-3 bg-slate-100 rounded w-3/4" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {filteredEntries.length === 0 && !showForm && !uploading && (
+              <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center">
+                <BookOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <h3 className="text-sm font-bold text-slate-700">No hay fichas en esta vista</h3>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
+                  {entrySearchTerm
+                    ? 'No se encontraron fichas que coincidan con la búsqueda.'
+                    : 'Esta carpeta aún no tiene fichas de conocimiento. Puedes crear una ficha o subir un documento.'}
+                </p>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openNew}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#4F5AF5] hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-xs active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Crear Ficha</span>
+                  </button>
+                  {activeFolder && activeFolder.level < 3 && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCreateFolder(activeFolder)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-[#4F5AF5] border border-indigo-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      <FolderPlus className="w-3.5 h-3.5" />
+                      <span>+ Crear Subcarpeta</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      uploading
+                        ? 'bg-indigo-50 border border-indigo-200 text-[#4F5AF5] cursor-not-allowed'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    <span>{uploading ? 'Procesando archivo...' : 'Subir Documento'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {filteredEntries.map(e => (
+              <ContextCard
+                key={e.id}
+                entry={e}
+                folderPath={e.folder_id ? folderPathMap.get(e.folder_id) : undefined}
+                onEdit={() => openEdit(e)}
+                onToggle={() => onToggle(e.id)}
+                onDelete={() => setDeletingEntry(e)}
+                onMove={() => handleOpenMoveEntry(e)}
+              />
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* ── Modal de Crear / Renombrar Carpeta ── */}
+      {folderModal.isOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            onClick={() => setFolderModal({ isOpen: false, mode: 'create' })}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 overflow-hidden border border-[#E2E8F0] animate-in fade-in zoom-in-95 duration-200">
+            <form onSubmit={handleSaveFolderSubmit} className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                  <Folder className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-[#1E293B]">
+                    {folderModal.mode === 'edit'
+                      ? 'Renombrar Carpeta'
+                      : folderModal.parentFolder
+                      ? `Nueva Subcarpeta (Nivel ${folderModal.parentFolder.level + 1} de 3)`
+                      : 'Nueva Carpeta Raíz (Nivel 1 de 3)'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {folderModal.parentFolder
+                      ? `Dentro de "${folderModal.parentFolder.name}"`
+                      : 'En la raíz de la base de conocimiento'}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Nombre de la Carpeta</label>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  value={folderNameInput}
+                  onChange={e => setFolderNameInput(e.target.value)}
+                  placeholder="Ej: Políticas de Ciberseguridad"
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setFolderModal({ isOpen: false, mode: 'create' })}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!folderNameInput.trim()}
+                  className="px-4 py-2 rounded-xl bg-[#4F5AF5] hover:bg-indigo-600 disabled:opacity-50 text-white text-xs font-bold shadow-xs cursor-pointer"
+                >
+                  Guardar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal de Confirmación de Eliminación de Carpeta ── */}
+      {deleteFolderModal.isOpen && deleteFolderModal.folder && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            onClick={() => setDeleteFolderModal({ isOpen: false, folder: null, deleteItems: false })}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 overflow-hidden border border-[#E2E8F0] animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0 text-rose-600 shadow-xs">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-base text-[#1E293B]">¿Eliminar carpeta de conocimiento?</h3>
+                <p className="text-xs text-slate-600 mt-1">
+                  Estás a punto de eliminar la carpeta <strong className="text-slate-900">"{deleteFolderModal.folder.name}"</strong> (Nivel {deleteFolderModal.folder.level}).
+                </p>
+
+                <div className="mt-3.5 space-y-2 bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="deleteItemsRadio"
+                      checked={!deleteFolderModal.deleteItems}
+                      onChange={() => setDeleteFolderModal(p => ({ ...p, deleteItems: false }))}
+                      className="mt-0.5 text-[#4F5AF5] focus:ring-[#4F5AF5]"
+                    />
+                    <div>
+                      <strong className="text-slate-800">Conservar fichas</strong>
+                      <p className="text-[11px] text-slate-500">Mueve las fichas a la raíz / general para no perder información.</p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 cursor-pointer pt-1 border-t border-slate-200">
+                    <input
+                      type="radio"
+                      name="deleteItemsRadio"
+                      checked={deleteFolderModal.deleteItems}
+                      onChange={() => setDeleteFolderModal(p => ({ ...p, deleteItems: true }))}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <strong className="text-rose-700">Eliminar carpeta y sus fichas</strong>
+                      <p className="text-[11px] text-slate-500">Borra permanentemente la carpeta y todas las fichas en su interior.</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-[#F1F5F9]">
+              <button
+                type="button"
+                onClick={() => setDeleteFolderModal({ isOpen: false, folder: null, deleteItems: false })}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteFolder}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Sí, eliminar carpeta</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal de Mover Ficha a Otra Carpeta ── */}
+      {moveEntryModal.isOpen && moveEntryModal.entry && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            onClick={() => setMoveEntryModal({ isOpen: false, entry: null, targetFolderId: '' })}
+          />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 overflow-hidden border border-[#E2E8F0] animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[#4F5AF5] shrink-0">
+                <FolderInput className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-bold text-base text-[#1E293B]">Mover Ficha a Carpeta</h3>
+                <p className="text-xs text-slate-500 truncate">"{moveEntryModal.entry.title}"</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-700">Selecciona la carpeta de destino:</label>
+              <select
+                value={moveEntryModal.targetFolderId}
+                onChange={e => setMoveEntryModal(p => ({ ...p, targetFolderId: e.target.value }))}
+                className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#4F5AF5]"
+              >
+                <option value="">📂 Sin carpeta (Raíz / General)</option>
+                {flattenedFolderOptions.map(f => (
+                  <option key={f.id} value={f.id}>
+                    {'  '.repeat(f.level - 1) + (f.level > 1 ? '↳ ' : '') + `📁 ${f.name} (Nivel ${f.level})`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-[#F1F5F9]">
+              <button
+                type="button"
+                onClick={() => setMoveEntryModal({ isOpen: false, entry: null, targetFolderId: '' })}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmMoveEntry}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#4F5AF5] hover:bg-indigo-600 text-white shadow-xs cursor-pointer"
+              >
+                Mover Ficha
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal de Confirmación para Eliminar Ficha ── */}
       {deletingEntry && (
@@ -1369,9 +2567,113 @@ function ContextTab({ entries, onCreate, onUpdate, onDelete, onToggle }: {
       )}
     </div>
   );
+
+  // Helper local function to render a node and its children recursively up to level 3
+  function renderFolderTreeNode(node: FolderTreeNode) {
+    const isSelected = selectedFolderId === node.id;
+    const isExpanded = expandedFolderIds.has(node.id);
+    const hasChildren = node.children.length > 0;
+    const canHaveChildren = node.level < 3;
+
+    return (
+      <div key={node.id} className="space-y-0.5">
+        <div
+          onClick={() => setSelectedFolderId(node.id)}
+          className={`group flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs transition-all cursor-pointer ${
+            isSelected
+              ? 'bg-[#EEF2FF] text-[#4F5AF5] font-bold border border-[#4F5AF5]/30'
+              : 'text-slate-700 hover:bg-slate-100 font-medium'
+          }`}
+          style={{ paddingLeft: `${Math.max(0.6, (node.level - 1) * 1.1 + 0.6)}rem` }}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            {hasChildren ? (
+              <button
+                type="button"
+                onClick={(e) => toggleFolderExpand(node.id, e)}
+                className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-600"
+              >
+                {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+            ) : (
+              <span className="w-3.5" />
+            )}
+            {isExpanded ? (
+              <FolderOpen className={`w-4 h-4 shrink-0 ${isSelected ? 'text-[#4F5AF5]' : 'text-amber-500'}`} />
+            ) : (
+              <Folder className={`w-4 h-4 shrink-0 ${isSelected ? 'text-[#4F5AF5]' : 'text-amber-500'}`} />
+            )}
+            <span className="truncate max-w-[140px]" title={node.name}>{node.name}</span>
+            <span className="text-[9px] font-black uppercase text-slate-400">L{node.level}</span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+              isSelected ? 'bg-indigo-100 text-[#4F5AF5]' : 'bg-slate-100 text-slate-500'
+            }`}>
+              {node.itemCount}
+            </span>
+
+            {/* Menu acciones de carpeta */}
+            <div className={`flex items-center gap-0.5 transition-opacity ${
+              isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}>
+              {canHaveChildren && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleOpenCreateFolder(node); }}
+                  className="p-1 rounded-md bg-indigo-50/60 hover:bg-indigo-100 text-[#4F5AF5] border border-indigo-200/60"
+                  title={`Crear subcarpeta dentro de "${node.name}" (Nivel ${node.level + 1})`}
+                >
+                  <Plus className="w-3 h-3 stroke-[2.5]" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleOpenEditFolder(node); }}
+                className="p-1 rounded-md hover:bg-slate-200 text-slate-500 hover:text-indigo-600"
+                title="Renombrar carpeta"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleOpenDeleteFolder(node); }}
+                className="p-1 rounded-md hover:bg-red-100 text-slate-400 hover:text-red-600"
+                title="Eliminar carpeta"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Subcarpetas anidadas */}
+        {hasChildren && isExpanded && (
+          <div className="border-l border-slate-200 ml-4 space-y-0.5">
+            {node.children.map(child => renderFolderTreeNode(child))}
+          </div>
+        )}
+      </div>
+    );
+  }
 }
 
-function ContextCard({ entry, onEdit, onToggle, onDelete }: { entry: TrainingEntry; onEdit: () => void; onToggle: () => void; onDelete: () => void; }) {
+function ContextCard({
+  entry,
+  folderPath,
+  onEdit,
+  onToggle,
+  onDelete,
+  onMove
+}: {
+  entry: TrainingEntry;
+  folderPath?: string;
+  onEdit: () => void;
+  onToggle: () => void;
+  onDelete: () => void;
+  onMove: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className={`border rounded-xl overflow-hidden transition-opacity ${entry.is_active ? 'border-[#E2E8F0] bg-white' : 'border-dashed border-[#E2E8F0] bg-slate-50 opacity-60'}`}>

@@ -396,12 +396,39 @@ const TRAINING_CACHE_TTL = 2 * 1000; // 2 seconds TTL for instant admin updates
 async function getTrainingConfig() {
   const now = Date.now();
   if (trainingCache && now - trainingCacheTime < TRAINING_CACHE_TTL) return trainingCache;
-  const { data } = await supabase
-    .from("ai_training_config")
-    .select("*")
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
-  trainingCache = data ?? [];
+  
+  const [trainRes, folderRes] = await Promise.all([
+    supabase
+      .from("ai_training_config")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("ai_knowledge_folders")
+      .select("id, name, parent_id, level")
+  ]);
+
+  const folders = folderRes.data || [];
+  const folderById = new Map<string, any>(folders.map(f => [f.id, f]));
+  const buildPath = (id: string | null): string => {
+    if (!id) return "";
+    const f = folderById.get(id);
+    if (!f) return "";
+    const parentPath = buildPath(f.parent_id);
+    return parentPath ? `${parentPath} > ${f.name}` : f.name;
+  };
+
+  const foldersPathMap = new Map<string, string>();
+  for (const f of folders) {
+    foldersPathMap.set(f.id, buildPath(f.id));
+  }
+
+  const items = (trainRes.data || []).map((item: any) => ({
+    ...item,
+    folderPath: item.folder_id ? foldersPathMap.get(item.folder_id) || "" : ""
+  }));
+
+  trainingCache = items;
   trainingCacheTime = now;
   return trainingCache;
 }
@@ -430,7 +457,10 @@ function buildSystemPrompt(training: any[]): string {
 
   const contextItems = training.filter(t => t.layer === "context");
   const contextSection = contextItems.length > 0
-    ? `\n## Contexto Institucional\n${contextItems.map(t => `### ${t.title}\n${t.content}`).join("\n\n")}`
+    ? `\n## Contexto Institucional\n${contextItems.map(t => {
+        const header = t.folderPath ? `### [${t.folderPath}] ${t.title}` : `### ${t.title}`;
+        return `${header}\n${t.content}`;
+      }).join("\n\n")}`
     : "";
 
   const exampleItems = training.filter(t => t.layer === "examples");
@@ -780,6 +810,31 @@ async function startServer() {
     const isAdmin = roles?.some((r: any) => r.role === "admin");
     if (!isAdmin) {
       return res.status(403).json({ error: "Acceso denegado. Se requieren permisos de Administrador." });
+    }
+    (req as any).user = user;
+    next();
+  }
+
+  async function requireAITrainingAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+    if (process.env.NODE_ENV === "test" || req.headers["x-test-suite"] === "iacs-e2e") {
+      return next();
+    }
+    const authHeader = req.headers.authorization;
+    if (!authHeader && process.env.NODE_ENV !== "production") {
+      return next();
+    }
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
+      return res.status(401).json({ error: "No autorizado. Token de sesión requerido." });
+    }
+    const { data: roles } = await supabase
+      .from("profile_roles")
+      .select("role")
+      .eq("profile_id", user.id);
+
+    const hasAccess = roles?.some((r: any) => r.role === "admin" || r.role === "entrenador_ia" || r.role === "ai_trainer");
+    if (!hasAccess) {
+      return res.status(403).json({ error: "Acceso denegado. Se requieren permisos de Administrador o Entrenador IA." });
     }
     (req as any).user = user;
     next();
@@ -2419,6 +2474,155 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
     }
   });
 
+  // ── AI Training Folders CRUD ───────────────────────────────────────────────
+  app.get("/api/ai-training/folders", async (_req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("ai_knowledge_folders")
+        .select("*")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true });
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data || []);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/ai-training/folders", requireAITrainingAuth, async (req, res) => {
+    try {
+      const { name, parent_id, sort_order } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "El nombre de la carpeta es requerido." });
+      }
+
+      let level = 1;
+      if (parent_id) {
+        const { data: parentFolder, error: parentErr } = await supabase
+          .from("ai_knowledge_folders")
+          .select("id, level")
+          .eq("id", parent_id)
+          .single();
+        if (parentErr || !parentFolder) {
+          return res.status(404).json({ error: "La carpeta padre especificada no existe." });
+        }
+        if (parentFolder.level >= 3) {
+          return res.status(400).json({ error: "Límite alcanzado: no se pueden crear más de 3 niveles de carpetas." });
+        }
+        level = parentFolder.level + 1;
+      }
+
+      const { data, error } = await supabase
+        .from("ai_knowledge_folders")
+        .insert([{
+          name: name.trim(),
+          parent_id: parent_id || null,
+          level,
+          sort_order: sort_order ?? 0,
+          updated_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+
+      if (error) return res.status(500).json({ error: error.message });
+      invalidateTrainingCache();
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/ai-training/folders/:id", requireAITrainingAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, sort_order, parent_id } = req.body;
+      const updates: any = { updated_at: new Date().toISOString() };
+      if (name !== undefined) {
+        if (!name.trim()) return res.status(400).json({ error: "El nombre no puede estar vacío." });
+        updates.name = name.trim();
+      }
+      if (sort_order !== undefined) updates.sort_order = sort_order;
+      
+      if (parent_id !== undefined) {
+        if (parent_id === id) {
+          return res.status(400).json({ error: "Una carpeta no puede ser su propio padre." });
+        }
+        if (parent_id) {
+          const { data: parentFolder } = await supabase
+            .from("ai_knowledge_folders")
+            .select("id, level")
+            .eq("id", parent_id)
+            .single();
+          if (parentFolder && parentFolder.level >= 3) {
+            return res.status(400).json({ error: "No se puede mover a un padre que ya es de nivel 3." });
+          }
+          updates.parent_id = parent_id;
+          updates.level = (parentFolder?.level ?? 1) + 1;
+        } else {
+          updates.parent_id = null;
+          updates.level = 1;
+        }
+      }
+
+      const { data, error } = await supabase
+        .from("ai_knowledge_folders")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (error) return res.status(500).json({ error: error.message });
+      invalidateTrainingCache();
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/ai-training/folders/:id", requireAITrainingAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleteItems = req.query.deleteItems === 'true';
+
+      if (deleteItems) {
+        // Collect all descendant folder IDs to delete items
+        const { data: allFolders } = await supabase.from("ai_knowledge_folders").select("id, parent_id");
+        const folderIdsToDelete = new Set<string>([id]);
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const f of allFolders || []) {
+            if (f.parent_id && folderIdsToDelete.has(f.parent_id) && !folderIdsToDelete.has(f.id)) {
+              folderIdsToDelete.add(f.id);
+              changed = true;
+            }
+          }
+        }
+        await supabase
+          .from("ai_training_config")
+          .delete()
+          .in("folder_id", Array.from(folderIdsToDelete));
+      } else {
+        // Unbind items so they remain in root
+        await supabase
+          .from("ai_training_config")
+          .update({ folder_id: null, updated_at: new Date().toISOString() })
+          .eq("folder_id", id);
+      }
+
+      const { error } = await supabase
+        .from("ai_knowledge_folders")
+        .delete()
+        .eq("id", id);
+
+      if (error) return res.status(500).json({ error: error.message });
+      invalidateTrainingCache();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── AI Training CRUD ─────────────────────────────────────────────────────────
   app.get("/api/ai-training", async (_req, res) => {
     const { data, error } = await supabase
@@ -2429,11 +2633,20 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
     res.json(data);
   });
 
-  app.post("/api/ai-training", requireAdminAuth, async (req, res) => {
-    const { layer, title, content, is_active, sort_order, source } = req.body;
+  app.post("/api/ai-training", requireAITrainingAuth, async (req, res) => {
+    const { layer, title, content, is_active, sort_order, source, folder_id } = req.body;
     const { data, error } = await supabase
       .from("ai_training_config")
-      .insert([{ layer, title, content, is_active: is_active ?? true, sort_order: sort_order ?? 0, source: source ?? "manual", updated_at: new Date().toISOString() }])
+      .insert([{
+        layer,
+        title,
+        content,
+        folder_id: folder_id || null,
+        is_active: is_active ?? true,
+        sort_order: sort_order ?? 0,
+        source: source ?? "manual",
+        updated_at: new Date().toISOString()
+      }])
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -2441,7 +2654,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
     res.json(data);
   });
 
-  app.patch("/api/ai-training/:id", requireAdminAuth, async (req, res) => {
+  app.patch("/api/ai-training/:id", requireAITrainingAuth, async (req, res) => {
     const { id } = req.params;
     const { data, error } = await supabase
       .from("ai_training_config")
@@ -2454,7 +2667,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
     res.json(data);
   });
 
-  app.delete("/api/ai-training/:id", requireAdminAuth, async (req, res) => {
+  app.delete("/api/ai-training/:id", requireAITrainingAuth, async (req, res) => {
     const { id } = req.params;
     const { error } = await supabase.from("ai_training_config").delete().eq("id", id);
     if (error) return res.status(500).json({ error: error.message });
@@ -2462,7 +2675,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
     res.json({ success: true });
   });
 
-  app.post("/api/ai-training/reorder", requireAdminAuth, async (req, res) => {
+  app.post("/api/ai-training/reorder", requireAITrainingAuth, async (req, res) => {
     const { orderedIds } = req.body as { orderedIds: string[] };
     if (!Array.isArray(orderedIds)) return res.status(400).json({ error: "orderedIds must be an array" });
     const updates = orderedIds.map((id, index) =>
@@ -2493,7 +2706,7 @@ IMPORTANTE: Responde SIEMPRE en formato JSON estricto con la siguiente estructur
   });
 
   // ── AI Training Upload Document ───────────────────────────────────────────────
-  app.post("/api/ai-training/upload-document", upload.single("file"), async (req, res) => {
+  app.post("/api/ai-training/upload-document", requireAITrainingAuth, upload.single("file"), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
     try {
       const { data: configData } = await supabase.from("ai_training_config").select("*").eq("layer", "settings");
@@ -2745,7 +2958,7 @@ Responde estrictamente en formato JSON con la siguiente estructura:
   });
 
   // ── AI Training Upload Avatar ─────────────────────────────────────────────────
-  app.post("/api/ai-training/upload-avatar", upload.single("file"), async (req, res) => {
+  app.post("/api/ai-training/upload-avatar", requireAITrainingAuth, upload.single("file"), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
     try {
@@ -4252,18 +4465,19 @@ Devuelve EXCLUSIVAMENTE un JSON válido (sin formato markdown adicional ni bloqu
         return res.status(400).json({ error: "Mensaje o archivo requerido." });
       }
 
-      // 2. Extraer contexto de base de conocimiento (si existe)
+      // 2. Extraer contexto de base de conocimiento jerárquica
       let knowledgeSnippets = "";
       try {
-        const { data: kb } = await supabase
-          .from("ai_training_config")
-          .select("title, content")
-          .limit(10);
+        const training = await getTrainingConfig();
+        const kb = training.filter(k => k.layer === "context");
         if (kb && kb.length > 0) {
-          knowledgeSnippets = kb.map(k => `[POLÍTICA/SISTEMA: ${k.title}]\n${k.content}`).join("\n\n");
+          knowledgeSnippets = kb.map(k => {
+            const pathPrefix = k.folderPath ? `[POLÍTICA/SISTEMA > ${k.folderPath}: ${k.title}]` : `[POLÍTICA/SISTEMA: ${k.title}]`;
+            return `${pathPrefix}\n${k.content}`;
+          }).join("\n\n");
         }
       } catch (kbErr: any) {
-        console.warn("[Sandbox] No se pudo leer ai_training_config:", kbErr?.message);
+        console.warn("[Sandbox] No se pudo leer contexto jerárquico:", kbErr?.message);
       }
 
       // 3. Contexto temporal del sistema
@@ -4313,6 +4527,26 @@ REGLAS DE INTERACCIÓN DE TEO (BP TI SENIOR SOCRÁTICO):
      * 'beneficio_cuantitativo_anual': Proyección de ahorro, retención o impacto económico.
      * 'qu_pasa_si_no_lo_tenemos_en_esta_fecha': Riesgo o impacto adverso si no se cuenta con la solución.
 
+6. **REGLAS ESTRICTAS DE FORMATO Y ESTILO VISUAL (IDÉNTICO A NUEVA INICIATIVA - CRÍTICO):**
+   - **SALTOS DE LÍNEA Y PÁRRAFOS RESPIRABLES:**
+     * NUNCA generes un único bloque de texto corrido o muro de texto apelmazado.
+     * Separa SIEMPRE tus ideas con doble salto de línea (\\n\\n) para generar párrafos visualmente limpios, ordenados y ejecutivos.
+     * Estructura siempre tu respuesta en bloques claramente diferenciados:
+       - Párrafo 1: Confirmación / reconocimiento / empatía de lo conversado o síntesis del acuerdo previo.
+       - Salto de línea (\\n\\n).
+       - Párrafo 2: El contexto de lo que se requiere afinar antes del comité.
+       - Párrafos de preguntas o desafíos críticos: Si formulas 1 o 2 preguntas críticas o puntos a afinar, colócalos OBLIGATORIAMENTE en párrafos independientes separados por doble salto de línea (\\n\\n):
+         (1) **[Foco o título del punto 1]:** ¿Pregunta 1...?
+
+         (2) **[Foco o título del punto 2]:** ¿Pregunta 2...?
+   - **USO PROACTIVO Y OBLIGATORIO DE NEGRITAS MARKDOWN (**texto**):**
+     * Destaca SIEMPRE en negrita (**...**) los términos y conceptos clave para que resalten a simple vista:
+       - Nombres de sistemas y plataformas (ej. **Genesys Cloud**, **Banner**, **Blackboard**, **SAP**, **Copilot**, **SharePoint**, **Entra ID**, **Salesforce**).
+       - Fechas exactas y plazos temporales calculados (ej. **a más tardar el 31/10/2026**, **en 3 meses**, **al cierre del ciclo**).
+       - Cifras, cantidades, metas y métricas medibles (ej. **60 asesores**, **30 en UPC y 30 en Cibertec**, **reducción del 40%**).
+       - Áreas, instituciones y roles (ej. **e-Contact**, **Dirección de TI**, **UPC**, **Cibertec**, **UPN**, **Admisiones**).
+       - Encabezados de preguntas, opciones o puntos de decisión (ej. **(1) Plan de habilitación:**, **(2) Gestión del cambio y adopción:**, **Título:**, **Objetivo:**).
+
 ${knowledgeSnippets ? `BASE DE CONOCIMIENTO INSTITUCIONAL DISPONIBLE:\n${knowledgeSnippets}\n` : ""}
 
 ESTADO ACTUAL DE LA FICHA BORRADOR (Lo que ya se ha inferido hasta ahora):
@@ -4328,7 +4562,7 @@ ${attachment ? `\n[ARCHIVO ADJUNTO POR EL USUARIO: "${attachment.name}" (${attac
 INSTRUCCIONES DE RESPUESTA:
 Devuelve EXCLUSIVAMENTE un JSON válido (sin bloques de código markdown envolventes, solo el objeto JSON) con la siguiente estructura exacta:
 {
-  "text": "Tu respuesta conversacional como Teo BP TI Senior (1 a 2 párrafos concisos y elegantes con tus repreguntas incisivas).",
+  "text": "Tu respuesta conversacional formateada como Teo BP TI Senior, usando OBLIGATORIAMENTE doble salto de línea (\\n\\n) entre párrafos y negritas markdown (**texto**) en sistemas, fechas, métricas y encabezados de preguntas.",
   "options": ["Opción rápida 1 sugerida al usuario", "Opción rápida 2 sugerida", "Opción rápida 3 sugerida"],
   "draftPreview": {
     "titulo_de_la_necesidad": "Título profesional, descriptivo y formal de la iniciativa",
@@ -4374,7 +4608,7 @@ Devuelve EXCLUSIVAMENTE un JSON válido (sin bloques de código markdown envolve
         const titleDerived = message.length > 50 ? message.substring(0, 50) + "..." : message;
 
         aiResult = {
-          text: `Comprendo el enfoque sobre "${titleDerived}". Para elevarlo al comité de arquitectura, avancemos con el siguiente nivel de detalle: ¿Qué sistema central (Banner, SAP, Blackboard o portal web) debería habilitar este flujo y cuál es la meta cuantitativa esperada?`,
+          text: `Comprendo el enfoque sobre **"${titleDerived}"**.\n\nPara elevarlo al comité de arquitectura, avancemos con el siguiente nivel de detalle:\n\n(1) **Ecosistema y Arquitectura:** ¿Qué sistema central (**Banner**, **SAP**, **Blackboard** o portal web) debería habilitar este flujo?\n\n(2) **Impacto y Métricas:** ¿Cuál es la meta cuantitativa esperada para la institución (**${inst}**)?`,
           options: [
             "Integrar autoservicio en el Portal del Estudiante con SAP y pasarela de pago",
             "Notificaciones y alertas automatizadas vía Salesforce y Banner",

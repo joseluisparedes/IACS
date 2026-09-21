@@ -51,6 +51,7 @@ interface Direccion {
 const ROLES_DISPONIBLES_FALLBACK = [
   { value: 'registrador', label: 'Key user', color: 'emerald' },
   { value: 'bp_ti', label: 'Business Partner (BP)', color: 'indigo' },
+  { value: 'entrenador_ia', label: 'Entrenador IA', color: 'violet' },
   { value: 'invitado', label: 'Invitado (Solo lectura)', color: 'slate' }
 ];
 
@@ -422,7 +423,7 @@ export default function UserManagement() {
   const updateAssignment = (index: number, field: keyof UserRoleWhitelist, value: any) => {
     const newAssig = [...assignments];
     newAssig[index] = { ...newAssig[index], [field]: value };
-    if (field === 'role' && value === 'admin') {
+    if (field === 'role' && (value === 'admin' || value === 'entrenador_ia' || value === 'ai_trainer')) {
       newAssig[index].is_transversal = true;
       newAssig[index].vp_id = '';
       newAssig[index].direcciones_ids = [];
@@ -441,7 +442,7 @@ export default function UserManagement() {
     e.preventDefault();
     if (!newEmail || !newName || assignments.length === 0) return;
     
-    if (assignments.some(a => !a.role || (!a.is_transversal && a.role !== 'admin' && (!a.vp_id || a.direcciones_ids.length === 0)))) {
+    if (assignments.some(a => !a.role || (!a.is_transversal && a.role !== 'admin' && a.role !== 'entrenador_ia' && a.role !== 'ai_trainer' && (!a.vp_id || a.direcciones_ids.length === 0)))) {
       alert('Por favor completa la VP y Dirección(es) en cada asignación, o activa "Alcance Transversal".');
       return;
     }
@@ -469,7 +470,7 @@ export default function UserManagement() {
       await supabase.from('user_roles_whitelist').delete().eq('allowed_user_id', userId);
 
       const rolesToInsert = assignments.map(a => {
-        const isTrans = !!a.is_transversal || a.role === 'admin';
+        const isTrans = !!a.is_transversal || a.role === 'admin' || a.role === 'entrenador_ia' || a.role === 'ai_trainer';
         return {
           allowed_user_id: userId,
           role: a.role,
@@ -489,7 +490,7 @@ export default function UserManagement() {
         await supabase.from('profile_roles').delete().eq('profile_id', profileData.id);
         
         const profileRolesToInsert = assignments.map(a => {
-          const isTrans = !!a.is_transversal || a.role === 'admin';
+          const isTrans = !!a.is_transversal || a.role === 'admin' || a.role === 'entrenador_ia' || a.role === 'ai_trainer';
           return {
             profile_id: profileData.id,
             role: a.role,
@@ -522,7 +523,7 @@ export default function UserManagement() {
       role: r.role,
       vp_id: r.vp_id || '',
       direcciones_ids: r.direcciones_ids || [],
-      is_transversal: !!r.is_transversal || r.role === 'admin'
+      is_transversal: !!r.is_transversal || r.role === 'admin' || r.role === 'entrenador_ia' || r.role === 'ai_trainer'
     })) : [{ role: 'registrador', vp_id: '', direcciones_ids: [], is_transversal: false }]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -621,7 +622,7 @@ export default function UserManagement() {
     }
 
     if (selectedTransversal !== 'all') {
-      const hasTransversal = user.user_roles_whitelist?.some(r => !!r.is_transversal || r.role === 'admin');
+      const hasTransversal = user.user_roles_whitelist?.some(r => !!r.is_transversal || r.role === 'admin' || r.role === 'entrenador_ia' || r.role === 'ai_trainer');
       if (selectedTransversal === 'transversal' && !hasTransversal) return false;
       if (selectedTransversal === 'specific' && (!hasAssignments || hasTransversal)) return false;
     }
@@ -745,7 +746,7 @@ export default function UserManagement() {
                           
                           {/* Opción Alcance Transversal */}
                           {(() => {
-                            const isInherentlyTransversal = assig.role === 'admin';
+                            const isInherentlyTransversal = assig.role === 'admin' || assig.role === 'entrenador_ia' || assig.role === 'ai_trainer';
                             const isTransversalActive = !!assig.is_transversal || isInherentlyTransversal;
                             return (
                               <>
@@ -1279,7 +1280,7 @@ export default function UserManagement() {
                                 .map((r, idx) => (
                                   <div key={idx} className="bg-slate-50 border border-slate-100 rounded-lg p-2 flex flex-col gap-1.5">
                                     {(() => {
-                                      const isTrans = !!r.is_transversal || r.role === 'admin';
+                                      const isTrans = !!r.is_transversal || r.role === 'admin' || r.role === 'entrenador_ia' || r.role === 'ai_trainer';
                                       return (
                                         <>
                                           <div className="flex items-center gap-2 flex-wrap">
@@ -1297,7 +1298,7 @@ export default function UserManagement() {
                                           {isTrans ? (
                                             <div className="pl-1 border-l-2 border-indigo-300 ml-1">
                                               <span className="text-[10px] text-indigo-700 font-medium flex items-center gap-1">
-                                                <Sparkles className="w-2.5 h-2.5 text-indigo-500" /> {r.role === 'admin' ? 'Acceso Global a todo el sistema (Super Administrador)' : 'Todas las Vicepresidencias y Direcciones'}
+                                                <Sparkles className="w-2.5 h-2.5 text-indigo-500" /> {r.role === 'admin' ? 'Acceso Global a todo el sistema (Super Administrador)' : (r.role === 'entrenador_ia' || r.role === 'ai_trainer') ? 'Gestión Exclusiva de Entrenamiento IA' : 'Todas las Vicepresidencias y Direcciones'}
                                               </span>
                                             </div>
                                           ) : (

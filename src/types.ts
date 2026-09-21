@@ -1,4 +1,4 @@
-export type Role = 'Solicitante' | 'Aprobador' | 'Administrador';
+export type Role = 'Solicitante' | 'Aprobador' | 'Administrador' | 'Entrenador IA';
 
 export type Status = 
   | 'Borrador' 

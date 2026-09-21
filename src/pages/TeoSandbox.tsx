@@ -29,6 +29,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { formatChatMarkdown, formatHtmlText } from '../lib/formatHtml';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { HybridSpeechRecognizer, isWebSpeechSupported } from '../lib/speechService';
@@ -995,11 +996,11 @@ ${draft.descripcion_de_la_necesidad || 'No especificado aún.'}
 
                       {isUser ? (
                         <div className="whitespace-pre-wrap text-white text-sm font-normal leading-relaxed">
-                          {msg.text}
+                          <span dangerouslySetInnerHTML={{ __html: formatHtmlText(msg.text, msg.text) }} />
                         </div>
                       ) : (
-                        <div className="prose prose-sm prose-slate max-w-none text-[#1E293B] prose-p:my-1.5 prose-strong:text-slate-900 leading-relaxed">
-                          <ReactMarkdown>{msg.text}</ReactMarkdown>
+                        <div className="prose prose-sm prose-slate max-w-none text-[#1E293B] leading-relaxed [&>p]:mb-2.5 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4 [&>li]:mb-1.5 [&>strong]:text-slate-900 [&>strong]:font-bold">
+                          <ReactMarkdown>{formatChatMarkdown(msg.text)}</ReactMarkdown>
                         </div>
                       )}
 

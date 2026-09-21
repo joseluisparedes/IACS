@@ -168,6 +168,7 @@ function Layout({ children }: { children: React.ReactNode }) {
 
   const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
   const isRegistrador = profile?.profile_roles?.some((r: any) => r.role === 'registrador');
+  const isEntrenadorIA = profile?.profile_roles?.some((r: any) => r.role === 'entrenador_ia' || r.role === 'ai_trainer');
 
   const navItems = [
     ...(isRegistrador || isAdmin ? [{ name: 'Nueva necesidad', path: '/', icon: PlusCircle }] : []),
@@ -582,6 +583,25 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             )}
+            {/* Si es Entrenador IA y NO es Admin completo, mostrar acceso directo a Entrenamiento IA */}
+            {!isAdmin && isEntrenadorIA && (
+              <div className="pt-2 border-t border-[#e4e6ea]/60 mt-2">
+                <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-[#9ca3af] tracking-wider">
+                  Centro de Agentes e IA
+                </div>
+                <Link
+                  to="/admin/ia-training"
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
+                    location.pathname === '/admin/ia-training'
+                      ? 'bg-[#EEF2FF] text-[#4F5AF5] font-bold shadow-xs'
+                      : 'text-[#4a5568] hover:bg-[#f7f8fc] hover:text-[#1a1a2e] font-medium'
+                  }`}
+                >
+                  <BrainCircuit className={`w-4 h-4 shrink-0 ${location.pathname === '/admin/ia-training' ? 'text-[#4F5AF5]' : 'text-slate-400'}`} />
+                  <span className="truncate leading-snug">Entrenamiento IA</span>
+                </Link>
+              </div>
+            )}
           </nav>
 
           {/* User */}
@@ -780,7 +800,11 @@ function RegistradorRoute({ children }: { children: React.ReactNode }) {
   if (loading) return null;
   const isRegistrador = profile?.profile_roles?.some((r: any) => r.role === 'registrador');
   const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
+  const isEntrenador = profile?.profile_roles?.some((r: any) => r.role === 'entrenador_ia' || r.role === 'ai_trainer');
   if (!isRegistrador && !isAdmin) {
+    if (isEntrenador) {
+      return <Navigate to="/admin/ia-training" replace />;
+    }
     return <Navigate to="/dashboard" replace />;
   }
   return <>{children}</>;
@@ -791,6 +815,17 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   if (loading) return null;
   const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
   if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+}
+
+function AITrainingRoute({ children }: { children: React.ReactNode }) {
+  const { profile, loading } = useAuth();
+  if (loading) return null;
+  const isAdmin = profile?.profile_roles?.some((r: any) => r.role === 'admin');
+  const isEntrenador = profile?.profile_roles?.some((r: any) => r.role === 'entrenador_ia' || r.role === 'ai_trainer');
+  if (!isAdmin && !isEntrenador) {
     return <Navigate to="/dashboard" replace />;
   }
   return <>{children}</>;
@@ -816,7 +851,7 @@ export default function App() {
           <Route path="/admin/estructura" element={<ProtectedRoute><AdminRoute><VPManagement /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/agentes" element={<ProtectedRoute><AdminRoute><AgentBoard /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/usuarios" element={<ProtectedRoute><AdminRoute><UserManagement /></AdminRoute></ProtectedRoute>} />
-          <Route path="/admin/ia-training" element={<ProtectedRoute><AdminRoute><AITraining /></AdminRoute></ProtectedRoute>} />
+          <Route path="/admin/ia-training" element={<ProtectedRoute><AITrainingRoute><AITraining /></AITrainingRoute></ProtectedRoute>} />
           <Route path="/admin/correos" element={<ProtectedRoute><AdminRoute><EmailLogs /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/cargas-masivas" element={<ProtectedRoute><AdminRoute><BulkUpload /></AdminRoute></ProtectedRoute>} />
           <Route path="/admin/flujo-estados" element={<ProtectedRoute><AdminRoute><StateFlow /></AdminRoute></ProtectedRoute>} />

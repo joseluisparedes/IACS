@@ -7,6 +7,7 @@ import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY, formatRoleName, SYSTEM_ROLE
 import { ExecutiveReportPDF } from "../components/ExecutiveReportPDF";
 import { ModernDatePicker } from "../components/ModernDatePicker";
 import ReactMarkdown from "react-markdown";
+import { parseHtmlToMarkdown } from "../lib/formatHtml";
 import { useReactToPrint } from "react-to-print";
 import type { StageForm, StageConsent, InitiativeStageRecord } from "../types";
 import { DEFAULT_OBSERVATION_CATEGORIES } from "../components/workflow/NodeConfigPanel";
@@ -7141,7 +7142,7 @@ export default function InitiativeDetail() {
                         <p className="whitespace-pre-wrap">{msg.text}</p>
                       ) : (
                         <div className="prose prose-xs sm:prose-sm max-w-none text-[#334155] leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4 [&>li]:mb-1 [&>strong]:text-slate-900 [&>strong]:font-bold">
-                          <ReactMarkdown>{msg.text}</ReactMarkdown>
+                          <ReactMarkdown>{parseHtmlToMarkdown(msg.text)}</ReactMarkdown>
                         </div>
                       )}
                     </div>
