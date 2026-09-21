@@ -714,7 +714,8 @@ export default function AITraining() {
               <button
                 type="button"
                 onClick={() => {
-                  const url = `${window.location.origin}/sandbox`;
+                  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+                  const url = `${window.location.origin}${base}/sandbox`;
                   navigator.clipboard.writeText(url);
                   showSave('¡Enlace Sandbox copiado para el CIO! ✓');
                 }}
@@ -727,7 +728,7 @@ export default function AITraining() {
 
               {/* Open in New Tab Button */}
               <a
-                href="/sandbox"
+                href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/sandbox`}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#EB5F46] hover:bg-[#D94F37] text-white text-xs font-bold transition-all shadow-sm"
