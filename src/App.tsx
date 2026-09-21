@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2, FileText, Network, Building2, Workflow, Play, FileCheck2 } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Inbox, Settings2, ChevronDown, Bell, Users, LogOut, ShieldAlert, MessageSquarePlus, BrainCircuit, Mail, Upload, Menu, GitBranch, Layers, AlertTriangle, Trash2, FileText, Network, Building2, Workflow, Play, FileCheck2, Brain } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import InitiativeForm from './pages/InitiativeForm';
 import ApprovalBoard from './pages/ApprovalBoard';
@@ -18,6 +18,7 @@ import C4Architecture from './pages/C4Architecture';
 import WorkflowEditor from './pages/WorkflowEditor';
 import WorkflowSimulator from './pages/WorkflowSimulator';
 import { WorkflowCatalogManager } from './pages/WorkflowCatalogManager';
+import TeoSandbox from './pages/TeoSandbox';
 import MaintenanceScreen from './components/MaintenanceScreen';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { supabase } from './lib/supabase';
@@ -802,6 +803,7 @@ export default function App() {
       <BrowserRouter basename={basename}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/sandbox" element={<TeoSandbox />} />
           
           <Route path="/" element={<ProtectedRoute><RegistradorRoute><InitiativeForm /></RegistradorRoute></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

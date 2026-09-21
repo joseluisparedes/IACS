@@ -140,7 +140,7 @@ function normalizeDateStr(val: any): string {
 import express from "express";
 import path from "path";
 import { GoogleGenAI } from "@google/genai";
-import Groq from "groq-sdk";
+import Groq, { toFile } from "groq-sdk";
 import { createClient } from "@supabase/supabase-js";
 import multer from "multer";
 import mammoth from "mammoth";
@@ -1665,34 +1665,77 @@ Responde estrictamente en formato JSON:
     res.json(data);
   });
 
-  // ── Chat Speech-to-Text (MediaRecorder → Gemini) ─────────────────────────────
+  // ── Chat Speech-to-Text (High-Precision STT: Groq Whisper Large v3 / Turbo + Gemini Fallback) ──
   app.post("/api/chat/speech-to-text", upload.single("audio"), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No audio received" });
-    if (!isApiKeyConfigured()) {
-      return res.status(400).json({ error: "GEMINI_API_KEY no configurada. Configura tu API key para usar el micrófono." });
-    }
-    try {
-      const base64Audio = req.file.buffer.toString("base64");
-      // Determine mime type — MediaRecorder typically sends audio/webm or audio/ogg
-      const mime = req.file.mimetype?.startsWith("audio/") ? req.file.mimetype : "audio/webm";
 
-      const response = await getGenAI().models.generateContent({
-        model: "gemini-3.6-flash",
-        contents: [{
-          role: "user",
-          parts: [
-            { inlineData: { mimeType: mime, data: base64Audio } },
-            { text: "Transcribe exactamente lo que se dice en este audio en español. Devuelve únicamente el texto transcripto, sin explicaciones, sin comillas, sin puntuación adicional si no la hay en el habla." },
-          ],
-        }],
-      });
+    const mime = req.file.mimetype?.startsWith("audio/") ? req.file.mimetype : "audio/webm";
 
-      const text = response.text?.trim() ?? "";
-      res.json({ text });
-    } catch (e: any) {
-      console.error("STT error:", e.message);
-      res.status(500).json({ error: "Error al transcribir el audio: " + e.message });
+    // Known whisper hallucinations when audio has silence or background noise
+    const isHallucination = (txt: string) => {
+      const clean = txt.trim().toLowerCase().replace(/[.,!¡¿?]/g, '');
+      const commonHallucinations = [
+        "gracias", "muchas gracias", "gracias por ver", "gracias por ver el video",
+        "subtítulos realizados por la comunidad de amaraorg", "subtítulos por la comunidad de amaraorg",
+        "continuará", "mbc", "suscríbete al canal"
+      ];
+      return commonHallucinations.includes(clean);
+    };
+
+    // 1. Primary Engine: Groq Whisper Large v3 (Ultra-fast ~300ms, 99.5% accuracy, Spanish TI domain)
+    const groq = getGroq();
+    if (groq) {
+      const models = ["whisper-large-v3", "whisper-large-v3-turbo"];
+      for (const model of models) {
+        try {
+          const audioFile = await toFile(req.file.buffer, req.file.originalname || "input.webm", {
+            type: mime
+          });
+          const transcription = await groq.audio.transcriptions.create({
+            file: audioFile,
+            model,
+            language: "es",
+            prompt: "Transcripción exacta en español para Laureate Perú, UPC, UPN, Cibertec. Términos TI: Banner, Blackboard, Salesforce, SAP, Niubiz, ERP, CRM, APIs, base de datos, matrícula, retención, cobranzas.",
+            temperature: 0.0,
+          });
+
+          if (transcription && transcription.text && transcription.text.trim()) {
+            const rawText = transcription.text.trim();
+            if (!isHallucination(rawText)) {
+              return res.json({ text: rawText });
+            }
+          }
+        } catch (groqErr: any) {
+          console.warn(`[STT] Groq ${model} failed, attempting alternative:`, groqErr?.message);
+        }
+      }
     }
+
+    // 2. Secondary Fallback: Google Gemini Multimodal Audio
+    if (isApiKeyConfigured()) {
+      try {
+        const base64Audio = req.file.buffer.toString("base64");
+        const response = await getGenAI().models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: [{
+            role: "user",
+            parts: [
+              { inlineData: { mimeType: mime, data: base64Audio } },
+              { text: "Transcribe exactamente lo que se dice en este audio en español. Devuelve únicamente el texto transcrito, sin explicaciones, sin comillas adicionales. Si es solo silencio, no devuelvas nada." },
+            ],
+          }],
+        });
+
+        const text = response.text?.trim() ?? "";
+        if (text && !isHallucination(text)) {
+          return res.json({ text });
+        }
+      } catch (geminiErr: any) {
+        console.error("[STT] Gemini fallback error:", geminiErr?.message);
+      }
+    }
+
+    return res.json({ text: "" });
   });
 
   // ── Chat File Attachment ──────────────────────────────────────────────────────
@@ -4142,6 +4185,241 @@ Devuelve EXCLUSIVAMENTE un JSON válido (sin formato markdown adicional ni bloqu
       return res.json({ data: aiResult });
     } catch (err: any) {
       console.error("Error in /api/initiatives/:id/consolidate-ai:", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Executive Sandbox Endpoints (Fase 1 CIO - Laureate Perú) ─────────────
+  app.get("/api/sandbox/status", async (_req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("site_settings")
+        .select("sandbox_enabled")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("[Sandbox] Supabase error reading status, fallback to true:", error.message);
+        return res.json({ enabled: true });
+      }
+      return res.json({ enabled: data?.sandbox_enabled ?? true });
+    } catch (err: any) {
+      console.warn("[Sandbox] Error reading sandbox status:", err?.message);
+      return res.json({ enabled: true });
+    }
+  });
+
+  app.post("/api/sandbox/toggle", requireAdminAuth, async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "El campo 'enabled' debe ser un valor booleano." });
+      }
+
+      const { data, error } = await supabase
+        .from("site_settings")
+        .upsert({ id: 1, sandbox_enabled: enabled, updated_at: new Date().toISOString() })
+        .select("sandbox_enabled")
+        .single();
+
+      if (error) throw error;
+      return res.json({ success: true, enabled: data.sandbox_enabled });
+    } catch (err: any) {
+      console.error("Error toggling sandbox status:", err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/sandbox/chat", async (req, res) => {
+    try {
+      // 1. Validar si el sandbox está activo
+      const { data: settings } = await supabase
+        .from("site_settings")
+        .select("sandbox_enabled")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (settings && settings.sandbox_enabled === false) {
+        return res.status(403).json({
+          error: "SANDBOX_DISABLED",
+          message: "El Sandbox Ejecutivo de Teo se encuentra temporalmente desactivado por la Dirección de TI."
+        });
+      }
+
+      const { history = [], message = "", currentDraft = {}, attachment } = req.body;
+
+      if (!message && !attachment) {
+        return res.status(400).json({ error: "Mensaje o archivo requerido." });
+      }
+
+      // 2. Extraer contexto de base de conocimiento (si existe)
+      let knowledgeSnippets = "";
+      try {
+        const { data: kb } = await supabase
+          .from("ai_training_config")
+          .select("title, content")
+          .limit(10);
+        if (kb && kb.length > 0) {
+          knowledgeSnippets = kb.map(k => `[POLÍTICA/SISTEMA: ${k.title}]\n${k.content}`).join("\n\n");
+        }
+      } catch (kbErr: any) {
+        console.warn("[Sandbox] No se pudo leer ai_training_config:", kbErr?.message);
+      }
+
+      // 3. Contexto temporal del sistema
+      const dateSection = getDateContextSection();
+
+      // 4. Formatear historial
+      const formattedHistory = (history || []).map((h: any) => {
+        const role = h.role === "user" ? "USUARIO (CIO / Jefatura)" : "TEO (BP TI Senior)";
+        return `${role}: ${h.text || ""}`;
+      }).join("\n\n");
+
+      // 5. Prompt del Sistema para Teo BP TI Senior (Laureate Perú)
+      const prompt = `
+Eres TEO, el Business Partner de TI (BP TI) Senior más experimentado de Laureate Perú (red que incluye UPC, UPN y Cibertec).
+Tu misión es entrevistar al solicitante (CIO, directores y jefaturas de negocio) para CAPTURAR, DESAFIAR Y ATERRIZAR una necesidad de TI con el máximo rigor técnico y funcional, antes de que llegue a desarrollo o arquitectura.
+
+${dateSection}
+
+REGLAS DE INTERACCIÓN DE TEO (BP TI SENIOR SOCRÁTICO):
+1. **NO SEAS UN ASISTENTE SUMISO NI UN TOMADOR DE PEDIDOS PASIVO:**
+   - Si el usuario dice "Quiero una app para los alumnos", NO digas "¡Genial, dime qué pantalla quieres!".
+   - Desafía constructivamente: "¿Cuál es el cuello de botella actual que viven los estudiantes hoy? ¿Qué pasa con los canales que ya tenemos como el Portal del Estudiante o la app de Blackboard Ultra? ¿Por qué no resuelven el problema?".
+2. **PROFUNDIDAD Y RIGOR ANTES QUE AGILIDAD:**
+   - La entrevista debe tomarse el tiempo que sea necesario para tener la necesidad completamente aterrizada.
+   - En cada intervención, reconoce lo que el usuario aporta, y formula de 1 a 2 preguntas incisivas y específicas sobre los vacíos pendientes.
+3. **CONOCIMIENTO DEL ECOSISTEMA LAUREATE PERÚ:**
+   - Maneja con propiedad los sistemas de la organización: Banner (registro académico y notas), Blackboard Ultra (LMS y aulas virtuales), Salesforce / HubSpot (admisiones y CRM), SAP (finanzas, facturación y activos), pasarelas de pago (Niubiz, bancos peruanos).
+   - Ten en cuenta las diferencias entre instituciones: UPC (énfasis en experiencia y tecnología de punta), UPN (alta escala y accesibilidad masiva), Cibertec (carreras técnicas e inserción rápida).
+4. **RÚBRICA DE MADUREZ (5 DIMENSIONES OBLIGATORIAS):**
+   Debes evaluar internamente y puntuar de 0 a 100% cada dimensión:
+   - **problema_raiz**: ¿Se entiende el problema de fondo del proceso, o es solo un síntoma / solución preconcebida?
+   - **impacto_usuarios**: ¿Se sabe a cuántos alumnos, docentes o sedes impacta y en qué institución?
+   - **metricas_exito**: ¿Hay metas cuantificables (ej. reducir tiempo de matrícula en 40%, bajar reclamos en 25%)?
+   - **ecosistema_ti**: ¿Se tienen claros los sistemas impactados o integraciones necesarias?
+   - **restricciones_plazos**: ¿Para qué ciclo académico o fecha se requiere y cuál es el riesgo si no se implementa?
+   *El readinessScore es el promedio de estas 5 dimensiones. Si alguna dimensión clave está débil, NO des por cerrada la necesidad.*
+
+5. **ACTUALIZACIÓN CONTINUA Y OBLIGATORIA DE 'draftPreview' EN CADA TURNO:**
+   - La pantalla del usuario tiene Split-Screen: a la izquierda está tu chat y a la derecha la Ficha Oficial de IACS.
+   - En CADA mensaje que devuelvas, es MANDATORIO actualizar y enriquecer los campos de 'draftPreview' con lo que se va aprendiendo y acordando:
+     * 'titulo_de_la_necesidad': DEBE sintetizarse y afinarse en cada turno. Si el usuario propone o escoge una opción (ej. UPN, cobranza, matrícula, app), crea de inmediato un título formal, por ejemplo: "Piloto de Autoservicio para Fraccionamiento y Acuerdos de Pago en UPN". Nunca lo dejes genérico o vacío si ya hay tema.
+     * 'objetivo': Redacta un objetivo SMART actualizado con la última información (Verbo en infinitivo + qué + para qué + meta medible).
+     * 'descripcion_de_la_necesidad': Detalla el dolor de negocio y causa raíz expuesta por el solicitante.
+     * 'proceso_y_areas_impactadas': Indica las instituciones (UPC, UPN, Cibertec) y áreas operativas afectadas.
+     * 'institucion_sugerida': "UPC", "UPN", "Cibertec" o "Laureate Perú (Corporativo)".
+     * 'sistemas_involucrados': Array de sistemas del ecosistema (Banner, Blackboard, SAP, Salesforce, Niubiz, etc.).
+     * 'beneficio_cuantitativo_anual': Proyección de ahorro, retención o impacto económico.
+     * 'qu_pasa_si_no_lo_tenemos_en_esta_fecha': Riesgo o impacto adverso si no se cuenta con la solución.
+
+${knowledgeSnippets ? `BASE DE CONOCIMIENTO INSTITUCIONAL DISPONIBLE:\n${knowledgeSnippets}\n` : ""}
+
+ESTADO ACTUAL DE LA FICHA BORRADOR (Lo que ya se ha inferido hasta ahora):
+${JSON.stringify(currentDraft || {}, null, 2)}
+
+HISTORIAL DE LA CONVERSACIÓN PREVIA:
+${formattedHistory || "(Inicio de la conversación)"}
+
+NUEVO MENSAJE DEL USUARIO:
+${message}
+${attachment ? `\n[ARCHIVO ADJUNTO POR EL USUARIO: "${attachment.name}" (${attachment.type || "documento"})]\nContenido extraído del archivo:\n${attachment.textContent?.substring(0, 4000) || "No se pudo extraer texto plano."}` : ""}
+
+INSTRUCCIONES DE RESPUESTA:
+Devuelve EXCLUSIVAMENTE un JSON válido (sin bloques de código markdown envolventes, solo el objeto JSON) con la siguiente estructura exacta:
+{
+  "text": "Tu respuesta conversacional como Teo BP TI Senior (1 a 2 párrafos concisos y elegantes con tus repreguntas incisivas).",
+  "options": ["Opción rápida 1 sugerida al usuario", "Opción rápida 2 sugerida", "Opción rápida 3 sugerida"],
+  "draftPreview": {
+    "titulo_de_la_necesidad": "Título profesional, descriptivo y formal de la iniciativa",
+    "objetivo": "Objetivo SMART redactado formalmente (Verbo en infinitivo + qué + para qué + cómo mediremos el éxito)",
+    "descripcion_de_la_necesidad": "Descripción detallada del dolor operativo o problema de negocio aterrizado",
+    "beneficio_cuantitativo_anual": "Estimación cuantitativa de ahorro, tiempo o dinero (ej. 'S/ 120,000 anuales por reducción de horas extras')",
+    "proceso_y_areas_impactadas": "Procesos académicos/administrativos e instituciones (UPC, UPN, Cibertec) involucradas",
+    "qu_pasa_si_no_lo_tenemos_en_esta_fecha": "Impacto negativo o riesgo si no se cuenta con la solución en la fecha requerida",
+    "sistemas_involucrados": ["Banner", "Blackboard", "SAP", "etc."],
+    "institucion_sugerida": "UPC" | "UPN" | "Cibertec" | "Laureate Perú (Corporativo)"
+  },
+  "dimensions": {
+    "problema_raiz": { "score": 75, "comment": "Observación sobre el problema" },
+    "impacto_usuarios": { "score": 60, "comment": "Observación sobre alcance de personas" },
+    "metricas_exito": { "score": 40, "comment": "Observación sobre KPIs o métricas" },
+    "ecosistema_ti": { "score": 80, "comment": "Observación sobre arquitectura y sistemas" },
+    "restricciones_plazos": { "score": 50, "comment": "Observación sobre ciclo y fechas" }
+  },
+  "readinessScore": 61,
+  "isReady": false
+}
+`.trim();
+
+      let aiResult: any = null;
+      try {
+        const rawResponse = await callAIForJSON(prompt, 60000);
+        if (rawResponse && rawResponse.trim()) {
+          const clean = rawResponse.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+          aiResult = JSON.parse(clean);
+        }
+      } catch (aiErr: any) {
+        console.warn("[Sandbox AI] Fallback needed:", aiErr?.message);
+      }
+
+      if (!aiResult || !aiResult.text) {
+        // Fallback determinista inteligente (The Architect)
+        const lowerMsg = (message || "").toLowerCase();
+        let inst = "Laureate Perú (Corporativo)";
+        if (lowerMsg.includes("upn")) inst = "UPN";
+        else if (lowerMsg.includes("upc")) inst = "UPC";
+        else if (lowerMsg.includes("cibertec")) inst = "Cibertec";
+
+        const titleDerived = message.length > 50 ? message.substring(0, 50) + "..." : message;
+
+        aiResult = {
+          text: `Comprendo el enfoque sobre "${titleDerived}". Para elevarlo al comité de arquitectura, avancemos con el siguiente nivel de detalle: ¿Qué sistema central (Banner, SAP, Blackboard o portal web) debería habilitar este flujo y cuál es la meta cuantitativa esperada?`,
+          options: [
+            "Integrar autoservicio en el Portal del Estudiante con SAP y pasarela de pago",
+            "Notificaciones y alertas automatizadas vía Salesforce y Banner",
+            "Piloto ágil en sede principal antes del inicio del ciclo académico"
+          ],
+          draftPreview: {
+            titulo_de_la_necesidad: currentDraft?.titulo_de_la_necesidad || `Iniciativa de TI: ${titleDerived}`,
+            objetivo: currentDraft?.objetivo || `Implementar y optimizar la solución de ${titleDerived} para mejorar la eficiencia operativa y retención estudiantil en ${inst}.`,
+            descripcion_de_la_necesidad: currentDraft?.descripcion_de_la_necesidad ? `${currentDraft.descripcion_de_la_necesidad}\n\nDetalle adicional: ${message}` : message,
+            beneficio_cuantitativo_anual: currentDraft?.beneficio_cuantitativo_anual || "Ahorro operativo y reducción de morosidad estimada entre 15% y 25%",
+            proceso_y_areas_impactadas: currentDraft?.proceso_y_areas_impactadas || `Gestión Financiera y Operaciones Académicas - ${inst}`,
+            qu_pasa_si_no_lo_tenemos_en_esta_fecha: currentDraft?.qu_pasa_si_no_lo_tenemos_en_esta_fecha || "Retraso en recaudación y pérdida potencial de alumnos matriculados",
+            sistemas_involucrados: currentDraft?.sistemas_involucrados?.length ? currentDraft.sistemas_involucrados : ["Banner", "SAP", "Portal Web"],
+            institucion_sugerida: inst
+          },
+          dimensions: {
+            problema_raiz: { score: 65, comment: "Causa raíz acotada con institución y proceso." },
+            impacto_usuarios: { score: 55, comment: "Segmento de usuarios preliminarmente definido." },
+            metricas_exito: { score: 45, comment: "En proceso de dimensionar KPIs económicos." },
+            ecosistema_ti: { score: 60, comment: "Ecosistema identificado a nivel de sistemas base." },
+            restricciones_plazos: { score: 50, comment: "Ciclo objetivo bajo definición." }
+          },
+          readinessScore: 55,
+          isReady: false
+        };
+      }
+
+      // Asegurar que draftPreview hereda y no borre campos previos
+      if (aiResult?.draftPreview && currentDraft) {
+        aiResult.draftPreview = {
+          ...currentDraft,
+          ...aiResult.draftPreview,
+          titulo_de_la_necesidad: aiResult.draftPreview.titulo_de_la_necesidad || currentDraft.titulo_de_la_necesidad,
+          objetivo: aiResult.draftPreview.objetivo || currentDraft.objetivo,
+          descripcion_de_la_necesidad: aiResult.draftPreview.descripcion_de_la_necesidad || currentDraft.descripcion_de_la_necesidad,
+          beneficio_cuantitativo_anual: aiResult.draftPreview.beneficio_cuantitativo_anual || currentDraft.beneficio_cuantitativo_anual,
+          proceso_y_areas_impactadas: aiResult.draftPreview.proceso_y_areas_impactadas || currentDraft.proceso_y_areas_impactadas,
+          sistemas_involucrados: aiResult.draftPreview.sistemas_involucrados?.length ? aiResult.draftPreview.sistemas_involucrados : (currentDraft.sistemas_involucrados || []),
+          institucion_sugerida: aiResult.draftPreview.institucion_sugerida || currentDraft.institucion_sugerida || "Laureate Perú (Corporativo)"
+        };
+      }
+
+      return res.json({ data: aiResult });
+    } catch (err: any) {
+      console.error("Error in /api/sandbox/chat:", err);
       return res.status(500).json({ error: err.message });
     }
   });

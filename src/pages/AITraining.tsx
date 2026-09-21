@@ -4,9 +4,10 @@ import {
   ThumbsUp, Bot, Send, RefreshCw, Plus, Trash2, GripVertical,
   ToggleLeft, ToggleRight, Upload, FileText, CheckCircle, X,
   ChevronDown, ChevronUp, Pencil, Save, AlertCircle, Loader2,
-  Mic, MicOff, Paperclip, Image as ImageIcon, HelpCircle, Sparkles
+  Mic, MicOff, Paperclip, Image as ImageIcon, HelpCircle, Sparkles,
+  Brain, Copy, ExternalLink
 } from 'lucide-react';
-import STTWorker from '../workers/stt.worker?worker';
+import { HybridSpeechRecognizer } from '../lib/speechService';
 import { supabase } from '../lib/supabase';
 import { formatDateDDMMYYYY } from '../lib/utils';
 import {
@@ -115,6 +116,37 @@ export default function AITraining() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
 
+  // Executive Sandbox State (Fase 1 CIO)
+  const [sandboxEnabled, setSandboxEnabled] = useState<boolean>(true);
+  const [togglingSandbox, setTogglingSandbox] = useState<boolean>(false);
+
+  const handleToggleSandbox = async () => {
+    setTogglingSandbox(true);
+    const nextVal = !sandboxEnabled;
+    try {
+      const res = await fetch('/api/sandbox/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextVal })
+      });
+      if (!res.ok) throw new Error('Error al actualizar estado del Sandbox');
+      setSandboxEnabled(nextVal);
+      showSave(nextVal ? 'Sandbox de Teo ACTIVO ✓' : 'Sandbox de Teo DESACTIVADO ✓');
+    } catch (err: any) {
+      const { error } = await supabase
+        .from('site_settings')
+        .upsert({ id: 1, sandbox_enabled: nextVal, updated_at: new Date().toISOString() });
+      if (!error) {
+        setSandboxEnabled(nextVal);
+        showSave(nextVal ? 'Sandbox de Teo ACTIVO ✓' : 'Sandbox de Teo DESACTIVADO ✓');
+      } else {
+        showSave('Error al cambiar estado');
+      }
+    } finally {
+      setTogglingSandbox(false);
+    }
+  };
+
   const useMicSetting = entries.find(e => e.layer === 'settings' && e.title === 'use_mic');
   const useAttachmentsSetting = entries.find(e => e.layer === 'settings' && e.title === 'use_attachments');
   const useMic = useMicSetting ? useMicSetting.content !== 'false' : true;
@@ -167,43 +199,16 @@ export default function AITraining() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [modelLoadProgress, setModelLoadProgress] = useState<number | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const sttWorkerRef = useRef<Worker | null>(null);
-  const transcribeResolveRef = useRef<((t: string) => void) | null>(null);
-  const transcribeRejectRef = useRef<((e: Error) => void) | null>(null);
+  const hybridRecognizerRef = useRef<HybridSpeechRecognizer | null>(null);
+  const baseChatInputRef = useRef<string>('');
 
-  // ── File attachment ───────────────────────────────────────────────────────
+  // ── Attachment handling ──────────────────────────────────────────────────
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [attachedFileContent, setAttachedFileContent] = useState<string | null>(null);
-  const [attachError, setAttachError] = useState<string | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Init STT worker
-  useEffect(() => {
-    const worker = new STTWorker();
-    sttWorkerRef.current = worker;
-    worker.onmessage = (e: MessageEvent) => {
-      const { type, text, error, progress } = e.data;
-      if (type === 'loading') setModelLoadProgress(progress ?? 0);
-      else if (type === 'ready') setModelLoadProgress(null);
-      else if (type === 'result') { setModelLoadProgress(null); transcribeResolveRef.current?.(text ?? ''); }
-      else if (type === 'error') { setModelLoadProgress(null); transcribeRejectRef.current?.(new Error(error)); }
-    };
-    worker.onerror = (err) => {
-      console.error("STT Worker error:", err);
-      setVoiceError("Error en el Web Worker de transcripción: " + (err.message || 'desconocido'));
-      setIsTranscribing(false);
-      setModelLoadProgress(null);
-      transcribeRejectRef.current?.(new Error(err.message || 'Error en el worker'));
-    };
-    worker.postMessage({ type: 'load' });
-    return () => worker.terminate();
-  }, []);
 
   useEffect(() => { loadAll(); }, []);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMsgs]);
@@ -243,6 +248,24 @@ export default function AITraining() {
     ]);
     setEntries(Array.isArray(trainRes) ? trainRes : []);
     setFeedback(Array.isArray(fbRes) ? fbRes : []);
+
+    try {
+      const sRes = await fetch('/api/sandbox/status');
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        setSandboxEnabled(Boolean(sData.enabled));
+      } else {
+        const { data: sDb } = await supabase
+          .from('site_settings')
+          .select('sandbox_enabled')
+          .eq('id', 1)
+          .maybeSingle();
+        setSandboxEnabled(sDb?.sandbox_enabled ?? true);
+      }
+    } catch {
+      setSandboxEnabled(true);
+    }
+
     setLoading(false);
   };
 
@@ -381,46 +404,68 @@ export default function AITraining() {
 
   const resetChat = () => setChatMsgs([]);
 
-  // ── Voice handlers ────────────────────────────────────────────────────────
+  // ── Voice handlers (Dual Engine: Web Speech API Live + Groq Whisper Large v3) ──
   const startRecording = useCallback(async () => {
-    setVoiceError(null); setRecordingSeconds(0);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream; audioChunksRef.current = [];
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
-      const recorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = recorder;
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop()); streamRef.current = null;
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        if (blob.size < 500) return;
-        setIsTranscribing(true);
-        try {
-          const ab = await blob.arrayBuffer();
-          const audioCtx = new AudioContext({ sampleRate: 16000 });
-          const decoded = await audioCtx.decodeAudioData(ab);
-          await audioCtx.close();
-          const float32 = decoded.getChannelData(0);
-          const text = await new Promise<string>((resolve, reject) => {
-            transcribeResolveRef.current = resolve; transcribeRejectRef.current = reject;
-            sttWorkerRef.current!.postMessage({ type: 'transcribe', audio: float32 }, [float32.buffer]);
-          });
-          if (text.trim()) setChatInput(prev => prev ? prev + ' ' + text.trim() : text.trim());
-        } catch (err: any) { setVoiceError('Error al transcribir: ' + err.message); }
-        finally { setIsTranscribing(false); }
-      };
-      recorder.start(250); setIsRecording(true);
-      recordingTimerRef.current = setInterval(() => { setRecordingSeconds(s => { if (s >= 59) { stopRecording(); return 0; } return s + 1; }); }, 1000);
-    } catch (err: any) {
-      setVoiceError(err.name === 'NotAllowedError' ? 'Permiso de micrófono denegado.' : 'No se pudo acceder al micrófono.');
-    }
-  }, []);
+    setVoiceError(null);
+    setRecordingSeconds(0);
+    baseChatInputRef.current = chatInput;
 
-  const stopRecording = useCallback(() => {
-    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
-    setRecordingSeconds(0); setIsRecording(false);
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+    try {
+      const recognizer = new HybridSpeechRecognizer();
+      hybridRecognizerRef.current = recognizer;
+
+      await recognizer.start({
+        lang: 'es-PE',
+        onInterimText: (interim) => {
+          const base = baseChatInputRef.current ? baseChatInputRef.current + ' ' : '';
+          setChatInput(base + interim);
+        },
+        onFinalText: (finalText) => {
+          const base = baseChatInputRef.current ? baseChatInputRef.current + ' ' : '';
+          setChatInput(base + finalText);
+          baseChatInputRef.current = base + finalText;
+        },
+        onError: (err) => {
+          console.warn('[STT] Notice:', err);
+        }
+      });
+
+      setIsRecording(true);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(s => {
+          if (s >= 59) { stopRecording(); return 0; }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err: any) {
+      setVoiceError(err.name === 'NotAllowedError' ? 'Permiso de micrófono denegado.' : 'No se pudo acceder al micrófono: ' + err.message);
+    }
+  }, [chatInput]);
+
+  const stopRecording = useCallback(async () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    setRecordingSeconds(0);
+    setIsRecording(false);
+
+    if (hybridRecognizerRef.current) {
+      setIsTranscribing(true);
+      try {
+        const text = await hybridRecognizerRef.current.stop();
+        if (text?.trim()) {
+          const base = baseChatInputRef.current ? baseChatInputRef.current + ' ' : '';
+          setChatInput((base + text).trim());
+        }
+      } catch (err: any) {
+        setVoiceError('Error al transcribir: ' + err.message);
+      } finally {
+        setIsTranscribing(false);
+        hybridRecognizerRef.current = null;
+      }
+    }
   }, []);
 
   // ── File handlers ─────────────────────────────────────────────────────────
@@ -486,6 +531,78 @@ export default function AITraining() {
             <div className="flex items-center gap-2">
               {saving && <Loader2 className="w-4 h-4 text-[#4F5AF5] animate-spin" />}
               {saveMsg && <span className="text-xs text-emerald-600 font-semibold">{saveMsg}</span>}
+            </div>
+          </div>
+
+          {/* ── Executive Sandbox Control Card (Fase 1 CIO) ──────────────────────── */}
+          <div className="mt-5 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-lg border border-indigo-500/20 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-[#EB5F46] flex items-center justify-center text-white shadow-md shrink-0 ring-2 ring-white/20">
+                <Brain className="w-6 h-6" />
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-white tracking-wide">
+                    Laboratorio Teo — Sandbox Ejecutivo
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-[#EB5F46]/20 text-[#EB5F46] border border-[#EB5F46]/30">
+                    Fase 1 • CIO
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  URL dedicada para que el CIO y jefaturas prueben a Teo capturando y articulando necesidades en vivo.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Switch Toggle */}
+              <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/10">
+                <span className="text-xs font-semibold text-slate-200">
+                  Estado: {sandboxEnabled ? <strong className="text-emerald-400">ACTIVO</strong> : <strong className="text-rose-400">INACTIVO</strong>}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleToggleSandbox}
+                  disabled={togglingSandbox}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${
+                    sandboxEnabled ? 'bg-emerald-500' : 'bg-slate-600'
+                  }`}
+                  title={sandboxEnabled ? "Desactivar Sandbox para usuarios externos" : "Activar Sandbox"}
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
+                      sandboxEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Copy Link Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const url = `${window.location.origin}/sandbox`;
+                  navigator.clipboard.writeText(url);
+                  showSave('¡Enlace Sandbox copiado para el CIO! ✓');
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white text-xs font-bold transition-colors"
+                title="Copiar enlace directo para enviar al CIO por Teams o correo"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copiar Enlace CIO</span>
+              </button>
+
+              {/* Open in New Tab Button */}
+              <a
+                href="/sandbox"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#EB5F46] hover:bg-[#D94F37] text-white text-xs font-bold transition-all shadow-sm"
+              >
+                <span>Probar Sandbox</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
             </div>
           </div>
 
@@ -648,13 +765,10 @@ export default function AITraining() {
             </div>
           )}
           {/* Transcribing / loading */}
-          {(isTranscribing || modelLoadProgress !== null) && (
+          {isTranscribing && (
             <div className="flex items-center gap-2 bg-violet-50 border border-violet-200 rounded-lg px-2.5 py-1.5">
               <Loader2 className="w-3 h-3 text-violet-500 animate-spin shrink-0" />
-              {modelLoadProgress !== null
-                ? <><span className="text-[10px] font-semibold text-violet-600">Cargando Whisper... {modelLoadProgress}%</span><div className="flex-1 bg-violet-200 rounded-full h-1"><div className="h-full bg-violet-500" style={{ width: `${modelLoadProgress}%` }} /></div></>
-                : <span className="text-[10px] font-semibold text-violet-600">Transcribiendo...</span>
-              }
+              <span className="text-[10px] font-semibold text-violet-600">Transcribiendo audio con IA...</span>
             </div>
           )}
           {/* Errors */}

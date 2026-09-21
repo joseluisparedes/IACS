@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CheckCircle2, Bot, ChevronRight, Pencil, Save, Send, RotateCcw, ThumbsUp, ThumbsDown, Mic, MicOff, Paperclip, X, FileText, Image as ImageIcon, AlertCircle, ChevronDown, Check, BrainCircuit, MessageSquare, HelpCircle, ArrowLeft, PlusCircle, Eye, Calendar, Trash2, Video as VideoIcon, Music as AudioIcon, Volume2, Download, ListChecks } from "lucide-react";
-import STTWorker from '../workers/stt.worker?worker';
+import { HybridSpeechRecognizer } from '../lib/speechService';
 import { FieldDefinition } from "@/src/types";
 import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -984,44 +984,9 @@ export default function InitiativeForm() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [modelLoadProgress, setModelLoadProgress] = useState<number | null>(null); // null = not loading, 0-100 = downloading
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const sttWorkerRef = useRef<Worker | null>(null);
-  const transcribeResolveRef = useRef<((text: string) => void) | null>(null);
-  const transcribeRejectRef = useRef<((e: Error) => void) | null>(null);
-
-  // Initialise the STT worker once
-  useEffect(() => {
-    const worker = new STTWorker();
-    sttWorkerRef.current = worker;
-    worker.onmessage = (e: MessageEvent) => {
-      const { type, text, error, progress } = e.data;
-      if (type === 'loading') {
-        setModelLoadProgress(progress ?? 0);
-      } else if (type === 'ready') {
-        setModelLoadProgress(null);
-      } else if (type === 'result') {
-        setModelLoadProgress(null);
-        transcribeResolveRef.current?.(text ?? '');
-      } else if (type === 'error') {
-        setModelLoadProgress(null);
-        transcribeRejectRef.current?.(new Error(error));
-      }
-    };
-    worker.onerror = (err) => {
-      console.error("STT Worker error:", err);
-      setVoiceError("Error en el Web Worker de transcripción: " + (err.message || 'desconocido'));
-      setIsTranscribing(false);
-      setModelLoadProgress(null);
-      transcribeRejectRef.current?.(new Error(err.message || 'Error en el worker'));
-    };
-    // Pre-load the model in the background on first render
-    worker.postMessage({ type: 'load' });
-    return () => { worker.terminate(); };
-  }, []);
+  const hybridRecognizerRef = useRef<HybridSpeechRecognizer | null>(null);
+  const baseMessageRef = useRef<string>('');
 
   // ── File attachment ──────────────────────────────────────────────────────
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -1351,64 +1316,31 @@ export default function InitiativeForm() {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatHistory, isAiTyping]);
 
-  // ── MediaRecorder voice setup ─────────────────────────────────────────────
   const startRecording = useCallback(async () => {
     setVoiceError(null);
     setRecordingSeconds(0);
+    baseMessageRef.current = currentMessage;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      audioChunksRef.current = [];
+      const recognizer = new HybridSpeechRecognizer();
+      hybridRecognizerRef.current = recognizer;
 
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : 'audio/ogg';
-
-      const recorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        streamRef.current = null;
-
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        if (audioBlob.size < 500) return;
-
-        setIsTranscribing(true);
-        try {
-          // Decode audio in browser and resample to 16 kHz Float32Array for Whisper
-          const arrayBuffer = await audioBlob.arrayBuffer();
-          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-          const decoded = await audioCtx.decodeAudioData(arrayBuffer);
-          await audioCtx.close();
-
-          // Mix down to mono Float32Array
-          const float32 = decoded.getChannelData(0);
-
-          // Send to the local Whisper worker
-          const text = await new Promise<string>((resolve, reject) => {
-            transcribeResolveRef.current = resolve;
-            transcribeRejectRef.current = reject;
-            sttWorkerRef.current!.postMessage({ type: 'transcribe', audio: float32 }, [float32.buffer]);
-          });
-
-          if (text.trim()) {
-            setCurrentMessage(prev => prev ? prev + ' ' + text.trim() : text.trim());
-          }
-        } catch (err: any) {
-          setVoiceError('Error al transcribir: ' + (err.message || 'desconocido'));
-        } finally {
-          setIsTranscribing(false);
+      await recognizer.start({
+        lang: 'es-PE',
+        onInterimText: (interim) => {
+          const base = baseMessageRef.current ? baseMessageRef.current + ' ' : '';
+          setCurrentMessage(base + interim);
+        },
+        onFinalText: (finalText) => {
+          const base = baseMessageRef.current ? baseMessageRef.current + ' ' : '';
+          setCurrentMessage(base + finalText);
+          baseMessageRef.current = base + finalText;
+        },
+        onError: (err) => {
+          console.warn('[STT] Recognizer notice:', err);
         }
-      };
+      });
 
-      recorder.start(250);
       setIsRecording(true);
 
       recordingTimerRef.current = setInterval(() => {
@@ -1423,17 +1355,30 @@ export default function InitiativeForm() {
         : 'No se pudo acceder al micrófono: ' + err.message;
       setVoiceError(msg);
     }
-  }, []);
+  }, [currentMessage]);
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(async () => {
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
     }
     setRecordingSeconds(0);
     setIsRecording(false);
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
+
+    if (hybridRecognizerRef.current) {
+      setIsTranscribing(true);
+      try {
+        const text = await hybridRecognizerRef.current.stop();
+        if (text?.trim()) {
+          const base = baseMessageRef.current ? baseMessageRef.current + ' ' : '';
+          setCurrentMessage((base + text).trim());
+        }
+      } catch (err: any) {
+        setVoiceError('Error al procesar voz: ' + (err.message || 'desconocido'));
+      } finally {
+        setIsTranscribing(false);
+        hybridRecognizerRef.current = null;
+      }
     }
   }, []);
 
@@ -2958,24 +2903,14 @@ export default function InitiativeForm() {
               </div>
             )}
 
-            {/* Transcribing / model loading indicator */}
-            {(isTranscribing || modelLoadProgress !== null) && (
+            {/* Transcribing indicator */}
+            {isTranscribing && (
               <div className="flex items-center gap-2 bg-violet-50 border border-violet-200 rounded-xl px-3 py-2">
                 <svg className="animate-spin w-3.5 h-3.5 text-violet-500 shrink-0" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                 </svg>
-                {modelLoadProgress !== null ? (
-                  <>
-                    <span className="text-xs font-semibold text-violet-600">Cargando modelo Whisper...</span>
-                    <div className="flex-1 bg-violet-200 rounded-full h-1.5 overflow-hidden">
-                      <div className="h-full bg-violet-500 transition-all" style={{ width: `${modelLoadProgress}%` }} />
-                    </div>
-                    <span className="text-[10px] text-violet-500 shrink-0">{modelLoadProgress}%</span>
-                  </>
-                ) : (
-                  <span className="text-xs font-semibold text-violet-600">Transcribiendo localmente...</span>
-                )}
+                <span className="text-xs font-semibold text-violet-600">Transcribiendo audio con IA...</span>
               </div>
             )}
 
